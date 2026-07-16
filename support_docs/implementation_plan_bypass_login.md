@@ -19,6 +19,18 @@ Update global branding text from "Multica" to "Task-Or".
 #### [MODIFY] [apps/web/app/(landing)/page.tsx](file:///d:/Kerjaan/Project/taskor2/apps/web/app/(landing)/page.tsx)
 Update metadata title and descriptions from "Multica" to "Task-Or".
 
+#### [MODIFY] [packages/views/locales/en/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/en/auth.json)
+Update login page branding from "Multica" to "Task-Or" (signin title, CLI description, desktop handoff text).
+
+#### [MODIFY] [packages/views/locales/zh-Hans/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/zh-Hans/auth.json)
+Same rebranding for Chinese locale.
+
+#### [MODIFY] [packages/views/locales/ko/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/ko/auth.json)
+Same rebranding for Korean locale.
+
+#### [MODIFY] [packages/views/locales/ja/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/ja/auth.json)
+Same rebranding for Japanese locale.
+
 ### 2. Login Bypass Implementation (Auto-Login)
 
 To completely bypass the verification step in the user interface as requested, we will update both the backend and frontend so that submitting the email immediately logs the user in.
@@ -63,6 +75,9 @@ The backend change in `auth.go` requires the Go binary to be recompiled.
    ```
 2. Rebuild the backend binary (adjust the output name if necessary):
    ```bash
+   # Linux/macOS:
+   go build -o multica ./cmd/server
+   # Windows:
    go build -o multica.exe ./cmd/server
    ```
 3. Restart your backend service:
