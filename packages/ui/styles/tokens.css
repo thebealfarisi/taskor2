@@ -85,8 +85,8 @@
     --card-foreground: oklch(0.141 0.005 285.823);
     --popover: var(--surface-raised);
     --popover-foreground: oklch(0.141 0.005 285.823);
-    --primary: oklch(0.21 0.006 285.885);
-    --primary-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.55 0.16 250);
+    --primary-foreground: oklch(0.98 0.01 250);
     --secondary: oklch(0.967 0.001 286.375);
     --secondary-foreground: oklch(0.21 0.006 285.885);
     --muted: oklch(0.967 0.001 286.375);
@@ -96,7 +96,7 @@
     --destructive: oklch(0.577 0.245 27.325);
     --border: oklch(0.945 0.003 286.32);
     --input: oklch(0.92 0.004 286.32);
-    --ring: oklch(0.705 0.015 286.067);
+    --ring: oklch(0.55 0.16 250);
     /* Brand-derived blue gradient (h=255 = brand hue). chart-1 equals brand
        so the most important series visually anchors to the product colour;
        chart-2..5 step lighter + less saturated so a stacked bar reads
@@ -152,8 +152,8 @@
     --card-foreground: oklch(0.985 0 0);
     --popover: var(--surface-raised);
     --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.92 0.004 286.32);
-    --primary-foreground: oklch(0.21 0.006 285.885);
+    --primary: oklch(0.65 0.16 250);
+    --primary-foreground: oklch(0.20 0.05 250);
     --secondary: oklch(0.274 0.006 286.033);
     --secondary-foreground: oklch(0.985 0 0);
     --muted: oklch(0.274 0.006 286.033);
@@ -163,7 +163,7 @@
     --destructive: oklch(0.704 0.191 22.216);
     --border: oklch(1 0 0 / 6%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.552 0.016 285.938);
+    --ring: oklch(0.65 0.16 250);
     /* Dark mode mirrors light mode's "primary → secondary" gradient on the
        brand hue, but flips the lightness curve: the most important series
        is the brightest (so it pops on the dark background) and trailing

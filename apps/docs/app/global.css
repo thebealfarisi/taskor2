@@ -67,15 +67,15 @@ html[lang|="ja"] {
   --card-foreground: oklch(0.182 0.012 50);
   --popover: oklch(0.99 0.002 85);
   --popover-foreground: oklch(0.182 0.012 50);
-  --primary: oklch(0.55 0.16 255);              /* Multica brand */
-  --primary-foreground: oklch(0.985 0.008 85);
+  --primary: oklch(0.55 0.16 250);
+  --primary-foreground: oklch(0.98 0.01 250);
   --secondary: oklch(0.945 0.012 85);
   --secondary-foreground: oklch(0.182 0.012 50);
   --accent: oklch(0.945 0.022 255);             /* brand soft wash */
   --accent-foreground: oklch(0.46 0.16 255);    /* brand ink */
   --border: oklch(0.91 0.014 85);               /* ruled lines */
   --input: oklch(0.91 0.014 85);
-  --ring: oklch(0.55 0.16 255);
+  --ring: oklch(0.55 0.16 250);
   --sidebar: oklch(0.99 0.002 85);              /* paper — same as card */
   --sidebar-foreground: oklch(0.182 0.012 50);
   --sidebar-accent: oklch(0.945 0.006 85);      /* subtle cream, hover/active fill */
@@ -105,15 +105,15 @@ html[lang|="ja"] {
   --card-foreground: oklch(0.95 0.012 85);
   --popover: oklch(0.22 0.008 50);
   --popover-foreground: oklch(0.95 0.012 85);
-  --primary: oklch(0.7 0.15 255);               /* Multica brand — dark */
-  --primary-foreground: oklch(0.18 0.008 50);
+  --primary: oklch(0.65 0.16 250);
+  --primary-foreground: oklch(0.20 0.05 250);
   --secondary: oklch(0.24 0.008 50);
   --secondary-foreground: oklch(0.95 0.012 85);
   --accent: oklch(0.3 0.05 255);                /* brand soft wash — dark */
   --accent-foreground: oklch(0.78 0.14 255);    /* brand ink — dark */
   --border: oklch(0.28 0.012 50);
   --input: oklch(0.28 0.012 50);
-  --ring: oklch(0.7 0.15 255);
+  --ring: oklch(0.65 0.16 250);
   --sidebar: oklch(0.21 0.008 50);
   --sidebar-foreground: oklch(0.95 0.012 85);
   --sidebar-accent: oklch(0.26 0.01 50);        /* warm neutral, hover/active fill — dark */
