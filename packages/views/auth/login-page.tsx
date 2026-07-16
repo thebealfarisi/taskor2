@@ -162,33 +162,6 @@ export function LoginPage({
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  const handleSendCode = useCallback(
-    async (e?: React.FormEvent) => {
-      e?.preventDefault();
-      if (!email) {
-        setError(t(($) => $.common.email_required));
-        return;
-      }
-      setLoading(true);
-      setError("");
-      try {
-        await useAuthStore.getState().sendCode(email);
-        setStep("code");
-        setCode("");
-        setCooldown(60);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : `${t(($) => $.errors.send_failed)} ${t(($) => $.errors.server_unreachable)}`,
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [email, t],
-  );
-
   const handleVerify = useCallback(
     async (value: string) => {
       if (value.length !== 6) return;
@@ -225,6 +198,31 @@ export function LoginPage({
       }
     },
     [email, onSuccess, cliCallback, onTokenObtained, qc, t],
+  );
+
+  const handleSendCode = useCallback(
+    async (e?: React.FormEvent) => {
+      e?.preventDefault();
+      if (!email) {
+        setError(t(($) => $.common.email_required));
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        await useAuthStore.getState().sendCode(email);
+        // BYPASS LOGIN: Immediately verify with dummy code instead of showing UI
+        await handleVerify("000000");
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : `${t(($) => $.errors.send_failed)} ${t(($) => $.errors.server_unreachable)}`,
+        );
+        setLoading(false);
+      }
+    },
+    [email, t, handleVerify],
   );
 
   const handleResend = async () => {
