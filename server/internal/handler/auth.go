@@ -362,11 +362,12 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbCode, err := h.Queries.GetLatestVerificationCode(r.Context(), email)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid or expired code")
-		return
-	}
+	// BYPASS LOGIN: Completely skip database code lookups for Task-Or auto-login flow.
+	// dbCode, err := h.Queries.GetLatestVerificationCode(r.Context(), email)
+	// if err != nil {
+	// 	writeError(w, http.StatusBadRequest, "invalid or expired code")
+	// 	return
+	// }
 
 	// BYPASS LOGIN: Accept any code automatically for Task-Or auto-login flow.
 	// isDevCode := isDevVerificationCode(code)
@@ -376,10 +377,10 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	// 	return
 	// }
 
-	if err := h.Queries.MarkVerificationCodeUsed(r.Context(), dbCode.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify code")
-		return
-	}
+	// if err := h.Queries.MarkVerificationCodeUsed(r.Context(), dbCode.ID); err != nil {
+	// 	writeError(w, http.StatusInternalServerError, "failed to verify code")
+	// 	return
+	// }
 
 	user, isNew, err := h.findOrCreateUser(r.Context(), email)
 	if err != nil {
