@@ -69,20 +69,36 @@ The frontend changes (such as the bypass and translation updates) require a fres
 
 ### 2. Rebuild and Restart Backend (Go)
 The backend change in `auth.go` requires the Go binary to be recompiled.
-1. Navigate to the server folder:
+
+> [!IMPORTANT]
+> The `go build` output **must match the path** configured in your systemd service's `ExecStart`. If the service runs `/home/multica/multica/server/bin/server`, you must build to that exact path — otherwise the service will keep running the old binary.
+
+1. Check your systemd service to find the correct binary path:
+   ```bash
+   systemctl cat <your-backend-service-name>
+   # Look for ExecStart= — e.g. ExecStart=/home/multica/multica/server/bin/server
+   ```
+2. Navigate to the server folder:
    ```bash
    cd server
    ```
-2. Rebuild the backend binary (adjust the output name if necessary):
+3. Rebuild the backend binary to the **exact path** from step 1:
    ```bash
-   # Linux/macOS:
-   go build -o multica ./cmd/server
+   # Linux/macOS (match the ExecStart path from systemd):
+   go build -o bin/server ./cmd/server
    # Windows:
-   go build -o multica.exe ./cmd/server
+   go build -o bin/server.exe ./cmd/server
    ```
-3. Restart your backend service:
+4. Restart your backend service:
    ```bash
    sudo systemctl restart <your-backend-service-name>
    ```
+5. Verify the bypass is active by calling the API directly:
+   ```bash
+   curl -X POST http://localhost:<PORT>/auth/verify-code \
+     -H "Content-Type: application/json" \
+     -d '{"email":"test@example.com","code":"000000"}'
+   ```
+   If this returns a token, the backend bypass is working. If it returns "invalid or expired code", the service is still running the old binary — double-check the build output path and restart again.
 
 *(Note: If you are just testing in a local development environment instead of production, you can simply stop your current processes and run `make dev` or `make start` to automatically rebuild and run the changes).*
