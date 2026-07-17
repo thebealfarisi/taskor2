@@ -184,6 +184,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		SSOClientID:              strings.TrimSpace(os.Getenv("MULTICA_SSO_CLIENT_ID")),
 		SSOClientSecret:          strings.TrimSpace(os.Getenv("MULTICA_SSO_CLIENT_SECRET")),
 		SSORedirectURL:           strings.TrimSpace(os.Getenv("MULTICA_SSO_REDIRECT_URL")),
+		SSOSkipTLSVerify:         os.Getenv("MULTICA_SSO_SKIP_TLS_VERIFY") == "true",
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
 	// SSO / Keycloak setup (optional, env-gated). Discovery happens at startup;
@@ -194,6 +195,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			signupConfig.SSOClientID,
 			signupConfig.SSOClientSecret,
 			signupConfig.SSORedirectURL,
+			signupConfig.SSOSkipTLSVerify,
 		)
 		if err != nil {
 			slog.Error("sso: keycloak oidc init failed", "error", err)

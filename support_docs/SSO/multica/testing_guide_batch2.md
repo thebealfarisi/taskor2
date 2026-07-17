@@ -28,11 +28,12 @@
 
 | File | Perubahan |
 |------|-----------|
-| `server/internal/sso/oidc.go` | NEW — `OIDCClient`, `NewOIDCClient` (discovery), `AuthURL` (PKCE S256), `ExchangeCode` (token exchange + email), `GenerateCodeVerifier`, `GenerateState` |
+| `server/internal/sso/oidc.go` | NEW — `OIDCClient`, `NewOIDCClient` (discovery + skip TLS option), `AuthURL` (PKCE S256), `ExchangeCode` (token exchange + email), `GenerateCodeVerifier`, `GenerateState` |
 | `server/internal/sso/state.go` | NEW — State cookie `multica_sso_state` (`SameSite=Lax`, HttpOnly, HMAC-SHA256 signed dengan `JWT_SECRET`) |
-| `server/internal/handler/handler.go` | MODIFY — field `OIDC *sso.OIDCClient` di struct `Handler` + import `sso` |
-| `server/cmd/server/router.go` | MODIFY — import `sso` + init `sso.NewOIDCClient` setelah `handler.New(...)` jika `SSOEnabled` |
+| `server/internal/handler/handler.go` | MODIFY — field `OIDC *sso.OIDCClient` + `SSOSkipTLSVerify` di struct `Config`/`Handler` + import `sso` |
+| `server/cmd/server/router.go` | MODIFY — import `sso` + init `sso.NewOIDCClient` setelah `handler.New(...)` jika `SSOEnabled`, baca `MULTICA_SSO_SKIP_TLS_VERIFY` |
 | `server/go.mod` / `go.sum` | MODIFY — `go-oidc/v3` + `oauth2` promote ke **direct dependency** (bukan indirect lagi) |
+| `.env.example` | MODIFY — tambah `MULTICA_SSO_SKIP_TLS_VERIFY` |
 
 ---
 
@@ -135,7 +136,7 @@ sso: keycloak oidc enabled issuer=https://larasati.lintasarta.co.id/realms/dev
 
 **Gagal jika:**
 - Tidak ada log "sso:" → `MULTICA_SSO_ENABLED` tidak terbaca, atau binary belum di-rebuild
-- Log "sso: keycloak oidc init failed" → discovery ke Keycloak gagal (cek jaringan / issuer URL)
+- Log "sso: keycloak oidc init failed" → discovery ke Keycloak gagal. Jika error mengandung `tls: failed to verify certificate: x509: certificate signed by unknown authority`, set `MULTICA_SSO_SKIP_TLS_VERIFY=true` di `.env` (untuk internal CA environment seperti Larasati), restart backend, lalu cek lagi.
 
 ---
 
@@ -341,7 +342,7 @@ go test ./internal/sso/... -v
 | `go build` error: undefined `sso.OIDCClient` | Field `OIDC` belum ditambah ke `Handler`, atau import `sso` belum ditambah | Cek `handler.go` import + struct field; `router.go` import |
 | `go build` error: undefined `oidc.S256ChallengeFromVerifier` | API `go-oidc/v3` berubah — helper PKCE ada di `oauth2`, bukan `oidc` | Pakai `oauth2.S256ChallengeOption(verifier)` |
 | `go build` error: undefined `ctx` | Scope tidak punya `ctx` | Pakai `context.Background()` |
-| Startup log: "sso: keycloak oidc init failed" | Discovery ke Keycloak gagal | `curl -v https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration` — cek jaringan, DNS, TLS cert |
+| Startup log: "sso: keycloak oidc init failed" | Discovery ke Keycloak gagal | `curl -v https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration` — cek jaringan, DNS, TLS cert. Jika error `x509: certificate signed by unknown authority`, set `MULTICA_SSO_SKIP_TLS_VERIFY=true` di `.env` + restart |
 | Tidak ada log "sso:" padahal `MULTICA_SSO_ENABLED=true` | Binary belum di-rebuild, atau env var tidak masuk proses | `go build -o bin/server ./cmd/server` + restart; cek `cat /proc/$(pgrep -f server/bin/server)/environ \| tr '\0' '\n' \| grep MULTICA_SSO` |
 | Dependensi masih `// indirect` | `go mod tidy` belum dijalankan setelah import ada | `go mod tidy` (sekarang aman di Batch 2) |
 

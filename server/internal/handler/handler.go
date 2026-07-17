@@ -118,6 +118,10 @@ type Config struct {
 	SSOClientID      string
 	SSOClientSecret  string
 	SSORedirectURL    string
+	// SSOSkipTLSVerify disables certificate verification for OIDC discovery
+	// and token exchange. Intended for internal CA environments (e.g. self-
+	// hosted Keycloak with a private CA not in the system trust store).
+	SSOSkipTLSVerify  bool
 }
 
 type cloudRuntimeProxy interface {

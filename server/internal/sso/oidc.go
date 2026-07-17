@@ -3,9 +3,11 @@ package sso
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -13,16 +15,36 @@ import (
 
 // OIDCClient wraps the OIDC provider + OAuth2 config for Keycloak.
 type OIDCClient struct {
-	provider *oidc.Provider
-	oauth2   *oauth2.Config
-	verifier *oidc.IDTokenVerifier
+	provider   *oidc.Provider
+	oauth2     *oauth2.Config
+	verifier   *oidc.IDTokenVerifier
+	httpClient *http.Client // non-nil when skipTLSVerify; used for token exchange + userinfo
 }
 
 // NewOIDCClient discovers Keycloak endpoints via {issuer}/.well-known/openid-configuration.
 // The issuer URL is the full Keycloak realm URL, e.g.
 // "https://larasati.lintasarta.co.id/realms/dev".
-func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string) (*OIDCClient, error) {
-	provider, err := oidc.NewProvider(ctx, issuer)
+//
+// If skipTLSVerify is true, the HTTP client used for OIDC discovery and token
+// exchange will skip certificate verification. This is intended for internal
+// CA environments (e.g. self-hosted Keycloak with a private CA) where the
+// system trust store does not contain the CA. Use only when you trust the
+// network path to the issuer.
+func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, skipTLSVerify bool) (*OIDCClient, error) {
+	httpClient := &http.Client{}
+	if skipTLSVerify {
+		httpClient = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		}
+	}
+	// go-oidc uses the HTTP client from the context for discovery + JWKS fetch.
+	discoveryCtx := oidc.ClientContext(ctx, httpClient)
+
+	provider, err := oidc.NewProvider(discoveryCtx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("sso: oidc discovery failed for %q: %w", issuer, err)
 	}
@@ -36,7 +58,8 @@ func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirect
 			RedirectURL:  redirectURL,
 			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: clientID}),
+		verifier:   provider.Verifier(&oidc.Config{ClientID: clientID}),
+		httpClient: httpClient,
 	}, nil
 }
 
@@ -53,7 +76,13 @@ func (c *OIDCClient) AuthURL(state, codeVerifier string) string {
 // token signature via the OIDC discovery JWKS, and returns the email claim.
 // Falls back to the userinfo endpoint if the email claim is absent from the
 // ID token (some Keycloak configs omit it by default).
+//
+// If the client was created with skipTLSVerify, the same insecure HTTP client
+// is used for token exchange and userinfo fetch.
 func (c *OIDCClient) ExchangeCode(ctx context.Context, code, codeVerifier string) (string, error) {
+	if c.httpClient != nil {
+		ctx = context.WithValue(ctx, oauth2.HTTPClient, c.httpClient)
+	}
 	token, err := c.oauth2.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
 	)
@@ -83,7 +112,11 @@ func (c *OIDCClient) ExchangeCode(ctx context.Context, code, codeVerifier string
 	}
 
 	// Fallback: fetch email from the userinfo endpoint.
-	userInfo, err := c.provider.UserInfo(ctx, oauth2.StaticTokenSource(token))
+	userInfoCtx := ctx
+	if c.httpClient != nil {
+		userInfoCtx = oidc.ClientContext(ctx, c.httpClient)
+	}
+	userInfo, err := c.provider.UserInfo(userInfoCtx, oauth2.StaticTokenSource(token))
 	if err != nil {
 		return "", fmt.Errorf("sso: userinfo fetch failed: %w", err)
 	}
