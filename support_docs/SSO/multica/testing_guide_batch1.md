@@ -63,7 +63,7 @@ go vet ./...
 
 ### T2. Dependensi Terpasang (wajib)
 
-**Tujuan:** Pastikan `go-oidc/v3` dan `oauth2` ada di `go.mod` sebagai direct dependency.
+**Tujuan:** Pastikan `go-oidc/v3` dan `oauth2` ada di `go.mod`.
 
 ```bash
 cd /home/multica/multica/server
@@ -81,9 +81,9 @@ grep "coreos/go-oidc" go.mod
 grep "golang.org/x/oauth2" go.mod
 ```
 
-**Ekspektasi:** keduanya muncul **tanpa** `// indirect` (direct dependency).
+**Ekspektasi:** keduanya muncul di go.mod.
 
-**Gagal jika:** package tidak ditemukan atau masih `// indirect`. Solusi: `go mod tidy`.
+> **Catatan `// indirect`:** Di Batch 1, kedua package akan muncul sebagai `// indirect` karena **belum ada kode Go yang import** mereka (import baru ada di Batch 2 saat `server/internal/sso/oidc.go` dibuat). Ini expected behavior `go mod tidy`. Mereka akan otomatis menjadi **direct dependency** di Batch 2 saat import statement ditambahkan. Jadi di Batch 1, `// indirect` **bukan kegagalan** — yang penting package ter-download dan tercatat di go.mod.
 
 ---
 
