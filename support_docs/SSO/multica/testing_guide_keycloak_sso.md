@@ -17,6 +17,8 @@ MULTICA_SSO_KEYCLOAK_ISSUER=https://larasati.lintasarta.co.id/realms/dev
 MULTICA_SSO_CLIENT_ID=task-or
 MULTICA_SSO_CLIENT_SECRET=oV6mcQShpvBtogbTGgGkuzKZ09Fy1o3X
 MULTICA_SSO_REDIRECT_URL=http://localhost:3000/auth/keycloak/callback
+# Skip TLS verify untuk internal CA (Larasati)
+MULTICA_SSO_SKIP_TLS_VERIFY=true
 
 # Access control: domain whitelist — satu baris mencakup seluruh user di domain
 ALLOW_SIGNUP=false

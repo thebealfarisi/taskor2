@@ -105,6 +105,11 @@ MULTICA_SSO_CLIENT_SECRET=oV6mcQShpvBtogbTGgGkuzKZ09Fy1o3X
 # Redirect URI = the BACKEND callback URL (same origin as the auth routes).
 # In same-origin deployments this is {FRONTEND_ORIGIN}/auth/keycloak/callback.
 MULTICA_SSO_REDIRECT_URL=http://localhost:3000/auth/keycloak/callback
+# Skip TLS certificate verification for OIDC discovery + token exchange.
+# Set "true" for internal CA environments (e.g. Larasati self-hosted Keycloak
+# with a private CA not in the system trust store). Leave false in production
+# with a publicly trusted certificate.
+MULTICA_SSO_SKIP_TLS_VERIFY=true
 
 # ─── Access control: domain whitelist (reuse EXISTING signup-restriction env vars) ───
 # Primary model: allow an entire email domain. Scales to thousands of users
@@ -156,6 +161,7 @@ type Config struct {
     SSOClientID       string
     SSOClientSecret   string
     SSORedirectURL    string
+    SSOSkipTLSVerify  bool
 }
 ```
 
@@ -169,6 +175,7 @@ signupConfig := handler.Config{
     SSOClientID:     strings.TrimSpace(os.Getenv("MULTICA_SSO_CLIENT_ID")),
     SSOClientSecret: strings.TrimSpace(os.Getenv("MULTICA_SSO_CLIENT_SECRET")),
     SSORedirectURL:  strings.TrimSpace(os.Getenv("MULTICA_SSO_REDIRECT_URL")),
+    SSOSkipTLSVerify: os.Getenv("MULTICA_SSO_SKIP_TLS_VERIFY") == "true",
 }
 ```
 
@@ -222,7 +229,10 @@ type OIDCClient struct {
 }
 
 // NewOIDCClient discovers Keycloak endpoints via {issuer}/.well-known/openid-configuration.
-func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string) (*OIDCClient, error) {
+func NewOIDCClient(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, skipTLSVerify bool) (*OIDCClient, error) {
+    // When skipTLSVerify is true, use a custom HTTP client with
+    // InsecureSkipVerify for OIDC discovery + token exchange + userinfo.
+    // Intended for internal CA environments (e.g. Larasati).
     provider, err := oidc.NewProvider(ctx, issuer)
     if err != nil {
         return nil, err
@@ -415,11 +425,12 @@ type Handler struct {
 
 ```go
 if signupConfig.SSOEnabled {
-    oidcClient, err := sso.NewOIDCClient(ctx,
-        signupConfig.SSOIssuer,
-        signupConfig.SSOClientID,
-        signupConfig.SSOClientSecret,
-        signupConfig.SSORedirectURL,
+oidcClient, err := sso.NewOIDCClient(ctx,
+        cfg.SSO.KeycloakIssuer,
+        cfg.SSO.ClientID,
+        cfg.SSO.ClientSecret,
+        cfg.SSO.RedirectURL,
+        cfg.SSO.SkipTLSVerify,
     )
     if err != nil {
         slog.Error("sso: keycloak oidc init failed", "error", err)

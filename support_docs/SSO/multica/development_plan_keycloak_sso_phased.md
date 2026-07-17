@@ -40,8 +40,8 @@ Batch 5 (E2E Testing & Verification)
 | # | File | Type | Task |
 |---|------|------|------|
 | 1.1 | `server/go.mod` | MODIFY | `go get github.com/coreos/go-oidc/v3/oidc`; promote `golang.org/x/oauth2` ke direct dependency; `go mod tidy` |
-| 1.2 | `server/internal/handler/handler.go` | MODIFY | Tambah field SSO (`SSOEnabled`, `SSOIssuer`, `SSOClientID`, `SSOClientSecret`, `SSORedirectURL`) ke struct `Config` (line ~57). Tambah field `OIDC *sso.OIDCClient` ke struct `Handler` (line ~125). |
-| 1.3 | `server/cmd/server/router.go` | MODIFY | Baca env vars `MULTICA_SSO_*` ke dalam literal `signupConfig` (line ~166). Setelah `handler.New(...)`, inisialisasi `sso.NewOIDCClient` dan assign `h.OIDC` jika `SSOEnabled`. |
+| 1.2 | `server/internal/handler/handler.go` | MODIFY | Tambah field SSO (`SSOEnabled`, `SSOIssuer`, `SSOClientID`, `SSOClientSecret`, `SSORedirectURL`, `SSOSkipTLSVerify`) ke struct `Config` (line ~57). Tambah field `OIDC *sso.OIDCClient` ke struct `Handler` (line ~125). |
+| 1.3 | `server/cmd/server/router.go` | MODIFY | Baca env vars `MULTICA_SSO_*` (termasuk `MULTICA_SSO_SKIP_TLS_VERIFY`) ke dalam literal `signupConfig` (line ~166). Setelah `handler.New(...)`, inisialisasi `sso.NewOIDCClient` dan assign `h.OIDC` jika `SSOEnabled`. |
 | 1.4 | `server/internal/handler/config.go` | MODIFY | Tambah field `SSOEnabled bool` ke `AppConfig` (json `sso_enabled,omitempty`); set nilainya dari `os.Getenv("MULTICA_SSO_ENABLED")` di `GetConfig`. |
 
 ### Testing Gate 1
@@ -79,7 +79,7 @@ curl -s http://localhost:3000/api/config | python -m json.tool
 
 | # | File | Type | Task |
 |---|------|------|------|
-| 2.1 | `server/internal/sso/oidc.go` | NEW | `OIDCClient` struct + `NewOIDCClient` (discovery via issuer), `AuthURL` (PKCE S256 + state), `ExchangeCode` (tukar code → ID token → email, fallback userinfo), `GenerateCodeVerifier`, `GenerateState`. |
+| 2.1 | `server/internal/sso/oidc.go` | NEW | `OIDCClient` struct + `NewOIDCClient` (discovery via issuer, support `skipTLSVerify` untuk internal CA), `AuthURL` (PKCE S256 + state), `ExchangeCode` (tukar code → ID token → email, fallback userinfo), `GenerateCodeVerifier`, `GenerateState`. |
 | 2.2 | `server/internal/sso/state.go` | NEW | State cookie `multica_sso_state` (`SameSite=Lax`, HttpOnly, HMAC-SHA256 signed dengan `JWT_SECRET`). `SetStateCookie`, `ReadStateCookie`, `ClearStateCookie`. Payload: `{state, code_verifier, next, exp}`, TTL 5 menit. |
 | 2.3 | `server/internal/sso/oidc_test.go` | NEW (opsional) | Unit test: `GenerateCodeVerifier` panjang 43-128 base64url; `GenerateState` unik per call; `NewOIDCClient` gagal graceful dengan issuer invalid. |
 | 2.4 | `server/internal/sso/state_test.go` | NEW (opsional) | Unit test: `SetStateCookie` → `ReadStateCookie` round-trip; tampered signature → error; expired cookie → error. |
@@ -224,6 +224,8 @@ MULTICA_SSO_KEYCLOAK_ISSUER=https://larasati.lintasarta.co.id/realms/dev
 MULTICA_SSO_CLIENT_ID=task-or
 MULTICA_SSO_CLIENT_SECRET=oV6mcQShpvBtogbTGgGkuzKZ09Fy1o3X
 MULTICA_SSO_REDIRECT_URL=http://localhost:3000/auth/keycloak/callback
+# Skip TLS verify untuk internal CA (Larasati)
+MULTICA_SSO_SKIP_TLS_VERIFY=true
 # Domain whitelist — satu baris mencakup seluruh user di domain tersebut
 ALLOW_SIGNUP=false
 ALLOWED_EMAIL_DOMAINS=lintasarta.co.id
