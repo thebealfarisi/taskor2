@@ -793,6 +793,58 @@ sudo journalctl -u multica-backend -f
 sudo journalctl -u multica-frontend -f
 ```
 
+### Langkah 11.5 — (Opsional) Setup Nginx Reverse Proxy (Direkomendasikan)
+
+Untuk deployment *production*, sangat disarankan menggunakan **Nginx** sebagai *reverse proxy*. Selain untuk HTTPS/SSL, Nginx diperlukan agar koneksi **WebSocket** (yang digunakan untuk pembaruan *Real-time*) tidak kehilangan header `Upgrade` yang sering kali diblokir jika *traffic* hanya dilewatkan melalui proxy bawaan Next.js.
+
+Contoh konfigurasi *Virtual Host* Nginx yang tepat untuk Multica:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name multica.domainanda.com;
+
+    ssl_certificate /path/to/cert.crt;
+    ssl_certificate_key /path/to/private.key;
+    
+    # 1. Bypass WebSocket langsung ke Backend Go (Port 8080)
+    location /ws {
+        proxy_pass http://localhost:8080/ws;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 2. Bypass API langsung ke Backend Go
+    location /api/ {
+        proxy_pass http://localhost:8080/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 3. Traffic Frontend Next.js (Port 3000)
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Aktifkan konfigurasi dengan:
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
 ---
 
 ## 12. Install CLI & Start Daemon

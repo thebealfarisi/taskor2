@@ -1,58 +1,109 @@
-# Customizing the UI Theme
+# Panduan Kustomisasi UI dan Rebranding (Task-Or)
 
-Multica menggunakan Tailwind CSS dengan pendekatan design system berbasis CSS Variables (biasanya dalam format `oklch` atau `hsl`). Untuk mengubah tema bawaan menjadi tema kustom, seperti "Biru Korporat" (Corporate Blue), Anda perlu memodifikasi file-file CSS utama di repositori ini.
+Dokumen ini berisi panduan lengkap untuk melakukan kustomisasi antarmuka pengguna (UI) dan *rebranding* pada repository ini (mengubah dari bawaan "Multica" menjadi aplikasi kustom Anda, misalnya "Task-Or").
 
-## File Utama yang Perlu Diubah
+Kustomisasi dibagi menjadi 3 bagian utama: **Mengubah Warna Tema**, **Mengganti Logo**, dan **Menyesuaikan Teks Rebranding**.
 
-Tema Multica tersebar di beberapa file tergantung dari aplikasinya (karena ini adalah monorepo). Namun, titik utamanya ada di `packages/ui/styles/tokens.css` dan beberapa file `global.css`/`custom.css` pada setiap aplikasi.
+---
 
-Berikut daftar file yang harus diubah:
+## 1. Mengubah Warna Tema (Contoh: Biru Korporat)
 
-1. **`packages/ui/styles/tokens.css`**
-   Ini adalah *source of truth* untuk seluruh komponen UI bersama (berbasis shadcn/Base UI).
-2. **`apps/web/app/custom.css`** (atau `globals.css`)
-   Digunakan untuk override tema di aplikasi web utama (Next.js).
-3. **`apps/docs/app/global.css`**
-   Digunakan jika Anda juga ingin menyeragamkan warna pada situs dokumentasi.
-4. **`apps/mobile/global.css`**
-   Digunakan jika Anda mendevelop aplikasi mobile menggunakan Expo/React Native.
+Aplikasi ini menggunakan **Tailwind CSS** dengan pendekatan *design system* berbasis CSS Variables menggunakan format warna `oklch`. 
 
-## Panduan Mengubah Menjadi "Biru Korporat"
+### File Utama yang Perlu Diubah:
+1. **`packages/ui/styles/tokens.css`** (Pusat variabel untuk seluruh komponen UI bersama).
+2. **`apps/web/app/custom.css`** (Override tema untuk aplikasi web utama).
+3. **`apps/docs/app/global.css`** (Override tema untuk situs dokumentasi).
 
-Buka file-file di atas, lalu cari *root variables* (seperti `:root` dan `.dark` atau `@media (prefers-color-scheme: dark)`). Anda akan menemukan variabel `--primary`.
+### Panduan Mengubah Warna:
+Cari *root variables* (`:root` untuk mode terang dan `.dark` untuk mode gelap) di file-file tersebut, lalu ubah variabel `--primary`, `--primary-foreground`, dan `--ring`.
 
-Ubah nilainya menjadi warna biru korporat pilihan Anda. Karena Multica menggunakan `oklch`, Anda bisa menggunakan referensi seperti:
+Gunakan referensi nilai `oklch` berikut untuk tema Biru Korporat:
 - **Light mode:** `--primary: oklch(0.55 0.16 250);` (Biru Solid)
 - **Dark mode:** `--primary: oklch(0.65 0.16 250);` (Biru Terang agar kontras di latar gelap)
 
-### Contoh Perubahan pada `:root`
-
+#### Contoh Perubahan pada `:root` (Light Mode)
 ```css
 :root {
-  /* ...variabel lainnya... */
-  
-  /* Ganti dari warna asal ke Biru Korporat */
+  /* Ganti warna asal menjadi Biru Korporat */
   --primary: oklch(0.55 0.16 250);
-  --primary-foreground: oklch(0.98 0.01 250); /* Teks di atas warna primer (biasanya putih/terang) */
-  
-  /* Sesuaikan juga warna pendukung bila perlu (ring, border, dll) */
+  --primary-foreground: oklch(0.98 0.01 250); /* Teks di atas warna primer */
   --ring: oklch(0.55 0.16 250);
 }
 ```
 
-### Contoh Perubahan pada Mode Gelap (`.dark`)
-
+#### Contoh Perubahan pada `.dark` (Dark Mode)
 ```css
 .dark {
-  /* ...variabel lainnya... */
-  
   --primary: oklch(0.65 0.16 250);
   --primary-foreground: oklch(0.20 0.05 250); /* Teks gelap di atas warna primer terang */
-  
   --ring: oklch(0.65 0.16 250);
 }
 ```
 
+---
+
+## 2. Mengganti Logo Aplikasi
+
+Logo diaplikasikan di dua tempat: komponen UI global dan favicon browser.
+
+### A. Mengganti Komponen Logo UI (`packages/ui/components/common/multica-icon.tsx`)
+Komponen `MulticaIcon` digunakan di berbagai *navbar* dan tata letak aplikasi. Untuk menggunakan logo kustom (misal `logo_baru.svg` berupa base64 PNG/SVG), Anda harus me-return tag `<img>` di dalam komponen tersebut:
+
+1. Ekstrak data base64 dari file SVG Anda.
+2. Edit `multica-icon.tsx` agar mengembalikan struktur seperti berikut:
+
+```tsx
+const LOGO_BASE64 = "data:image/png;base64,...(masukkan string base64 logo Anda)...";
+
+export function MulticaIcon({ className, ...props }) {
+  // ... implementasi size dan border bawaan ...
+  return (
+    <img 
+      src={LOGO_BASE64} 
+      className={cn("inline-block size-[1em]", className)} 
+      alt="Logo Aplikasi" 
+      {...props} 
+    />
+  );
+}
+```
+
+### B. Mengganti Favicon Browser (`apps/web/public/favicon.svg`)
+1. Salin atau timpa file logo SVG baru Anda ke `apps/web/public/favicon.svg`.
+2. **Penting (Cache Busting):** Browser sangat agresif dalam men-cache favicon. Buka file `apps/web/app/layout.tsx` dan tambahkan parameter *cache buster* (seperti `?v=2`) pada referensi favicon:
+   ```tsx
+   icons: {
+     icon: [{ url: "/favicon.svg?v=2", type: "image/svg+xml" }],
+     shortcut: ["/favicon.svg?v=2"],
+   },
+   ```
+3. Ubah juga pada file `apps/web/app/favicon.ico/route.ts`:
+   ```tsx
+   return Response.redirect(new URL("/favicon.svg?v=2", request.url), 308);
+   ```
+
+---
+
+## 3. Rebranding Teks (Dari "Multica" ke Nama Kustom)
+
+Ganti informasi *user-facing* pada metadata situs, halaman informasi, dan alur aplikasi. Jangan mengubah nama paket (`@multica/core`), nama komponen `<MulticaIcon />`, atau protokol *deep-link* (`multica://`) karena hal itu dapat merusak fungsionalitas sistem. 
+
+Hanya ubah teks statis / metadata pada file-file berikut di dalam `apps/web/app`:
+- `(landing)/homepage/page.tsx`
+- `(landing)/about/page.tsx`
+- `(landing)/changelog/page.tsx`
+- `(landing)/contact-sales/page.tsx`
+- `(landing)/download/page.tsx`
+- `layout.tsx` (Root dan Landing metadata)
+- `not-found.tsx`
+- `auth/callback/page.tsx` (Pesan untuk membuka Desktop app)
+
+Cukup gunakan fungsi pencarian/Find & Replace teks (huruf besar/kecil sensitif) dan ubah "Multica" menjadi "Task-Or" (atau nama perusahaan Anda).
+
+---
+
 ## Tips Tambahan
-- Anda bisa menggunakan converter warna seperti [oklch.com](https://oklch.com/) untuk mendapatkan nilai kustom dari warna HEX biru perusahaan Anda (misalnya `#0055AA`).
-- Pastikan untuk me-restart *development server* (jika sedang berjalan) agar perubahan warna ini dapat di-compile dengan benar oleh Tailwind.
+1. **Converter Warna:** Gunakan [oklch.com](https://oklch.com/) untuk mengubah warna HEX perusahaan Anda ke format `oklch`.
+2. **Reload Server:** Jika Next.js *Hot Module Replacement* (HMR) tidak langsung memuat perubahan secara global, hentikan server lalu mulai lagi (`make dev` atau `npm run dev`).
+3. **Hard Refresh:** Tekan `Ctrl + F5` (Windows) atau `Cmd + Shift + R` (Mac) di browser Anda untuk memastikan logo favicon dan CSS yang baru di-download secara *fresh*.

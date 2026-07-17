@@ -107,6 +107,16 @@ type Config struct {
 	LLMAPIKey       string
 	LLMBaseURL      string
 	LLMDefaultModel string
+
+	// SSO / Keycloak (env-only). All zero values when SSO is disabled.
+	// The OIDC client itself (handler.OIDC) is wired in Batch 2 after the
+	// internal/sso package exists; these fields hold the raw config the
+	// router reads from env so the client can be constructed at startup.
+	SSOEnabled      bool
+	SSOIssuer        string
+	SSOClientID      string
+	SSOClientSecret  string
+	SSORedirectURL    string
 }
 
 type cloudRuntimeProxy interface {
