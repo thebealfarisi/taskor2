@@ -1,6 +1,6 @@
 # Testing Guide — Batch 1: Dependencies + Config
 
-**Date:** 2026-07-17
+**Date:** 2026-07-17 (updated with actual deployment conditions)
 **Reference:** `support_docs/SSO/multica/development_plan_keycloak_sso_phased.md` (Batch 1)
 **Scope:** Verifikasi bahwa dependensi OIDC terpasang, field config SSO terbaca dari env, dan endpoint `/api/config` mengembalikan flag `sso_enabled` dengan benar. **Tidak ada flow OIDC** di batch ini — itu Batch 3.
 
@@ -10,19 +10,30 @@
 
 | Aktivitas | Lokasi | Shell |
 |-----------|--------|-------|
-| **Development** (edit kode, commit) | Windows: `D:\Kerjaan\Project\taskor2` | PowerShell |
+| **Development** (edit kode, commit, push) | Windows: `D:\Kerjaan\Project\taskor2` | PowerShell |
 | **Testing** (build, run, verify) | Ubuntu server: `/home/multica/multica` | Bash |
 
-> Workflow: edit kode di Windows → push/commit → pull di server Ubuntu → build + test di server. Semua command di bawah ini dijalankan **di server Ubuntu** kecuali dinyatakan lain.
+### Deployment Topology (server Ubuntu)
+
+- **Backend:** systemd service `multica-backend`
+  - `ExecStart=/home/multica/multica/server/bin/server` (binary, bukan `go run`)
+  - `EnvironmentFile=/home/multica/multica/.env`
+  - Restart: `sudo systemctl restart multica-backend`
+- **Frontend:** systemd service `multica-frontend`
+  - Restart: `sudo systemctl restart multica-frontend`
+- **Project root:** `/home/multica/multica`
+- **Server module:** `/home/multica/multica/server`
+
+> **Workflow:** edit kode di Windows → `git push` → `git pull` di server → **rebuild binary** → restart systemd service → test via `curl`.
 
 ---
 
 ## Prasyarat (di server Ubuntu)
 
 - Go 1.26+ terinstall (`go version`)
-- Project sudah ter-clone / ter-deploy di `/home/multica/multica`
-- Akses ke Keycloak issuer `https://larasati.lintasarta.co.id/realms/dev` (opsional, hanya untuk smoke test discovery — tidak wajib untuk Batch 1)
-- Server Multica bisa di-build sebelum perubahan (baseline)
+- Project sudah ter-clone di `/home/multica/multica`
+- Akses ke Keycloak issuer `https://larasati.lintasarta.co.id/realms/dev` (opsional, hanya untuk smoke test T7)
+- systemd services `multica-backend` + `multica-frontend` sudah ter-config dan jalan
 
 ## Perubahan yang Diuji
 
@@ -36,9 +47,33 @@
 
 ---
 
-## Skenario Uji
+## Persiapan: Pull + Rebuild
 
-> Semua command dijalankan di server Ubuntu via SSH, kecuali dinyatakan lain.
+Sebelum menjalankan skenario test, lakukan langkah ini di server:
+
+```bash
+cd /home/multica/multica
+
+# 1. Pull perubahan terbaru dari remote
+git pull origin dev_taskor
+
+# 2. Restore go.mod/go.sum jika ada local modification (sisa go mod tidy sebelumnya)
+git checkout -- server/go.mod server/go.sum
+
+# 3. Rebuild binary backend (WAJIB — service pakai binary, bukan go run)
+cd server
+go build -o bin/server ./cmd/server
+
+# 4. Restart backend service
+sudo systemctl restart multica-backend
+sleep 2
+```
+
+> **⚠ JANGALAH jalankan `go mod tidy` di server selama Batch 1.** `go mod tidy` akan **menghapus** dependency indirect yang tidak di-import kode mana pun (import `go-oidc/v3` baru ada di Batch 2), sehingga `go list -m` akan kembali "not a known dependency". Cukup `git pull` + `go build`. `go mod tidy` aman dijalankan lagi setelah Batch 2 selesai.
+
+---
+
+## Skenario Uji
 
 ### T1. Compile Check (wajib)
 
@@ -57,7 +92,7 @@ go vet ./...
 **Gagal jika:** ada error compile atau warning vet. Kemungkinan penyebab:
 - Field struct typo / tidak konsisten
 - Import yang tidak terpakai
-- `go mod tidy` belum dijalankan
+- `go mod tidy` belum dijalankan di Windows (development), atau justru dijalankan di server (strip dep)
 
 ---
 
@@ -84,8 +119,6 @@ grep "golang.org/x/oauth2" go.mod
 **Ekspektasi:** keduanya muncul di go.mod.
 
 > **Catatan `// indirect`:** Di Batch 1, kedua package akan muncul sebagai `// indirect` karena **belum ada kode Go yang import** mereka (import baru ada di Batch 2 saat `server/internal/sso/oidc.go` dibuat). Mereka akan otomatis menjadi **direct dependency** di Batch 2 saat import statement ditambahkan. Jadi di Batch 1, `// indirect` **bukan kegagalan** — yang penting package ter-download dan tercatat di go.mod.
->
-> **⚠ PERINGATAN: JANGALAH jalankan `go mod tidy` di server selama Batch 1.** `go mod tidy` akan **menghapus** dependency indirect yang tidak di-import kode mana pun, sehingga `go list -m` akan kembali "not a known dependency". Cukup `git pull` + `go build ./...`. `go mod tidy` aman dijalankan lagi setelah Batch 2 selesai (saat `oidc.go` sudah import package tersebut — tidy akan promote ke direct, bukan strip).
 
 ---
 
@@ -93,27 +126,37 @@ grep "golang.org/x/oauth2" go.mod
 
 **Tujuan:** Pastikan `GET /api/config` mengembalikan `"sso_enabled": true` saat env SSO aktif.
 
-**Setup env** (sesuaikan cara env loading di deployment Anda — `.env`, systemd EnvironmentFile, atau export langsung):
+**Setup env** — edit `/home/multica/multica/.env` (file yang dibaca systemd via `EnvironmentFile`):
 
 ```bash
-# Jika pakai .env file:
-export MULTICA_SSO_ENABLED=true
-export MULTICA_SSO_KEYCLOAK_ISSUER=https://larasati.lintasarta.co.id/realms/dev
-export MULTICA_SSO_CLIENT_ID=task-or
-export MULTICA_SSO_CLIENT_SECRET=oV6mcQShpvBtogbTGgGkuzKZ09Fy1o3X
-export MULTICA_SSO_REDIRECT_URL=http://localhost:3000/auth/keycloak/callback
+nano /home/multica/multica/.env
 ```
 
-**Jalankan server** (sesuai setup deployment — systemd service, `make dev`, atau `go run ./cmd/server`), lalu:
+Tambahkan (atau pastikan ada) blok berikut:
 
 ```bash
+# Keycloak SSO
+MULTICA_SSO_ENABLED=true
+MULTICA_SSO_KEYCLOAK_ISSUER=https://larasati.lintasarta.co.id/realms/dev
+MULTICA_SSO_CLIENT_ID=task-or
+MULTICA_SSO_CLIENT_SECRET=oV6mcQShpvBtogbTGgGkuzKZ09Fy1o3X
+MULTICA_SSO_REDIRECT_URL=http://localhost:3000/auth/keycloak/callback
+```
+
+> **Format `.env` systemd:** `KEY=VALUE` per baris, **tanpa** `export`, **tanpa** quotes (kecuali value mengandung spasi), **tanpa** spasi di sekitar `=`.
+
+Restart backend lalu test:
+
+```bash
+sudo systemctl restart multica-backend
+sleep 2
 curl -s http://localhost:3000/api/config | python3 -m json.tool
 ```
 
 **Ekspektasi:** response JSON mengandung:
 ```json
 {
-  "allow_signup": true,
+  "allow_signup": false,
   "sso_enabled": true,
   ...
 }
@@ -125,22 +168,55 @@ curl -s http://localhost:3000/api/config | grep "sso_enabled"
 ```
 **Ekspektasi:** `"sso_enabled": true`
 
+**Debug jika `sso_enabled` tidak muncul:**
+
+1. **Cek env var masuk ke proses server:**
+   ```bash
+   PID=$(pgrep -f "server/bin/server")
+   cat /proc/$PID/environ | tr '\0' '\n' | grep MULTICA_SSO
+   ```
+   Jika kosong → `.env` tidak terbaca systemd. Cek path `EnvironmentFile` di `systemctl cat multica-backend`.
+
+2. **Cek binary sudah di-rebuild:**
+   ```bash
+   ls -la /home/multica/multica/server/bin/server
+   ```
+   Timestamp harus sesudah `git pull`. Jika binary lama, rebuild:
+   ```bash
+   cd /home/multica/multica/server
+   go build -o bin/server ./cmd/server
+   sudo systemctl restart multica-backend
+   ```
+   Binary lama tidak punya field `SSOEnabled` di `AppConfig`, jadi walau env var terbaca, `GetConfig` tidak mengembalikannya.
+
+3. **Cek `.env` terbaca:**
+   ```bash
+   grep MULTICA_SSO /home/multica/multica/.env
+   ```
+
 ---
 
 ### T4. Config Endpoint — SSO Disabled (wajib)
 
 **Tujuan:** Pastikan `GET /api/config` **tidak** mengembalikan field `sso_enabled` saat SSO dimatikan (omitempty).
 
-**Setup env:**
+**Setup env** — edit `/home/multica/multica/.env`:
+
 ```bash
-# Unset atau set false
-unset MULTICA_SSO_ENABLED
-# atau: export MULTICA_SSO_ENABLED=false
+nano /home/multica/multica/.env
 ```
 
-**Restart server**, lalu:
+Ubah `MULTICA_SSO_ENABLED=true` menjadi `false` (atau hapus barisnya):
 
 ```bash
+MULTICA_SSO_ENABLED=false
+```
+
+Restart backend lalu test:
+
+```bash
+sudo systemctl restart multica-backend
+sleep 2
 curl -s http://localhost:3000/api/config | python3 -m json.tool
 ```
 
@@ -154,13 +230,11 @@ curl -s http://localhost:3000/api/config | grep "sso_enabled"
 
 ---
 
-### T5. Config Struct Field Terbaca (verifikasi via log startup — opsional)
+### T5. Config Struct Field Terbaca (opsional)
 
 **Tujuan:** Pastikan env vars `MULTICA_SSO_*` terbaca ke struct `Config` (bukan hanya ke `AppConfig`). Batch 1 belum init OIDC client (itu Batch 2), jadi tidak ada log "sso: keycloak oidc enabled" — itu baru muncul Batch 2.
 
-**Cara verifikasi (debug):** tambahkan sementara log di `router.go` setelah `signupConfig` literal, atau gunakan Delve debugger untuk inspect `signupConfig.SSOEnabled` / `signupConfig.SSOIssuer`.
-
-**Alternatif tanpa kode:** cek bahwa server start tanpa panic saat env SSO aktif. Jika field struct tidak terbaca, tidak akan ada dampak di Batch 1 (karena belum ada yang konsumsi field tersebut). Verifikasi penuh terjadi di Batch 2 saat `NewOIDCClient` dipanggil dengan field-field ini.
+**Cara verifikasi:** cek bahwa server start tanpa panic saat env SSO aktif. Jika field struct tidak terbaca, tidak akan ada dampak di Batch 1 (karena belum ada yang konsumsi field tersebut). Verifikasi penuh terjadi di Batch 2 saat `NewOIDCClient` dipanggil dengan field-field ini.
 
 ---
 
@@ -208,7 +282,10 @@ go run ./cmd/scratch
 **Ekspektasi:** `OK: discovery succeeded`
 
 **Gagal jika:** `FAIL: ...` — kemungkinan:
-- Tidak ada akses jaringan ke `larasati.lintasarta.co.id` (cek dari server: `curl -s https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration | head`)
+- Tidak ada akses jaringan ke `larasati.lintasarta.co.id`
+  ```bash
+  curl -v https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration
+  ```
 - Issuer URL salah (cek realm path)
 - Cert TLS tidak terpercaya dari server ini
 
@@ -221,7 +298,7 @@ go run ./cmd/scratch
 | Skenario | Wajib | Status |
 |----------|-------|--------|
 | T1. Compile check (`go build` + `go vet`) | ✓ wajib | ☐ |
-| T2. Dependensi terpasang (direct, bukan indirect) | ✓ wajib | ☐ |
+| T2. Dependensi terpasang di go.mod | ✓ wajib | ☐ |
 | T3. `/api/config` → `"sso_enabled": true` saat aktif | ✓ wajib | ☐ |
 | T4. `/api/config` → tidak ada `sso_enabled` saat disabled | ✓ wajib | ☐ |
 | T5. Config struct field terbaca | opsional | ☐ |
@@ -237,14 +314,24 @@ go run ./cmd/scratch
 | Gejala | Kemungkinan Penyebab | Solusi |
 |--------|---------------------|--------|
 | `go build` error: undefined `SSOEnabled` | Field belum ditambah ke `Config` atau `AppConfig` | Cek `handler.go` struct `Config` + `config.go` struct `AppConfig` |
-| `/api/config` tidak ada `sso_enabled` padahal env set | Server belum restart setelah set env, atau env var tidak ter-load | Restart server; cek dengan `echo $MULTICA_SSO_ENABLED` |
-| `go list` tidak menemukan package | `go mod tidy` belum jalan | `cd /home/multica/multica/server && go mod tidy` |
+| `go list -m` bilang "not a known dependency" | `go mod tidy` dijalankan di server → strip dep indirect | `git checkout -- server/go.mod server/go.sum` lalu `go build` (jangan `go mod tidy`) |
+| `/api/config` tidak ada `sso_enabled` padahal env set | Binary belum di-rebuild | `cd server && go build -o bin/server ./cmd/server && sudo systemctl restart multica-backend` |
+| `/api/config` tidak ada `sso_enabled`, binary sudah baru | Env var tidak masuk ke proses server | Cek `cat /proc/$(pgrep -f server/bin/server)/environ \| tr '\0' '\n' \| grep MULTICA_SSO`; pastikan `.env` terbaca systemd |
 | `sso_enabled` muncul saat disabled | `omitempty` tag salah | Cek tag struct: `json:"sso_enabled,omitempty"` |
-| T7 gagal: connection refused / timeout | Tidak ada akses ke `larasati.lintasarta.co.id` | Cek dari server: `curl -v https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration` |
-| Server tidak start setelah env SSO set | Env var format salah / konflik | Cek log: `journalctl -u multica -f` (jika systemd) atau stdout |
+| T7 gagal: connection refused / timeout | Tidak ada akses ke `larasati.lintasarta.co.id` | `curl -v https://larasati.lintasarta.co.id/realms/dev/.well-known/openid-configuration` |
+| Server tidak start setelah env SSO set | Env var format salah di `.env` | Pastikan `KEY=VALUE` tanpa `export`, tanpa quotes, tanpa spasi sekitar `=` |
 
 ---
 
 ## Setelah Lolos
 
 Batch 1 selesai → lanjut ke **Batch 2: SSO Core Package** (`server/internal/sso/oidc.go` + `state.go`). Batch 2 akan menambahkan field `Handler.OIDC` + init `sso.NewOIDCClient` di router (yang ditunda dari Batch 1 agar compile tetap valid).
+
+Setelah Batch 2 di-push, di server jalankan:
+```bash
+cd /home/multica/multica
+git pull origin dev_taskor
+cd server
+go build -o bin/server ./cmd/server   # go mod tidy AMAN dijalankan setelah ini
+sudo systemctl restart multica-backend
+```
