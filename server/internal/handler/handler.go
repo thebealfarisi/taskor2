@@ -29,6 +29,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/sso"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -192,6 +193,10 @@ type Handler struct {
 	// the composio HTTP handlers return 503 in that case. Wired in
 	// cmd/server/router.go after handler.New.
 	Composio *composio.Service
+	// OIDC is the Keycloak SSO client. Nil when MULTICA_SSO_ENABLED is unset
+	// or false; the SSO handlers return 404 in that case. Wired in
+	// cmd/server/router.go after handler.New.
+	OIDC *sso.OIDCClient
 	// ChannelSupervisor owns the per-installation supervisor goroutines
 	// that hold the §4.4 WS lease and drive each channel.Channel
 	// (MUL-3620 generalized the Feishu-only Hub into this channel-agnostic

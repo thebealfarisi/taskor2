@@ -33,6 +33,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/sso"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -185,6 +186,22 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		SSORedirectURL:           strings.TrimSpace(os.Getenv("MULTICA_SSO_REDIRECT_URL")),
 	}
 	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	// SSO / Keycloak setup (optional, env-gated). Discovery happens at startup;
+	// failure is fatal because a misconfigured issuer would break every login.
+	if signupConfig.SSOEnabled {
+		oidcClient, err := sso.NewOIDCClient(context.Background(),
+			signupConfig.SSOIssuer,
+			signupConfig.SSOClientID,
+			signupConfig.SSOClientSecret,
+			signupConfig.SSORedirectURL,
+		)
+		if err != nil {
+			slog.Error("sso: keycloak oidc init failed", "error", err)
+			os.Exit(1)
+		}
+		h.OIDC = oidcClient
+		slog.Info("sso: keycloak oidc enabled", "issuer", signupConfig.SSOIssuer)
+	}
 	h.Metrics = opts.BusinessMetrics
 	h.FeatureFlags = opts.FeatureFlags
 	h.TaskService.FeatureFlags = opts.FeatureFlags
