@@ -83,7 +83,9 @@ grep "golang.org/x/oauth2" go.mod
 
 **Ekspektasi:** keduanya muncul di go.mod.
 
-> **Catatan `// indirect`:** Di Batch 1, kedua package akan muncul sebagai `// indirect` karena **belum ada kode Go yang import** mereka (import baru ada di Batch 2 saat `server/internal/sso/oidc.go` dibuat). Ini expected behavior `go mod tidy`. Mereka akan otomatis menjadi **direct dependency** di Batch 2 saat import statement ditambahkan. Jadi di Batch 1, `// indirect` **bukan kegagalan** — yang penting package ter-download dan tercatat di go.mod.
+> **Catatan `// indirect`:** Di Batch 1, kedua package akan muncul sebagai `// indirect` karena **belum ada kode Go yang import** mereka (import baru ada di Batch 2 saat `server/internal/sso/oidc.go` dibuat). Mereka akan otomatis menjadi **direct dependency** di Batch 2 saat import statement ditambahkan. Jadi di Batch 1, `// indirect` **bukan kegagalan** — yang penting package ter-download dan tercatat di go.mod.
+>
+> **⚠ PERINGATAN: JANGALAH jalankan `go mod tidy` di server selama Batch 1.** `go mod tidy` akan **menghapus** dependency indirect yang tidak di-import kode mana pun, sehingga `go list -m` akan kembali "not a known dependency". Cukup `git pull` + `go build ./...`. `go mod tidy` aman dijalankan lagi setelah Batch 2 selesai (saat `oidc.go` sudah import package tersebut — tidy akan promote ke direct, bukan strip).
 
 ---
 
