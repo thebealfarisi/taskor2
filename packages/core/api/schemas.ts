@@ -86,6 +86,9 @@ export interface AppConfigResponse {
   cdn_signed?: boolean;
   allow_signup: boolean;
   google_client_id?: string;
+  // True when Keycloak SSO is enabled server-side. Older servers omit the
+  // field — treat that as false.
+  sso_enabled?: boolean;
   posthog_key?: string;
   posthog_host?: string;
   analytics_environment?: string;

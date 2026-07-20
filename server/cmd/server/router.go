@@ -716,6 +716,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Keycloak SSO (public — handle the auth flow itself; 404 when disabled)
 	r.With(authRL).Get("/auth/keycloak/login", h.KeycloakLogin)
 	r.With(authRL).Get("/auth/keycloak/callback", h.KeycloakCallback)
+	r.Get("/auth/keycloak/logout", h.KeycloakLogout)
 
 	// Public API
 	r.Get("/api/config", h.GetConfig)

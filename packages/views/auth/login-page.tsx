@@ -25,6 +25,45 @@ import type { User } from "@multica/core/types";
 import { useT } from "../i18n";
 
 // ---------------------------------------------------------------------------
+// SSO helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize a `next` redirect target for the SSO login flow. Only relative
+ * paths starting with "/" are allowed; absolute / protocol-relative URLs and
+ * paths with control characters are rejected. Mirrors the backend sanitizeNext
+ * in server/internal/handler/sso.go.
+ */
+function sanitizeSsoNext(raw: string | null): string {
+  if (!raw) return "";
+  const v = raw.trim();
+  if (!v.startsWith("/")) return "";
+  if (v.startsWith("//") || v.startsWith("/\\")) return "";
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f\x7f]/.test(v)) return "";
+  return v;
+}
+
+/**
+ * Read the `?error=` search param from the URL (set by the SSO callback
+ * redirect) and return the matching i18n message, or "" if absent/unknown.
+ */
+function useSsoError(t: ReturnType<typeof useT>[0]): string {
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("error");
+    if (reason === "signup_prohibited") {
+      setMsg(t(($) => $.sso.unauthorized));
+    } else if (reason === "sso_failed") {
+      setMsg(t(($) => $.sso.failed));
+    }
+  }, [t]);
+  return msg;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -56,6 +95,9 @@ interface LoginPageProps {
   onTokenObtained?: () => void;
   /** Override Google login handler (e.g. desktop opens browser externally). When provided, renders the Google button even if `google` config is omitted. */
   onGoogleLogin?: () => void;
+  /** When true, render a "Login with Keycloak" button that redirects to
+   *  /auth/keycloak/login (backend OIDC flow). Set from useConfigStore.ssoEnabled. */
+  ssoEnabled?: boolean;
   /** Slot rendered at the bottom of the sign-in card, below the
    *  Google button. The web shell uses it for a "Prefer the desktop
    *  app?" prompt; desktop omits it (a download prompt inside the app
@@ -104,6 +146,7 @@ export function LoginPage({
   cliCallback,
   onTokenObtained,
   onGoogleLogin,
+  ssoEnabled,
   extra,
 }: LoginPageProps) {
   const { t } = useT("auth");
@@ -118,6 +161,20 @@ export function LoginPage({
   // Tracks how the existing session was detected so handleCliAuthorize
   // uses the matching token source (cookie → issueCliToken, localStorage → direct).
   const authSourceRef = useRef<"cookie" | "localStorage">("cookie");
+  // SSO error message from ?error= query param (set by backend callback redirect)
+  const ssoError = useSsoError(t);
+
+  const handleKeycloakLogin = useCallback(() => {
+    const next = sanitizeSsoNext(
+      typeof window !== "undefined"
+        ? window.location.pathname + window.location.search
+        : null,
+    );
+    const url = next
+      ? `/auth/keycloak/login?next=${encodeURIComponent(next)}`
+      : "/auth/keycloak/login";
+    window.location.href = url;
+  }, []);
 
   // Check for existing session when CLI callback is present.
   // Prioritises cookie auth (= current browser session) to avoid authorising
@@ -447,6 +504,33 @@ export function LoginPage({
               ? t(($) => $.signin.sending)
               : t(($) => $.signin.continue)}
           </Button>
+          {ssoEnabled && (
+            <>
+              <div className="relative w-full">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">
+                    {t(($) => $.signin.divider)}
+                  </span>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                size="lg"
+                onClick={handleKeycloakLogin}
+                disabled={loading}
+              >
+                {t(($) => $.sso.button)}
+              </Button>
+            </>
+          )}
+          {ssoError && (
+            <p className="text-sm text-destructive text-center">{ssoError}</p>
+          )}
           {(google || onGoogleLogin) && (
             <>
               <div className="relative w-full">

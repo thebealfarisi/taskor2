@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -164,4 +165,43 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 		dest = "/"
 	}
 	http.Redirect(w, r, dest, http.StatusFound)
+}
+
+// KeycloakLogout clears Multica auth cookies and redirects to the Keycloak
+// end_session_endpoint to terminate the Keycloak session (Single Logout).
+// After Keycloak destroys its session, it redirects back to the Multica
+// login page (via post_logout_redirect_uri).
+// GET /auth/keycloak/logout
+func (h *Handler) KeycloakLogout(w http.ResponseWriter, r *http.Request) {
+	if !h.cfg.SSOEnabled || h.OIDC == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// 1. Clear Multica auth cookies first (same as regular logout).
+	auth.ClearAuthCookies(w)
+
+	// 2. Build post-logout redirect URI (back to the Multica login page).
+	// Uses FRONTEND_ORIGIN env var to construct an absolute URL — Keycloak
+	// requires an absolute URI for post_logout_redirect_uri.
+	appURL := strings.TrimRight(strings.TrimSpace(os.Getenv("FRONTEND_ORIGIN")), "/")
+	if appURL == "" {
+		// Fallback: relative redirect to /login (Keycloak may reject this
+		// if it requires an absolute URI, but better than crashing).
+		slog.Warn("sso: FRONTEND_ORIGIN not set; post_logout_redirect_uri will be relative")
+		appURL = ""
+	}
+	postLogoutRedirectURI := appURL + "/login"
+
+	// 3. Get Keycloak end_session_endpoint URL.
+	logoutURL, err := h.OIDC.LogoutURL(postLogoutRedirectURI)
+	if err != nil {
+		slog.Error("sso: build logout url", "error", err)
+		// Fallback: redirect to login page directly (Multica cookies already cleared).
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+
+	slog.Info("user logging out via keycloak", logger.RequestAttrs(r)...)
+	http.Redirect(w, r, logoutURL, http.StatusFound)
 }

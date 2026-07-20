@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -146,4 +147,38 @@ func GenerateState() (string, error) {
 		return "", fmt.Errorf("sso: generate state: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// LogoutURL returns the Keycloak end_session_endpoint URL with
+// post_logout_redirect_uri and client_id params. The end_session_endpoint
+// is discovered from the OIDC well-known configuration.
+//
+// postLogoutRedirectURI must be registered as a "Valid Post Logout Redirect URI"
+// in the Keycloak client configuration, otherwise Keycloak will ignore it
+// and redirect to its default logout page.
+func (c *OIDCClient) LogoutURL(postLogoutRedirectURI string) (string, error) {
+	var claims struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	if err := c.provider.Claims(&claims); err != nil {
+		return "", fmt.Errorf("sso: parse discovery claims for end_session_endpoint: %w", err)
+	}
+	if claims.EndSessionEndpoint == "" {
+		return "", errors.New("sso: end_session_endpoint not found in discovery document")
+	}
+
+	u, err := url.Parse(claims.EndSessionEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("sso: parse end_session_endpoint: %w", err)
+	}
+
+	q := u.Query()
+	if postLogoutRedirectURI != "" {
+		q.Set("post_logout_redirect_uri", postLogoutRedirectURI)
+	}
+	// client_id helps Keycloak identify the client session to end and
+	// skip the "Are you sure?" confirmation page.
+	q.Set("client_id", c.oauth2.ClientID)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
 }
