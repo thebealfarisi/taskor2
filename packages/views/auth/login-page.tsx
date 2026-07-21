@@ -44,25 +44,6 @@ function sanitizeSsoNext(raw: string | null): string {
   return v;
 }
 
-/**
- * Read the `?error=` search param from the URL (set by the SSO callback
- * redirect) and return the matching i18n message, or "" if absent/unknown.
- */
-function useSsoError(t: ReturnType<typeof useT>[0]): string {
-  const [msg, setMsg] = useState("");
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const reason = params.get("error");
-    if (reason === "signup_prohibited") {
-      setMsg(t(($) => $.sso.unauthorized));
-    } else if (reason === "sso_failed") {
-      setMsg(t(($) => $.sso.failed));
-    }
-  }, [t]);
-  return msg;
-}
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -162,7 +143,17 @@ export function LoginPage({
   // uses the matching token source (cookie → issueCliToken, localStorage → direct).
   const authSourceRef = useRef<"cookie" | "localStorage">("cookie");
   // SSO error message from ?error= query param (set by backend callback redirect)
-  const ssoError = useSsoError(t);
+  const [ssoError, setSsoError] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get("error");
+    if (reason === "signup_prohibited") {
+      setSsoError(t(($) => $.sso.unauthorized));
+    } else if (reason === "sso_failed") {
+      setSsoError(t(($) => $.sso.failed));
+    }
+  }, [t]);
 
   const handleKeycloakLogin = useCallback(() => {
     const next = sanitizeSsoNext(
