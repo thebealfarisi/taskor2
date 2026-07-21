@@ -37,20 +37,39 @@
 
 ## Persiapan: Pull + Rebuild
 
+> **Penting:** Batch 4 mengubah file frontend (`packages/views/auth/login-page.tsx`, `packages/core/config/index.ts`, `packages/core/platform/auth-initializer.tsx`, `apps/web/app/(auth)/login/page.tsx`, 4 locale `auth.json`). Restart systemd `multica-frontend` **tidak cukup** — Next.js production server menjalankan build hasil `pnpm build` yang sudah ter-compile. Anda **wajib rebuild** frontend setelah `git pull`, baru restart service.
+
 ```bash
 cd /home/multica/multica
 git pull origin dev_taskor
 
-# Backend
+# --- Backend (ada perubahan SLO handler di Batch 4) ---
 cd server
 go build -o bin/server ./cmd/server
 sudo systemctl restart multica-backend
 
-# Frontend (sesuaikan dengan build setup Anda)
+# --- Frontend (WAJIB rebuild — restart saja tidak cukup) ---
 cd /home/multica/multica
+pnpm install --frozen-lockfile   # jika lockfile berubah
+cd apps/web
+pnpm build                        # compile ulang Next.js production bundle
 sudo systemctl restart multica-frontend
 sleep 3
+sudo systemctl status multica-frontend --no-pager | head -5
 ```
+
+### Verifikasi build berhasil
+
+```bash
+# Cek timestamp .next — harus lebih baru dari git pull
+ls -la /home/multica/multica/apps/web/.next | head -3
+
+# Cek config response punya sso_enabled
+curl -s https://task-or.lintasarta.co.id/api/config | python3 -m json.tool | grep -i sso
+# Ekspektasi: "sso_enabled": true
+```
+
+Jika `pnpm build` gagal (mis. OOM, lockfile mismatch), lihat troubleshooting di bawah.
 
 ### Pastikan `.env` punya SSO config:
 
@@ -212,7 +231,9 @@ sudo systemctl restart multica-backend
 
 | Gejala | Penyebab | Solusi |
 |--------|----------|--------|
-| Tombol SSO tidak muncul padahal `MULTICA_SSO_ENABLED=true` | Frontend belum rebuild, atau `sso_enabled` tidak sampai ke response | Restart `multica-frontend`; cek `curl /api/config \| grep sso_enabled`; cek `auth-initializer.tsx` pass `ssoEnabled` |
+| Tombol SSO tidak muncul padahal `MULTICA_SSO_ENABLED=true` | Frontend belum rebuild (`.next` masih build lama), atau `sso_enabled` tidak sampai ke response | **Rebuild frontend**: `cd apps/web && pnpm build && sudo systemctl restart multica-frontend`; cek `ls -la .next` timestamp baru; cek `curl /api/config \| grep sso_enabled`; cek `auth-initializer.tsx` pass `ssoEnabled` |
+| `pnpm build` OOM / gagal di server | Memory tidak cukup untuk Next.js production build | Tambah swap: `sudo fallocate -l 2G /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`; atau build dengan `NODE_OPTIONS=--max-old-space-size=2048 pnpm build` |
+| Browser masih tampilkan halaman lama setelah rebuild | Browser cache / CDN cache | Hard refresh (Ctrl+Shift+R); cek `?v=` cache buster; disable browser cache di DevTools Network tab |
 | Tombol muncul tapi klik tidak redirect | `handleKeycloakLogin` tidak ter-trigger | Cek Console untuk JS error; pastikan `window.location.href` di-set |
 | Error message tidak tampil | `useSsoError` hook tidak baca `?error=` | Cek URL bar ada `?error=signup_prohibited`; cek i18n key `sso.unauthorized` ada di auth.json |
 | Logout tidak redirect ke Keycloak | `configStore.ssoEnabled` false saat logout | Cek `use-logout.ts` baca `configStore.getState().ssoEnabled`; pastikan config sudah ter-fetch |

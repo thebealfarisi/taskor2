@@ -562,6 +562,66 @@ Example (`en`):
 - **No `/unauthorized` page.** Rejected emails redirect to `/login?error=signup_prohibited`, handled by the login page above.
 - **No `POST /v1/auth/sso/exchange` endpoint.** The cookie is set directly by the callback.
 
+### 5. Single Logout (SLO)
+
+Without SLO, a user who logs in via Keycloak and then clicks "Logout" in Multica only clears the Multica cookie — the Keycloak session remains active. On the next "Login with Keycloak" click, Keycloak silently re-authenticates (no password prompt) and the user is bounced straight back into the app. This defeats the purpose of logout. SLO fixes this by redirecting the user to the Keycloak `end_session_endpoint`, which destroys the Keycloak session before bouncing back to `/login`.
+
+**Backend:**
+
+**File:** `server/internal/sso/oidc.go` (MODIFY — add `LogoutURL` method)
+
+```go
+// LogoutURL reads the end_session_endpoint from the OIDC discovery
+// document. Returns "" if discovery failed or the endpoint is absent.
+func (c *OIDCClient) LogoutURL() string { ... }
+```
+
+**File:** `server/internal/handler/sso.go` (MODIFY — add `KeycloakLogout` handler)
+
+```go
+// KeycloakLogout clears the Multica auth cookies, then 302-redirects to
+// the Keycloak end_session_endpoint with post_logout_redirect_uri and
+// client_id. Keycloak destroys its session and bounces back to /login.
+func (h *Handler) KeycloakLogout(w http.ResponseWriter, r *http.Request) {
+    auth.ClearAuthCookies(w)
+    // ... build logout URL with post_logout_redirect_uri={FRONTEND_ORIGIN}/login
+    // ... 302 to Keycloak end_session_endpoint
+}
+```
+
+**File:** `server/cmd/server/router.go` (MODIFY — register route)
+
+```go
+r.Get("/auth/keycloak/logout", h.KeycloakLogout)
+```
+
+**Frontend:**
+
+**File:** `packages/views/auth/use-logout.ts` (MODIFY — SLO branch)
+
+```typescript
+import { configStore } from "@multica/core/config";
+
+// Inside useLogout callback, after clearing storage + queryClient + authLogout:
+if (configStore.getState().ssoEnabled) {
+  // Full-page redirect to backend SLO endpoint — backend 302s to Keycloak
+  // end_session_endpoint, which destroys the Keycloak session.
+  window.location.href = "/auth/keycloak/logout";
+  return;
+}
+push(paths.login());
+```
+
+> **Keycloak client config required:** In the Keycloak admin console, the `task-or` client must have `https://task-or.lintasarta.co.id/login` listed under **Valid Post Logout Redirect URIs**. Without this, Keycloak rejects the post-logout redirect and the user lands on a Keycloak error page instead of `/login`.
+
+### 6. Deployment Notes (server Ubuntu)
+
+> **Penting untuk Batch 4:** Batch ini mengubah **backend + frontend**. Setelah `git pull` di server:
+>
+> - **Backend:** rebuild binary (`cd server && go build -o bin/server ./cmd/server`) + restart `multica-backend` (`sudo systemctl restart multica-backend`)
+> - **Frontend:** **wajib rebuild** (`cd apps/web && pnpm build`) + restart `multica-frontend` (`sudo systemctl restart multica-frontend`). Restart systemd saja **tidak cukup** — Next.js production server menjalankan build hasil `pnpm build` yang sudah ter-compile. Tanpa rebuild, perubahan `login-page.tsx` / `auth-initializer.tsx` / config store tidak akan terlihat di browser.
+> - Verifikasi: `ls -la apps/web/.next` — timestamp harus lebih baru dari `git pull`. Cek `curl /api/config | grep sso_enabled` → `"sso_enabled": true`.
+
 ---
 
 ## Changes Overview
@@ -576,19 +636,25 @@ Example (`en`):
 | 4 | `server/internal/sso/oidc.go` | NEW | OIDC client: discovery, auth URL, token exchange, email extraction |
 | 5 | `server/internal/sso/state.go` | NEW | Signed `SameSite=Lax` state cookie (PKCE + state + next) |
 | **Backend — Handler** | | | |
-| 6 | `server/internal/handler/sso.go` | NEW | `KeycloakLogin` + `KeycloakCallback` on existing `Handler` (reuses `findOrCreateUser`/`issueJWT`/`SetAuthCookies`) |
+| 6 | `server/internal/handler/sso.go` | NEW | `KeycloakLogin` + `KeycloakCallback` + `KeycloakLogout` on existing `Handler` (reuses `findOrCreateUser`/`issueJWT`/`SetAuthCookies`/`ClearAuthCookies`) |
+| **Backend — SLO** | | | |
+| 6b | `server/internal/sso/oidc.go` | MODIFY | Add `LogoutURL()` method — reads `end_session_endpoint` from discovery claims |
 | **Backend — Routes** | | | |
-| 7 | `server/cmd/server/router.go` | MODIFY | Register `GET /auth/keycloak/login` + `GET /auth/keycloak/callback` (public, rate-limited) |
+| 7 | `server/cmd/server/router.go` | MODIFY | Register `GET /auth/keycloak/login` + `GET /auth/keycloak/callback` + `GET /auth/keycloak/logout` (public, rate-limited) |
 | **Backend — Dependencies** | | | |
 | 8 | `server/go.mod` / `server/go.sum` | MODIFY | Add `github.com/coreos/go-oidc/v3/oidc`; promote `golang.org/x/oauth2` to direct |
 | **Frontend — Config** | | | |
 | 9 | `packages/core/config/index.ts` | MODIFY | Add `ssoEnabled` to `ConfigState` + `setAuthConfig`; wire from `/api/config` |
+| 9b | `packages/core/api/schemas.ts` | MODIFY | Add `sso_enabled?: boolean` to `AppConfigResponse` |
+| 9c | `packages/core/platform/auth-initializer.tsx` | MODIFY | Pass `sso_enabled` from `/api/config` to `setAuthConfig` |
 | **Frontend — Login UI** | | | |
-| 10 | `packages/views/auth/login-page.tsx` | MODIFY | Render "Login with Keycloak" button when `ssoEnabled`; surface `?error=` messages |
+| 10 | `packages/views/auth/login-page.tsx` | MODIFY | Render "Login with Keycloak" button when `ssoEnabled`; surface `?error=` messages; `sanitizeSsoNext` helper |
+| 10b | `packages/views/auth/use-logout.ts` | MODIFY | SLO: redirect to `/auth/keycloak/logout` when `ssoEnabled` |
+| 10c | `apps/web/app/(auth)/login/page.tsx` | MODIFY | Pass `ssoEnabled` from `useConfigStore` to `<LoginPage>` |
 | **Frontend — i18n** | | | |
 | 11 | `packages/views/auth/locales/*` (en, zh-Hans, ko, ja) | MODIFY | Add `sso.button` / `sso.unauthorized` / `sso.failed` strings |
 
-**Total:** 2 new files, 9 modified files. **No database migrations** (no mapping table — reuses the existing `user` table + signup restrictions). **No new frontend pages or routes.**
+**Total:** 2 new files, 12 modified files. **No database migrations** (no mapping table — reuses the existing `user` table + signup restrictions). **No new frontend pages or routes.**
 
 ---
 

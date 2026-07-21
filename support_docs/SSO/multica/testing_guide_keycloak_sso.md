@@ -85,6 +85,42 @@ Pastikan juga Keycloak client `task-or` di realm `dev` sudah dikonfigurasi:
 
 ---
 
+### 8. Single Logout (SLO) — Session Keycloak Harus Hapus
+
+**Tujuan:** Pastikan logout memicu redirect ke Keycloak `end_session_endpoint`, menghapus session Keycloak (bukan hanya cookie Multica).
+
+1. Login via SSO (skenario 1).
+2. Setelah masuk app, klik tombol **Logout** di sidebar/settings.
+3. **Ekspektasi:**
+   - Browser redirect ke `/auth/keycloak/logout` (backend).
+   - Backend clear cookie Multica + redirect ke `https://larasati.lintasarta.co.id/realms/dev/protocol/openid-connect/logout?post_logout_redirect_uri=...&client_id=task-or`.
+   - Keycloak destroy session + redirect balik ke `/login`.
+   - Browser landing di `/login`.
+4. **Verifikasi SLO berhasil:** klik "Login with Keycloak" lagi → **harus diminta password lagi** (tidak langsung masuk). Jika langsung masuk tanpa password, SLO gagal — session Keycloak tidak terhapus.
+
+> **Prasyarat Keycloak client:** `task-or` client harus punya `https://task-or.lintasarta.co.id/login` di **Valid Post Logout Redirect URIs**. Tanpa ini, Keycloak menolak post-logout redirect dan user landing di error page Keycloak.
+
+### 9. Logout saat SSO Disabled — Fallback Magic-Link
+
+**Tujuan:** Pastikan logout tetap jalan (client-side push ke `/login`) saat SSO dimatikan.
+
+1. Set `MULTICA_SSO_ENABLED=false`, restart backend + rebuild frontend.
+2. Login via magic-link (email + kode).
+3. Klik Logout.
+4. **Ekspektasi:** redirect ke `/login` (client-side navigation, bukan full-page redirect ke `/auth/keycloak/logout`).
+
+---
+
+## Deployment Notes (server Ubuntu)
+
+> **Penting untuk Batch 4:** Batch ini mengubah **backend + frontend**. Setelah `git pull` di server:
+>
+> - **Backend:** rebuild binary (`cd server && go build -o bin/server ./cmd/server`) + restart `multica-backend` (`sudo systemctl restart multica-backend`)
+> - **Frontend:** **wajib rebuild** (`cd apps/web && pnpm build`) + restart `multica-frontend` (`sudo systemctl restart multica-frontend`). Restart systemd saja **tidak cukup** — Next.js production server menjalankan build hasil `pnpm build` yang sudah ter-compile. Tanpa rebuild, perubahan `login-page.tsx` / `auth-initializer.tsx` / config store tidak akan terlihat di browser.
+> - Verifikasi: `ls -la apps/web/.next` — timestamp harus lebih baru dari `git pull`. Cek `curl /api/config | grep sso_enabled` → `"sso_enabled": true`.
+
+---
+
 ## Troubleshooting Guide (Admin/Developer)
 
 Jika skenario 1 atau 2 gagal, cek log backend Multica:

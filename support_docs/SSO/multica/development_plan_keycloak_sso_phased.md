@@ -159,18 +159,31 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/auth/keycloak/log
 
 ---
 
-## Batch 4: Frontend Config Flag + Login Button + i18n
+## Batch 4: Frontend Config Flag + Login Button + SLO + i18n
 
-**Goal:** Frontend tahu SSO aktif (via `/api/config` → `useConfigStore`) dan menampilkan tombol "Login with Keycloak" di halaman login. **Tidak ada halaman `/sso/callback` atau `/unauthorized` baru.** Batch ini murni UI — backend sudah berfungsi penuh dari Batch 3.
+**Goal:** Frontend tahu SSO aktif (via `/api/config` → `useConfigStore`) dan menampilkan tombol "Login with Keycloak" di halaman login. Logout memicu Single Logout (SLO) ke Keycloak. **Tidak ada halaman `/sso/callback` atau `/unauthorized` baru.** Batch ini mencakup backend SLO handler + frontend UI.
 
 ### Tasks
 
 | # | File | Type | Task |
 |---|------|------|------|
 | 4.1 | `packages/core/config/index.ts` | MODIFY | Tambah `ssoEnabled: boolean` ke `ConfigState` (default `false`); tambahkan param `ssoEnabled?` ke `setAuthConfig`. |
-| 4.2 | (config-fetch bootstrap) | MODIFY | Tempat yang memanggil `GET /api/config` dan `setAuthConfig` — teruskan `config.sso_enabled` ke `setAuthConfig({ ..., ssoEnabled: config.sso_enabled })`. |
-| 4.3 | `packages/views/auth/login-page.tsx` | MODIFY | Baca `ssoEnabled` dari `useConfigStore`. Jika aktif, render tombol "Login with Keycloak" → `window.location.href = "/auth/keycloak/login?next=..."`. Baca `?error=` search param: `signup_prohibited` → pesan "akun tidak terotorisasi, hubungi Admin IT"; `sso_failed` → pesan "SSO gagal, coba lagi". |
-| 4.4 | `packages/views/auth/locales/*` (en, zh-Hans, ko, ja) | MODIFY | Tambah key i18n `sso.button`, `sso.unauthorized`, `sso.failed` mengikuti pola namespace yang sudah ada. |
+| 4.2 | `packages/core/api/schemas.ts` | MODIFY | Tambah `sso_enabled?: boolean` ke `AppConfigResponse`. |
+| 4.3 | `packages/core/platform/auth-initializer.tsx` | MODIFY | Tempat yang memanggil `GET /api/config` dan `setAuthConfig` — teruskan `config.sso_enabled` ke `setAuthConfig({ ..., ssoEnabled: config.sso_enabled === true })`. |
+| 4.4 | `packages/views/auth/login-page.tsx` | MODIFY | Tambah prop `ssoEnabled`. Jika aktif, render tombol "Login with Keycloak" → `window.location.href = "/auth/keycloak/login?next=..."`. Baca `?error=` search param: `signup_prohibited` → pesan "akun tidak terotorisasi, hubungi Admin IT"; `sso_failed` → pesan "SSO gagal, coba lagi". Tambah `sanitizeSsoNext` helper (mirror backend `sanitizeNext`). |
+| 4.5 | `packages/views/auth/use-logout.ts` | MODIFY | Saat `configStore.ssoEnabled`, redirect ke `/auth/keycloak/logout` (SLO) alih-alih `push(paths.login())`. |
+| 4.6 | `packages/views/locales/{en,zh-Hans,ko,ja}/auth.json` | MODIFY | Tambah key i18n `sso.button`, `sso.unauthorized`, `sso.failed` mengikuti pola namespace yang sudah ada. |
+| 4.7 | `apps/web/app/(auth)/login/page.tsx` | MODIFY | Pass `ssoEnabled` dari `useConfigStore` ke `<LoginPage>`. |
+| 4.8 | `server/internal/sso/oidc.go` | MODIFY | Tambah `LogoutURL()` method — baca `end_session_endpoint` dari discovery claims. |
+| 4.9 | `server/internal/handler/sso.go` | MODIFY | Tambah `KeycloakLogout` handler — clear Multica cookies + redirect ke Keycloak `end_session_endpoint` dengan `post_logout_redirect_uri` + `client_id`. |
+| 4.10 | `server/cmd/server/router.go` | MODIFY | Register `GET /auth/keycloak/logout` route. |
+
+### Deployment Notes
+
+> **Penting:** Batch 4 mengubah **backend + frontend**. Setelah `git pull` di server:
+> - **Backend:** rebuild binary (`go build -o bin/server ./cmd/server`) + restart `multica-backend`
+> - **Frontend:** **wajib rebuild** (`cd apps/web && pnpm build`) + restart `multica-frontend`. Restart systemd saja **tidak cukup** — Next.js production server menjalankan build hasil `pnpm build` yang sudah ter-compile. Tanpa rebuild, perubahan `login-page.tsx` / `auth-initializer.tsx` / config store tidak akan terlihat di browser.
+> - Verifikasi: `ls -la apps/web/.next` — timestamp harus lebih baru dari `git pull`. Cek `curl /api/config | grep sso_enabled` → `"sso_enabled": true`.
 
 ### Testing Gate 4
 
@@ -185,14 +198,16 @@ pnpm test
 # 4c. Login dengan email di domain whitelist → landing di app, user ter-load
 # 4d. Login dengan email di luar domain → /login?error=signup_prohibited → pesan error tampil
 # 4e. Buka /login?error=sso_failed langsung → pesan "SSO gagal" tampil
+# 4f. Logout → redirect ke /auth/keycloak/logout → Keycloak end_session → /login. Klik "Login with Keycloak" lagi → HARUS diminta password (SLO berhasil). Jika langsung masuk, SLO gagal.
 
 # --- SSO DISABLED ---
-# Unset MULTICA_SSO_ENABLED, restart backend
-# 4f. Buka /login → tombol "Login with Keycloak" TIDAK muncul
-# 4g. Magic-link form tetap berfungsi normal
+# Unset MULTICA_SSO_ENABLED, restart backend, rebuild frontend
+# 4g. Buka /login → tombol "Login with Keycloak" TIDAK muncul
+# 4h. Magic-link form tetap berfungsi normal
+# 4i. Logout → client-side push ke /login (bukan redirect ke /auth/keycloak/logout)
 ```
 
-**Lolos jika:** typecheck/test bersih, tombol muncul/hilang sesuai flag, klik tombol → full flow sukses, error messages tampil untuk `signup_prohibited` dan `sso_failed`.
+**Lolos jika:** typecheck/test bersih, tombol muncul/hilang sesuai flag, klik tombol → full flow sukses, error messages tampil untuk `signup_prohibited` dan `sso_failed`, SLO menghapus session Keycloak (diminta password lagi).
 
 ---
 
