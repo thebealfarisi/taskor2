@@ -193,7 +193,7 @@ sudo systemctl restart multica-backend
 
 | Skenario | Wajib | Status |
 |----------|-------|--------|
-| T1. Typecheck | ✓ wajib | ☐ |
+| T1. Typecheck | ✓ wajib | ✅ LOLOS (commit `9166986f`) |
 | T2. Tombol muncul saat SSO enabled | ✓ wajib | ☐ |
 | T3. Tombol hilang saat SSO disabled | ✓ wajib | ☐ |
 | T4. Klik tombol → redirect ke Keycloak | ✓ wajib | ☐ |
@@ -218,7 +218,8 @@ sudo systemctl restart multica-backend
 | Logout tidak redirect ke Keycloak | `configStore.ssoEnabled` false saat logout | Cek `use-logout.ts` baca `configStore.getState().ssoEnabled`; pastikan config sudah ter-fetch |
 | Setelah SLO, klik login langsung masuk (tanpa password) | Keycloak session tidak ter-hapus | Cek Keycloak client `task-or` → "Valid Post Logout Redirect URIs" ada `https://task-or.lintasarta.co.id/login`; cek `FRONTEND_ORIGIN` env di backend |
 | Keycloak tampil "Are you sure?" saat logout | `client_id` tidak dikirim ke end_session_endpoint | Cek backend log `sso: build logout url`; pastikan `LogoutURL` set `client_id` |
-| Typecheck error: `ssoEnabled` not found | Config store / login-page tidak sinkron | Pastikan `packages/core/config/index.ts` + `login-page.tsx` + `apps/web/.../login/page.tsx` semua ter-update |
+| Typecheck error: `ssoEnabled` not found | Config store / login-page tidak sync | Pastikan `packages/core/config/index.ts` + `login-page.tsx` + `apps/web/.../login/page.tsx` semua ter-update |
+| Typecheck error: `Property 'sso' does not exist on type` di `login-page.tsx` | `useSsoError` helper pakai `t: ReturnType<typeof useT>[0]` (union semua namespace), `$.sso` hanya ada di namespace `auth` | Fix commit `9166986f`: inline efek ke component body dimana `t` sudah scoped via `useT("auth")`. Pastikan pull commit terbaru. |
 
 ---
 
