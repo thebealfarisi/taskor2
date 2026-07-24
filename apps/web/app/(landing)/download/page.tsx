@@ -9,13 +9,13 @@ import { DownloadClient } from "./download-client";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-  title: "Download Task-Or",
+  title: "Download Super-Presales",
   description:
-    "Download Task-Or for macOS, Windows, or Linux — or install the CLI for servers and remote dev boxes.",
+    "Download Super-Presales for macOS, Windows, or Linux — or install the CLI for servers and remote dev boxes.",
   openGraph: {
-    title: "Download Task-Or",
+    title: "Download Super-Presales",
     description:
-      "Get the Task-Or desktop app with a bundled daemon, or install the CLI for servers and remote dev boxes.",
+      "Get the Super-Presales desktop app with a bundled daemon, or install the CLI for servers and remote dev boxes.",
     url: "/download",
   },
   alternates: {

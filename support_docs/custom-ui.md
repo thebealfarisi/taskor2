@@ -1,6 +1,6 @@
-# Panduan Kustomisasi UI dan Rebranding (Task-Or)
+# Panduan Kustomisasi UI dan Rebranding (Super-Presales)
 
-Dokumen ini berisi panduan lengkap untuk melakukan kustomisasi antarmuka pengguna (UI) dan *rebranding* pada repository ini (mengubah dari bawaan "Multica" menjadi aplikasi kustom Anda, misalnya "Task-Or").
+Dokumen ini berisi panduan lengkap untuk melakukan kustomisasi antarmuka pengguna (UI) dan *rebranding* pada repository ini (mengubah dari bawaan "Multica" menjadi aplikasi kustom Anda, misalnya "Super-Presales").
 
 Kustomisasi dibagi menjadi 3 bagian utama: **Mengubah Warna Tema**, **Mengganti Logo**, dan **Menyesuaikan Teks Rebranding**.
 
@@ -99,7 +99,7 @@ Hanya ubah teks statis / metadata pada file-file berikut di dalam `apps/web/app`
 - `not-found.tsx`
 - `auth/callback/page.tsx` (Pesan untuk membuka Desktop app)
 
-Cukup gunakan fungsi pencarian/Find & Replace teks (huruf besar/kecil sensitif) dan ubah "Multica" menjadi "Task-Or" (atau nama perusahaan Anda).
+Cukup gunakan fungsi pencarian/Find & Replace teks (huruf besar/kecil sensitif) dan ubah "Multica" menjadi "Super-Presales" (atau nama perusahaan Anda).
 
 ---
 

@@ -1,6 +1,6 @@
 # Rebranding and Login Bypass Implementation Plan
 
-This document outlines the steps to fulfill your request: rebranding "Multica" to "Task-Or" and implementing a complete login bypass to avoid the verification code step entirely.
+This document outlines the steps to fulfill your request: rebranding "Multica" to "Super-Presales" and implementing a complete login bypass to avoid the verification code step entirely.
 
 ## User Review Required
 
@@ -9,18 +9,18 @@ This document outlines the steps to fulfill your request: rebranding "Multica" t
 
 ## Proposed Changes
 
-### 1. Rebranding to "Task-Or"
+### 1. Rebranding to "Super-Presales"
 
-To execute the rebranding from "Multica" to "Task-Or", we will need to update user-facing text strings primarily found in localization files and metadata.
+To execute the rebranding from "Multica" to "Super-Presales", we will need to update user-facing text strings primarily found in localization files and metadata.
 
 #### [MODIFY] [packages/views/locales/en/common.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/en/common.json)
-Update global branding text from "Multica" to "Task-Or".
+Update global branding text from "Multica" to "Super-Presales".
 
 #### [MODIFY] [apps/web/app/(landing)/page.tsx](file:///d:/Kerjaan/Project/taskor2/apps/web/app/(landing)/page.tsx)
-Update metadata title and descriptions from "Multica" to "Task-Or".
+Update metadata title and descriptions from "Multica" to "Super-Presales".
 
 #### [MODIFY] [packages/views/locales/en/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/en/auth.json)
-Update login page branding from "Multica" to "Task-Or" (signin title, CLI description, desktop handoff text).
+Update login page branding from "Multica" to "Super-Presales" (signin title, CLI description, desktop handoff text).
 
 #### [MODIFY] [packages/views/locales/zh-Hans/auth.json](file:///d:/Kerjaan/Project/taskor2/packages/views/locales/zh-Hans/auth.json)
 Same rebranding for Chinese locale.
@@ -46,7 +46,7 @@ To completely bypass the verification step in the user interface as requested, w
 
 ### Manual Verification
 1. Open the web app.
-2. Observe the branding is now "Task-Or" on the page title.
+2. Observe the branding is now "Super-Presales" on the page title.
 3. Go to the login page.
 4. Enter any email address and click "Continue".
 5. Verify that you are **immediately logged in** and redirected to the workspace, completely skipping the verification code input step.

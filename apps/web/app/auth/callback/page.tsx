@@ -148,9 +148,9 @@ function CallbackContent() {
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Opening Task-Or</CardTitle>
+            <CardTitle className="text-2xl">Opening Super-Presales</CardTitle>
             <CardDescription>
-              You should see a prompt to open the Task-Or desktop app. If
+              You should see a prompt to open the Super-Presales desktop app. If
               nothing happens, click the button below.
             </CardDescription>
           </CardHeader>
@@ -161,7 +161,7 @@ function CallbackContent() {
                 window.location.href = `multica://auth/callback?token=${encodeURIComponent(desktopToken)}`;
               }}
             >
-              Open Task-Or Desktop
+              Open Super-Presales Desktop
             </Button>
           </CardContent>
         </Card>
