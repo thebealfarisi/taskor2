@@ -19,5 +19,5 @@ export const metadata: Metadata = {
 };
 
 export default function LandingPage() {
-  redirect("/login");
+  redirect("/auth/keycloak/login");
 }
