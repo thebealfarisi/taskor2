@@ -14,27 +14,104 @@ Change the behavior when users visit `super-presales.lintasarta.co.id` (root `/`
 
 ## Proposed Changes
 
-### 1. Frontend: Change Root Redirect
+### 1. Frontend: Smart Root Redirect with Workspace Resolution
 
 #### [MODIFY] `apps/web/app/(landing)/page.tsx`
 
-Change the redirect from `/login` to `/auth/keycloak/login`.
+Convert from Server Component to Client Component that checks authentication status and resolves the correct workspace destination.
 
+**BEFORE:**
 ```tsx
-// BEFORE
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+
+export const metadata: Metadata = { ... };
+
 export default function LandingPage() {
   redirect("/login");
 }
+```
 
-// AFTER
+**AFTER:**
+```tsx
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@multica/core/auth";
+import { resolvePostAuthDestination, useHasOnboarded } from "@multica/core/paths";
+import { api } from "@multica/core/api";
+import type { Workspace } from "@multica/core/types";
+
 export default function LandingPage() {
-  redirect("/auth/keycloak/login");
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const hasOnboarded = useHasOnboarded();
+  const [resolved, setResolved] = useState(false);
+
+  useEffect(() => {
+    if (isLoading || resolved) return;
+
+    if (user) {
+      // Already authenticated — resolve the correct workspace destination
+      api.listWorkspaces()
+        .then((workspaces: Workspace[]) => {
+          const dest = resolvePostAuthDestination(workspaces, hasOnboarded);
+          router.replace(dest);
+        })
+        .catch(() => {
+          router.replace("/workspaces");
+        })
+        .finally(() => setResolved(true));
+    } else {
+      // Not authenticated — redirect to Keycloak SSO
+      window.location.href = "/auth/keycloak/login";
+      setResolved(true);
+    }
+  }, [isLoading, user, hasOnboarded, router, resolved]);
+
+  return null;
 }
 ```
 
-This ensures anyone visiting the root domain is immediately sent to the Keycloak authorization flow.
+**Why this prevents the loop:**
+- If user is already authenticated → fetches workspace list → redirects to `/<first-workspace>/issues` (e.g., `/thebe/issues`)
+- If user is not authenticated → goes to `/auth/keycloak/login` → Keycloak
+- After Keycloak login, callback redirects to `/` → frontend detects auth → redirects to correct workspace
+- No infinite loop because authenticated users never hit Keycloak again
 
-### 2. Backend: Ensure SSO Environment Variables Are Configured
+### 2. Backend: Fix SSO Callback Default Redirect
+
+#### [MODIFY] `server/internal/handler/sso.go`
+
+Keep the default redirect as `/` (root) so the frontend can resolve the correct workspace destination.
+
+**BEFORE:**
+```go
+// 6. Redirect to the originally requested page (sanitized) or /.
+dest := sp.Next
+if dest == "" {
+    dest = "/"
+}
+http.Redirect(w, r, dest, http.StatusFound)
+```
+
+**AFTER:**
+```go
+// 6. Redirect to the originally requested page (sanitized) or /.
+// The frontend root (/) will resolve the correct workspace destination.
+dest := sp.Next
+if dest == "" {
+    dest = "/"
+}
+http.Redirect(w, r, dest, http.StatusFound)
+```
+
+**Why this works:**
+After Keycloak authentication, the user lands on `/`. The frontend landing page (now a Client Component) detects the authenticated user, fetches the workspace list, and redirects to the correct destination (e.g., `/thebe/issues`).
+
+### 3. Backend: Ensure SSO Environment Variables Are Configured
 
 The Keycloak SSO feature is **env-gated**. The following environment variables must be set in `/home/multica/multica/.env`:
 
@@ -67,18 +144,28 @@ redirect("/auth/keycloak/login?next=/workspaces");
 
 ## Verification Plan
 
-### Manual Verification
-1. Open browser in incognito mode
+### Manual Verification (Incognito — Fresh Login)
+1. Open browser in **incognito mode**
 2. Visit `https://super-presales.lintasarta.co.id`
 3. Verify you are redirected to `https://larasati.lintasarta.co.id` (Keycloak login page)
 4. Log in with Keycloak credentials
-5. Verify you are redirected back to the app and logged in successfully
+5. Verify you are redirected back to the app and land on `/workspaces` (dashboard)
+6. **Verify NO infinite redirect loop occurs**
+
+### Manual Verification (Already Authenticated)
+1. In the same browser session (already logged in), visit `https://super-presales.lintasarta.co.id`
+2. Verify you are redirected to `/workspaces` (not back to Keycloak)
+3. **Verify NO infinite redirect loop occurs**
 
 ### API Test
 ```bash
 # Test that the Keycloak login endpoint is accessible
 curl -I https://super-presales.lintasarta.co.id/auth/keycloak/login
 # Expected: 302 redirect to Keycloak authorization URL
+
+# Test that callback redirects to /workspaces by default
+curl -I -b "sso_state=..." https://super-presales.lintasarta.co.id/auth/keycloak/callback?code=...&state=...
+# Expected: 302 redirect to /workspaces
 ```
 
 ## Build & Deploy Guide
@@ -122,8 +209,14 @@ sudo systemctl restart multica-backend
 # Check backend logs for SSO initialization
 sudo journalctl -u multica-backend -f
 
-# Test the redirect
+# Test the root redirect (should go to Keycloak in incognito)
 curl -I https://super-presales.lintasarta.co.id
+
+# Test that no loop occurs after login
+# 1. Open browser incognito
+# 2. Visit https://super-presales.lintasarta.co.id
+# 3. Login via Keycloak
+# 4. Should land on /workspaces without looping
 ```
 
 ## Rollback Plan

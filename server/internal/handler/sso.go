@@ -160,6 +160,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 		append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
 
 	// 6. Redirect to the originally requested page (sanitized) or /.
+	// The frontend root (/) will resolve the correct workspace destination.
 	dest := sp.Next
 	if dest == "" {
 		dest = "/"

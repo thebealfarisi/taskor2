@@ -1,23 +1,40 @@
-import type { Metadata } from "next";
-import { redirect } from "next/navigation";
+"use client";
 
-export const metadata: Metadata = {
-  title: {
-    absolute: "Super-Presales — Project Management for Human + Agent Teams",
-  },
-  description:
-    "Open-source platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills.",
-  openGraph: {
-    title: "Super-Presales — Project Management for Human + Agent Teams",
-    description:
-      "Manage your human + agent workforce in one place.",
-    url: "/",
-  },
-  alternates: {
-    canonical: "/",
-  },
-};
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@multica/core/auth";
+import { resolvePostAuthDestination, useHasOnboarded } from "@multica/core/paths";
+import { api } from "@multica/core/api";
+import type { Workspace } from "@multica/core/types";
 
 export default function LandingPage() {
-  redirect("/auth/keycloak/login");
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const hasOnboarded = useHasOnboarded();
+  const [resolved, setResolved] = useState(false);
+
+  useEffect(() => {
+    if (isLoading || resolved) return;
+
+    if (user) {
+      // Already authenticated — resolve the correct workspace destination
+      api.listWorkspaces()
+        .then((workspaces: Workspace[]) => {
+          const dest = resolvePostAuthDestination(workspaces, hasOnboarded);
+          router.replace(dest);
+        })
+        .catch(() => {
+          // Fallback to workspaces list page if API fails
+          router.replace("/workspaces");
+        })
+        .finally(() => setResolved(true));
+    } else {
+      // Not authenticated — redirect to Keycloak SSO
+      window.location.href = "/auth/keycloak/login";
+      setResolved(true);
+    }
+  }, [isLoading, user, hasOnboarded, router, resolved]);
+
+  return null;
 }
