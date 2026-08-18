@@ -5,12 +5,45 @@ import "encoding/json"
 const (
 	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
 	DaemonCapabilityCoalescedCommentsV1 = "coalesced-comments-v1"
+	DaemonCapabilityExecutionManifestV1 = "execution-manifest-v1"
+	DaemonCapabilityAgentSkillV1        = "agent-skill-v1"
+	DaemonCapabilityRemoteMCPV1         = "remote-mcp-v1"
+	// DaemonCapabilityLocalWorktreeV1 advertises that the daemon implements
+	// worktree mode for local_directory resources (execution_mode=worktree).
+	//
+	// This is a CAPABILITY rather than a version check on purpose. The failure
+	// mode of getting it wrong is not a missing field — a daemon without the
+	// implementation json-skips execution_mode and runs the task IN PLACE,
+	// editing the working copy the user asked to isolate. Version strings
+	// cannot answer that reliably: a git-describe dev build ("v0.4.21-24-g…")
+	// is deliberately exempted from the version floor so `make daemon` stays
+	// unblocked, which let exactly such a daemon through (MUL-5707). A daemon
+	// that implements the mode says so; one that does not, cannot.
+	DaemonCapabilityLocalWorktreeV1 = "local-worktree-v1"
+
 	// DaemonCapabilityRPCV1 advertises that the daemon can carry
 	// request/response RPCs over the WebSocket control connection (MUL-4257).
 	// Gated so only daemons+servers that both support it route claim over WS;
 	// everyone else keeps using the HTTP claim endpoint.
 	DaemonCapabilityRPCV1 = "rpc-v1"
+
+	// AppCapabilityChatDraftRestoreV1 is advertised (X-Client-Capabilities) by
+	// app clients that understand the durable draft-restore recovery path:
+	// chat:cancel_finalized as an invalidation hint plus the draft-restores
+	// endpoint. Cancelling a started-but-empty chat task defers the
+	// empty/non-empty judgment (#5219), so its cancel response carries no
+	// synchronous restore — a client without this capability would silently
+	// drop the user's prompt, and keeps the legacy synchronous restore instead.
+	AppCapabilityChatDraftRestoreV1 = "chat-draft-restore-v1"
 )
+
+// ChatQuickAction is a server-validated follow-up attached to one assistant
+// reply. Label is the concise chip text; Prompt is the full next user turn.
+type ChatQuickAction struct {
+	Label   string `json:"label"`
+	Prompt  string `json:"prompt"`
+	Primary bool   `json:"primary,omitempty"`
+}
 
 // RPCRequestPayload is the generic daemon→server request envelope carried in a
 // protocol.Message of type EventDaemonRPCRequest. RequestID correlates the
@@ -75,6 +108,25 @@ type RuntimeProfilesChangedPayload struct {
 // no workspace data is embedded in the event.
 type WorkspacesChangedPayload struct{}
 
+// PendingWorkKind values carried by PendingWorkPayload.Kind. The kind is
+// advisory only — the daemon reacts identically to every kind (one immediate
+// heartbeat, which claims whatever is queued) — so an unknown value from a
+// newer server stays safe on an older daemon.
+const (
+	PendingWorkKindModelList = "model_list"
+)
+
+// PendingWorkPayload is sent from server to daemon as a wakeup hint when a
+// heartbeat-carried request is enqueued for a runtime. The daemon responds by
+// sending one immediate heartbeat for RuntimeID instead of waiting for its next
+// scheduled tick; the request itself is still claimed through the normal
+// heartbeat path, so this event carries no work and is safe to lose, duplicate,
+// or ignore (MUL-5444).
+type PendingWorkPayload struct {
+	RuntimeID string `json:"runtime_id"`
+	Kind      string `json:"kind,omitempty"`
+}
+
 // TaskProgressPayload is sent from daemon to server during task execution.
 type TaskProgressPayload struct {
 	TaskID  string `json:"task_id"`
@@ -88,6 +140,24 @@ type TaskCompletedPayload struct {
 	TaskID string `json:"task_id"`
 	PRURL  string `json:"pr_url,omitempty"`
 	Output string `json:"output,omitempty"`
+}
+
+// ChatQuickActionsPayload supplements one completed chat turn with the
+// sanitized follow-up actions from the daemon's suggestion pass. An empty
+// QuickActions list is a meaningful terminal state — it resolves the
+// pending skeleton with "no suggestions this turn".
+type ChatQuickActionsPayload struct {
+	ChatSessionID string            `json:"chat_session_id"`
+	TaskID        string            `json:"task_id"`
+	MessageID     string            `json:"message_id"`
+	QuickActions  []ChatQuickAction `json:"quick_actions"`
+	// Failed marks a supplement that resolves the client's refresh spinner
+	// because the regeneration FAILED (the provider pass or its delivery), not
+	// because it produced new suggestions. QuickActions then carries the turn's
+	// unchanged pills; the client shows a "couldn't refresh" notice instead of
+	// treating unchanged content as a silent success (MUL-5149). Omitted (false)
+	// on the normal success path and for the automatic best-effort pass.
+	Failed bool `json:"failed,omitempty"`
 }
 
 // TaskMessagePayload represents a single agent execution message (tool call, text, etc.)
@@ -136,6 +206,16 @@ const (
 	// without any text reply — a visible, deliberate terminal outcome rather
 	// than a silently-dropped turn (MUL-4351).
 	ChatMessageKindNoResponse = "no_response"
+	// ChatMessageKindOnboardingKickoff is the server-authored, hidden first
+	// turn used to start Mika's onboarding conversation. It is persisted so
+	// the runtime receives a normal immutable chat input batch. User-facing
+	// APIs filter it out; clients also ignore the kind defensively.
+	ChatMessageKindOnboardingKickoff = "onboarding_kickoff"
+	// ChatMessageKindOnboardingOpening marks the assistant reply produced by
+	// the onboarding kickoff. The kickoff row itself never reaches clients, so
+	// the opening self-describes: chat renders the starter cards under this
+	// kind instead of quick-action chips (MUL-5765).
+	ChatMessageKindOnboardingOpening = "onboarding_opening"
 )
 
 // ChatDonePayload is broadcast when an agent finishes responding to a chat
@@ -152,13 +232,57 @@ const (
 // the omitempty tags only elide fields for the legacy paths that broadcast
 // without a row.
 type ChatDonePayload struct {
+	ChatSessionID string            `json:"chat_session_id"`
+	TaskID        string            `json:"task_id"`
+	MessageID     string            `json:"message_id,omitempty"`
+	Content       string            `json:"content,omitempty"`
+	ElapsedMs     int64             `json:"elapsed_ms,omitempty"`
+	CreatedAt     string            `json:"created_at,omitempty"`
+	MessageKind   string            `json:"message_kind,omitempty"`
+	QuickActions  []ChatQuickAction `json:"quick_actions,omitempty"`
+	// QuickActionsPending tells clients a chat:quick_actions supplement will
+	// follow for this turn (render a placeholder). Never true when
+	// QuickActions is already populated.
+	QuickActionsPending bool `json:"quick_actions_pending,omitempty"`
+}
+
+// Outcome values carried by ChatCancelFinalizedPayload.
+const (
+	// ChatCancelOutcomeStopped: the transcript turned out non-empty, so a
+	// "Stopped." assistant message was persisted.
+	ChatCancelOutcomeStopped = "stopped"
+	// ChatCancelOutcomeRestored: the transcript stayed empty, so the
+	// triggering user message was deleted and its content should be
+	// restored into the composer as a draft.
+	ChatCancelOutcomeRestored = "restored"
+)
+
+// ChatCancelFinalizedPayload is broadcast when a cancelled chat task's
+// deferred finalization settles (#5219). The cancel HTTP response cannot
+// carry this outcome — it is only known after the daemon's transcript flush —
+// so clients react to this event instead: outcome "stopped" inserts the
+// assistant message (MessageID/Content/... describe the new row, shaped like
+// ChatDonePayload), outcome "restored" removes the deleted user message from
+// caches and prompts the initiator's client to fetch the durable draft
+// restore from the creator-authorized endpoint. The restored prompt's content
+// and attachments deliberately never ride this workspace-wide broadcast.
+type ChatCancelFinalizedPayload struct {
+	Outcome       string `json:"outcome"`
 	ChatSessionID string `json:"chat_session_id"`
 	TaskID        string `json:"task_id"`
-	MessageID     string `json:"message_id,omitempty"`
-	Content       string `json:"content,omitempty"`
-	ElapsedMs     int64  `json:"elapsed_ms,omitempty"`
-	CreatedAt     string `json:"created_at,omitempty"`
-	MessageKind   string `json:"message_kind,omitempty"`
+	// InitiatorUserID is the human who triggered the cancelled task. Only
+	// this user's client needs to fetch the draft restore (the endpoint is
+	// creator-authorized regardless); clients treat a missing value as
+	// "not me".
+	InitiatorUserID string `json:"initiator_user_id,omitempty"`
+	MessageID       string `json:"message_id,omitempty"`
+	// Content/MessageKind/CreatedAt/ElapsedMs describe the persisted
+	// "Stopped." assistant row and are set only for outcome "stopped" —
+	// the same exposure surface as chat:done.
+	Content     string `json:"content,omitempty"`
+	MessageKind string `json:"message_kind,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	ElapsedMs   int64  `json:"elapsed_ms,omitempty"`
 }
 
 // ChatSessionReadPayload is broadcast when the creator marks a session as read.
@@ -181,6 +305,9 @@ type ChatSessionDeletedPayload struct {
 type ChatSessionUpdatedPayload struct {
 	ChatSessionID string `json:"chat_session_id"`
 	Title         string `json:"title"`
+	// ProjectID is set only by the project-context update path. The double
+	// pointer distinguishes an omitted field from an explicit JSON null.
+	ProjectID **string `json:"project_id,omitempty"`
 	// Pinned is set only by the pin/unpin path; nil on a plain rename so a
 	// receiver leaves the existing pin state untouched.
 	Pinned *bool `json:"pinned,omitempty"`
@@ -201,6 +328,8 @@ type DaemonHeartbeatRequestPayload struct {
 
 // DaemonHeartbeatAckPayload is the server's reply to DaemonHeartbeatRequestPayload.
 // JSON shape mirrors the HTTP heartbeat response so daemon code can decode either.
+// ServerCapabilities is explicit server-to-daemon protocol negotiation. A
+// daemon must not infer support from its own advertised client capabilities.
 //
 // RuntimeGone is the WebSocket replacement for the HTTP 404 "runtime not found"
 // response. When the server discovers the runtime row was deleted (UI delete,
@@ -212,6 +341,7 @@ type DaemonHeartbeatRequestPayload struct {
 type DaemonHeartbeatAckPayload struct {
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
+	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`
 	RuntimeGone             bool                                    `json:"runtime_gone,omitempty"`
 	PendingUpdate           *DaemonHeartbeatPendingUpdate           `json:"pending_update,omitempty"`
 	PendingModelList        *DaemonHeartbeatPendingModelList        `json:"pending_model_list,omitempty"`

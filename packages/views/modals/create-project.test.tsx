@@ -11,6 +11,9 @@ const webRepoUrl = "https://github.com/multica-ai/web";
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: [] }),
+  // The modal now reads the runtime list to gate worktree mode, and
+  // runtimeListOptions builds its descriptor with queryOptions.
+  queryOptions: (options: unknown) => options,
 }));
 
 vi.mock("@multica/core/projects/mutations", () => ({
@@ -177,8 +180,10 @@ describe("CreateProjectModal", () => {
   it("exposes full repository URLs in the repository picker", () => {
     render(<CreateProjectModal onClose={vi.fn()} />);
 
-    expect(screen.getByTitle(longRepoUrl)).toHaveTextContent(longRepoUrl);
+    // The Tooltip is the single reveal mechanism. A native `title` carrying the
+    // same URL would stack a browser tooltip on top of it (MUL-4836).
     expect(screen.getByRole("tooltip", { name: longRepoUrl })).toBeInTheDocument();
+    expect(screen.queryByTitle(longRepoUrl)).toBeNull();
   });
 
   it("reveals the start/due date pickers from the ⋯ overflow menu", async () => {

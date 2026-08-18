@@ -20,19 +20,30 @@ interface ConfigState {
   // must be hidden. Defaults to false so unknown / older servers behave like
   // the managed-cloud case.
   workspaceCreationDisabled: boolean;
+  // Self-host-only gate for the Git provider integration (Forgejo / Gitea /
+  // GitLab). When false the whole Settings → Integrations "Git providers"
+  // section is hidden. Defaults to false so unknown / older servers and the
+  // managed cloud (which omits the field) keep it hidden.
+  vcsIntegrationAvailable: boolean;
   featureFlags: Record<string, boolean>;
+  // The running API build version, surfaced in the Help popover so
+  // self-hosted operators can confirm what's deployed. Empty for dev builds
+  // or servers older than this feature.
+  serverVersion: string;
   setCdnConfig: (config: { cdnDomain: string; cdnSigned?: boolean }) => void;
   setAuthConfig: (config: {
     allowSignup: boolean;
     googleClientId?: string;
     workspaceCreationDisabled?: boolean;
     ssoEnabled?: boolean;
+    vcsIntegrationAvailable?: boolean;
   }) => void;
   setDaemonConfig: (config: {
     daemonServerUrl?: string;
     daemonAppUrl?: string;
   }) => void;
   setFeatureFlags: (flags?: Record<string, boolean>) => void;
+  setServerVersion: (version?: string) => void;
 }
 
 export const configStore = createStore<ConfigState>((set) => ({
@@ -44,13 +55,22 @@ export const configStore = createStore<ConfigState>((set) => ({
   daemonServerUrl: "",
   daemonAppUrl: "",
   workspaceCreationDisabled: false,
+  vcsIntegrationAvailable: false,
   featureFlags: {},
+  serverVersion: "",
   setCdnConfig: ({ cdnDomain, cdnSigned = false }) => set({ cdnDomain, cdnSigned }),
-  setAuthConfig: ({ allowSignup, googleClientId = "", workspaceCreationDisabled = false, ssoEnabled = false }) =>
-    set({ allowSignup, googleClientId, workspaceCreationDisabled, ssoEnabled }),
+  setAuthConfig: ({
+    allowSignup,
+    googleClientId = "",
+    workspaceCreationDisabled = false,
+    ssoEnabled = false,
+    vcsIntegrationAvailable = false,
+  }) =>
+    set({ allowSignup, googleClientId, workspaceCreationDisabled, ssoEnabled, vcsIntegrationAvailable }),
   setDaemonConfig: ({ daemonServerUrl = "", daemonAppUrl = "" }) =>
     set({ daemonServerUrl, daemonAppUrl }),
   setFeatureFlags: (flags = {}) => set({ featureFlags: { ...flags } }),
+  setServerVersion: (version = "") => set({ serverVersion: version }),
 }));
 
 export function useConfigStore(): ConfigState;

@@ -20,7 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
-func TestRequestHasDaemonCapability(t *testing.T) {
+func TestRequestHasClientCapability(t *testing.T) {
 	tests := []struct {
 		name   string
 		header string
@@ -39,8 +39,8 @@ func TestRequestHasDaemonCapability(t *testing.T) {
 			if tc.header != "" {
 				req.Header.Set("X-Client-Capabilities", tc.header)
 			}
-			if got := requestHasDaemonCapability(req, protocol.DaemonCapabilityCoalescedCommentsV1); got != tc.want {
-				t.Fatalf("requestHasDaemonCapability(%q) = %v, want %v", tc.header, got, tc.want)
+			if got := requestHasClientCapability(req, protocol.DaemonCapabilityCoalescedCommentsV1); got != tc.want {
+				t.Fatalf("requestHasClientCapability(%q) = %v, want %v", tc.header, got, tc.want)
 			}
 		})
 	}
@@ -694,7 +694,7 @@ func TestRerunIssue_PreservesSourceCommentPlanAndResetsReceipt(t *testing.T) {
 		testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID)
 	})
 
-	rerun, err := testHandler.TaskService.RerunIssue(ctx, util.MustParseUUID(issueID), util.MustParseUUID(sourceID), pgtype.UUID{})
+	rerun, err := testHandler.TaskService.RerunIssue(ctx, util.MustParseUUID(issueID), util.MustParseUUID(sourceID), pgtype.UUID{}, pgtype.UUID{}, nil)
 	if err != nil {
 		t.Fatalf("RerunIssue: %v", err)
 	}
@@ -733,7 +733,7 @@ func TestRerunIssue_PromotesNewestSurvivorAfterSourceTriggerDeleted(t *testing.T
 		t.Fatalf("delete rerun source trigger: %v", err)
 	}
 
-	rerun, err := testHandler.TaskService.RerunIssue(ctx, parseUUID(fixture.issueID), parseUUID(fixture.taskID), pgtype.UUID{})
+	rerun, err := testHandler.TaskService.RerunIssue(ctx, parseUUID(fixture.issueID), parseUUID(fixture.taskID), pgtype.UUID{}, pgtype.UUID{}, nil)
 	if err != nil {
 		t.Fatalf("RerunIssue: %v", err)
 	}
@@ -908,6 +908,7 @@ func TestFinalizeTaskClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T)
 		t.Fatalf("claim fixture task: task=%v err=%v", task, err)
 	}
 	tokenHash := "rolled-back-token-" + fixture.taskID
+	daemonTokenHash := "rolled-back-daemon-token-" + fixture.taskID
 	_, err = testHandler.TaskService.FinalizeTaskClaim(ctx, *task, db.CreateTaskTokenParams{
 		TokenHash:   tokenHash,
 		TaskID:      task.ID,
@@ -915,7 +916,12 @@ func TestFinalizeTaskClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T)
 		WorkspaceID: parseUUID(testWorkspaceID),
 		UserID:      parseUUID(testUserID),
 		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
-	}, []pgtype.UUID{parseUUID("00000000-0000-0000-0000-000000000099")}, true)
+	}, []pgtype.UUID{parseUUID("00000000-0000-0000-0000-000000000099")}, true, db.CreateDaemonTokenParams{
+		TokenHash:   daemonTokenHash,
+		WorkspaceID: parseUUID(testWorkspaceID),
+		DaemonID:    "daemon-claim-rollback",
+		ExpiresAt:   pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+	})
 	if err == nil {
 		t.Fatalf("FinalizeTaskClaim accepted an out-of-plan receipt")
 	}
@@ -925,6 +931,13 @@ func TestFinalizeTaskClaim_ReceiptCASFailureRollsBackInsertedToken(t *testing.T)
 	}
 	if tokenCount != 0 {
 		t.Fatalf("receipt CAS failure committed %d generated token(s)", tokenCount)
+	}
+	var daemonTokenCount int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM daemon_token WHERE token_hash = $1`, daemonTokenHash).Scan(&daemonTokenCount); err != nil {
+		t.Fatalf("count rolled-back daemon token: %v", err)
+	}
+	if daemonTokenCount != 0 {
+		t.Fatalf("receipt CAS failure committed %d daemon token(s)", daemonTokenCount)
 	}
 	if got := deliveredCommentIDsForTask(t, fixture.taskID); len(got) != 0 {
 		t.Fatalf("receipt CAS failure advanced receipt: %v", got)
