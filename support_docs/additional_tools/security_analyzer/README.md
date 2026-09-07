@@ -166,7 +166,8 @@ Agar aplikasi memeriksa query pengguna secara berkala (misalnya setiap 5 menit a
 
 Jika terdeteksi pelanggaran, email akan dikirim ke `abid.alfarisi@lintasarta.co.id`:
 
-- **Subject:** `Security Warning`
+- **Subject:** `Security Warning at super-presales.lintasarta.co.id`
+
 - **Isi Email:**
   - **Waktu Percakapan:** Timestamp kejadian dari database
   - **Pengirim ID:** ID Pengirim / Member

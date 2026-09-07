@@ -25,6 +25,8 @@ SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.office365.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587")) if os.getenv("SMTP_PORT") else 587
 USE_TLS = (os.getenv("USE_TLS") or "true").lower() == "true"
 ALERT_RECIPIENT = os.getenv("ALERT_RECIPIENT", "abid.alfarisi@lintasarta.co.id")
+EMAIL_SUBJECT = os.getenv("EMAIL_SUBJECT", "Security Warning at super-presales.lintasarta.co.id")
+
 
 DOCKER_CONTAINER = os.getenv("DOCKER_CONTAINER", "multica-postgres-1")
 DB_USER = os.getenv("DB_USER", "multica")
@@ -225,8 +227,9 @@ def send_security_warning_email(comment_data, verdict):
         print("[ERROR] Email sender credentials not configured in .env")
         return False
 
-    subject = "Security Warning"
+    subject = EMAIL_SUBJECT
     recipient = ALERT_RECIPIENT
+
 
     msg = MIMEMultipart("alternative")
     msg["From"] = EMAIL_SENDER
