@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  security-analyzer:
+    build: .
+    container_name: security-query-analyzer
+    restart: "no"
+    volumes:
+      - ./.env:/app/.env
+      - ./security_rules.json:/app/security_rules.json
+      - ./state.json:/app/state.json
+      - /var/run/docker.sock:/var/run/docker.sock
