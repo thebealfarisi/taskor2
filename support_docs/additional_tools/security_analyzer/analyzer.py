@@ -35,6 +35,9 @@ DB_NAME = os.getenv("DB_NAME", "multica")
 STATE_FILE = os.path.join(BASE_DIR, os.getenv("STATE_FILE", "state.json"))
 RULES_FILE = os.path.join(BASE_DIR, "security_rules.json")
 LOOKBACK_MINUTES = int(os.getenv("LOOKBACK_MINUTES", "5")) if os.getenv("LOOKBACK_MINUTES") else 5
+RUN_MODE = os.getenv("RUN_MODE", "cron").lower()
+CHECK_INTERVAL_SECONDS = int(os.getenv("CHECK_INTERVAL_SECONDS", "300")) if os.getenv("CHECK_INTERVAL_SECONDS") else 300
+
 
 
 def load_security_rules():
@@ -315,20 +318,8 @@ Sistem Otomatis Security Analyzer Multica
         print(f"[ERROR] Failed to send email alert: {e}")
         return False
 
-def main():
-    is_test_mode = "--test" in sys.argv or "--test-malicious" in sys.argv or os.getenv("TEST_MODE") == "1"
-
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Security Query Analyzer...")
-    if is_test_mode:
-        print("[INFO] Executing in TEST MODE with sample user queries (malicious & benign).")
-    
-    # Initialize OpenAI client with Cloudeka credentials
-    client = OpenAI(
-        api_key=OPENAI_DEKA_KEY,
-        base_url=OPENAI_DEKA_BASE
-    )
-
-    rules = load_security_rules()
+def run_once(client, rules, is_test_mode=False):
+    """Execute a single pass of security analysis on user comments."""
     last_timestamp = get_last_processed_timestamp() if not is_test_mode else None
 
     if not is_test_mode:
@@ -369,7 +360,39 @@ def main():
         update_last_processed_timestamp(latest_timestamp)
         print(f"\n[INFO] State updated to timestamp: {latest_timestamp}")
 
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Security Analysis execution finished.")
+def main():
+    import time
+
+    is_test_mode = "--test" in sys.argv or "--test-malicious" in sys.argv or os.getenv("TEST_MODE") == "1"
+    is_daemon_mode = "--daemon" in sys.argv or RUN_MODE == "daemon" or os.getenv("DAEMON_MODE") == "1"
+
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting Security Query Analyzer...")
+    if is_test_mode:
+        print("[INFO] Executing in TEST MODE with sample user queries (malicious & benign).")
+
+    # Initialize OpenAI client with Cloudeka credentials
+    client = OpenAI(
+        api_key=OPENAI_DEKA_KEY,
+        base_url=OPENAI_DEKA_BASE
+    )
+
+    rules = load_security_rules()
+
+    if is_daemon_mode and not is_test_mode:
+        print(f"[INFO] Running in DAEMON MODE (Continuous loop every {CHECK_INTERVAL_SECONDS} seconds / {CHECK_INTERVAL_SECONDS // 60} minutes)...")
+        while True:
+            try:
+                print(f"\n--- [Cycle Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ---")
+                run_once(client, rules, is_test_mode=False)
+            except Exception as e:
+                print(f"[ERROR] Exception during cycle: {e}")
+            
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Sleeping for {CHECK_INTERVAL_SECONDS} seconds...")
+            time.sleep(CHECK_INTERVAL_SECONDS)
+    else:
+        run_once(client, rules, is_test_mode=is_test_mode)
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Security Analysis execution finished.")
 
 if __name__ == "__main__":
     main()
+

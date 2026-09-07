@@ -4,9 +4,13 @@ services:
   security-analyzer:
     build: .
     container_name: security-query-analyzer
-    restart: "no"
+    restart: unless-stopped
+    environment:
+      - RUN_MODE=daemon
+      - CHECK_INTERVAL_SECONDS=300
     volumes:
       - ./.env:/app/.env
       - ./security_rules.json:/app/security_rules.json
       - ./state.json:/app/state.json
       - /var/run/docker.sock:/var/run/docker.sock
+
