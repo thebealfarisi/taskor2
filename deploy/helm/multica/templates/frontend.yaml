@@ -20,8 +20,18 @@ spec:
         {{- include "multica.labels" . | nindent 8 }}
         app.kubernetes.io/component: frontend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: frontend
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           image: "{{ .Values.images.frontend.repository }}:{{ $frontendImageTag }}"
           imagePullPolicy: {{ .Values.images.frontend.pullPolicy }}
           ports:
@@ -46,6 +56,11 @@ spec:
             - name: NEXT_PUBLIC_WS_URL
               value: {{ .Values.frontend.config.publicWsUrl | quote }}
             {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/apps/web/.next/cache
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
       {{- with .Values.frontend.affinity }}
@@ -56,6 +71,11 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

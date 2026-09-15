@@ -56,8 +56,18 @@ spec:
         {{- include "multica.labels" . | nindent 8 }}
         app.kubernetes.io/component: backend
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           image: "{{ .Values.images.backend.repository }}:{{ $backendImageTag }}"
           imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
           ports:
@@ -73,11 +83,16 @@ spec:
             - name: DATABASE_URL
               value: {{ include "multica.databaseUrl" . | quote }}
           {{- end }}
-          {{- if .Values.backend.uploads.persistence.enabled }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.backend.uploads.persistence.enabled }}
             - name: uploads
               mountPath: /app/data/uploads
-          {{- end }}
+            {{- else }}
+            - name: uploads-ephemeral
+              mountPath: /app/data/uploads
+            {{- end }}
           # The entrypoint runs `./migrate up` before serving traffic. On a
           # cold cluster (Postgres still coming up) this can take minutes. The
           # startupProbe holds off liveness/readiness until /healthz is OK,
@@ -112,12 +127,17 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.backend.uploads.persistence.enabled }}
       volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.backend.uploads.persistence.enabled }}
         - name: uploads
           persistentVolumeClaim:
             claimName: {{ include "multica.backend.fullname" . }}-uploads
-      {{- end }}
+        {{- else }}
+        - name: uploads-ephemeral
+          emptyDir: {}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service

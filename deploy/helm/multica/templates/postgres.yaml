@@ -37,8 +37,18 @@ spec:
         {{- include "multica.labels" . | nindent 8 }}
         app.kubernetes.io/component: postgres
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: postgres
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
           image: "{{ .Values.images.postgres.repository }}:{{ .Values.images.postgres.tag }}"
           imagePullPolicy: {{ .Values.images.postgres.pullPolicy }}
           ports:
@@ -67,6 +77,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             exec:
               command:
@@ -89,6 +103,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "multica.postgres.fullname" . }}-data
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
