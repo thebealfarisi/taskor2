@@ -147,7 +147,10 @@ sudo chown multica:multica /home/multica
 
 ### Langkah 2.3 — Switch ke User `multica`
 
-Semua langkah selanjutnya (clone, build, run) dijalankan sebagai user `multica`:
+> ⚠️ **PENTING**: Langkah 3 (Install Prerequisites) **WAJIB dijalankan sebagai user dengan akses `sudo`** (bukan user `multica`), karena membutuhkan akses root untuk install paket sistem.
+> Switch ke user `multica` baru dilakukan pada **Langkah 3.5** setelah semua prerequisite terinstall.
+
+Cara untuk switch ke user `multica` (nanti pada Langkah 3.5):
 
 ```bash
 sudo su - multica
@@ -157,8 +160,7 @@ pwd
 # Output: /home/multica
 ```
 
-> 💡 **Tips**: Untuk keluar dari user multica, ketik `exit`. Untuk masuk lagi:
-> `sudo su - multica`.
+> 💡 **Tips**: Untuk keluar dari user `multica` kembali ke user sudo, ketik `exit`. Untuk masuk lagi: `sudo su - multica`.
 
 ---
 
@@ -168,12 +170,12 @@ pwd
 > karena butuh install paket sistem. Setelah selesai, switch kembali ke user
 > `multica` untuk clone & build.
 
-### Langkah 3.1 — Install Go 1.26.1+
+### Langkah 3.1 — Install Go 1.26.6+
 
 ```bash
 # Download Go (cek versi terbaru di https://go.dev/dl/)
 cd /tmp
-wget https://go.dev/dl/go1.26.1.linux-amd64.tar.gz
+wget https://go.dev/dl/go1.26.6.linux-amd64.tar.gz
 
 # Hapus Go lama jika ada di /usr/local
 sudo rm -rf /usr/local/go
@@ -183,7 +185,7 @@ sudo apt-get remove --purge -y golang-go 2>/dev/null || true
 sudo snap remove go 2>/dev/null || true
 
 # Extract
-sudo tar -C /usr/local -xzf go1.26.1.linux-amd64.tar.gz
+sudo tar -C /usr/local -xzf go1.26.6.linux-amd64.tar.gz
 
 # Tambah ke PATH untuk SEMUA user (system-wide)
 echo 'export PATH=$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh
@@ -195,7 +197,7 @@ source /etc/profile.d/go.sh
 
 # Verifikasi
 go version
-# Output: go version go1.26.1 linux/amd64
+# Output: go version go1.26.6 linux/amd64
 ```
 
 ### Langkah 3.2 — Install Node.js 22+ dan pnpm
@@ -263,18 +265,42 @@ source ~/.profile
 
 ## 4. Clone Project via Git
 
-> ⚠️ **Catatan Akses Git**: Jika Anda melakukan clone dari repository yang **private** menggunakan URL SSH (`git@github.com:...`), pastikan user `multica` sudah memiliki SSH key yang terdaftar di GitHub. Anda bisa membuat key baru dengan menjalankan `ssh-keygen -t ed25519 -C "multica@server"`, lalu tambahkan isi dari `~/.ssh/id_ed25519.pub` ke GitHub (Settings > SSH and GPG keys). Untuk repository **publik**, sangat disarankan menggunakan URL HTTPS.
+### Langkah 4.1 — Setup SSH Key untuk User `multica` (Jika Menggunakan SSH / Repo Private)
+
+Jika Anda melakukan clone dari repository yang **private** menggunakan URL SSH (`git@github.com:...`), lakukan setup SSH key terlebih dahulu sebagai user `multica`:
+
+```bash
+# 1. Buat SSH key ed25519 baru
+ssh-keygen -t ed25519 -C "multica@server"
+# Tekan Enter 3x untuk lokasi & passphrase default (~/.ssh/id_ed25519)
+
+# 2. Tampilkan isi public key
+cat ~/.ssh/id_ed25519.pub
+
+# 3. Tambahkan public key tersebut ke GitHub:
+#    - Account Level: GitHub > Settings > SSH and GPG keys > New SSH key, ATAU
+#    - Repo Level: Repository > Settings > Deploy keys > Add deploy key
+
+# 4. Verifikasi koneksi SSH ke GitHub
+ssh -T git@github.com
+# Harus muncul pesan: Hi <username>! You've successfully authenticated...
+```
+
+### Langkah 4.2 — Clone Repository
 
 ```bash
 # Pastikan sebagai user multica
 whoami
 # Output: multica
 
-# Clone branch main ke /home/multica
+# Masuk ke folder /home/multica
 cd /home/multica
 
-# Gunakan HTTPS untuk repo publik (atau SSH jika repo private dan key sudah disetup)
-git clone -b main https://github.com/multica-ai/multica.git multica
+# Option A: Clone via SSH (jika SSH key sudah disetup)
+git clone -b main git@github.com:thebealfarisi/taskor2.git multica
+
+# Option B: Clone via HTTPS (untuk repo publik atau menggunakan Personal Access Token)
+git clone -b main https://github.com/thebealfarisi/taskor2.git multica
 
 # Masuk ke direktori project
 cd /home/multica/multica
@@ -312,18 +338,41 @@ Ada 2 opsi: install PostgreSQL natively atau gunakan Docker hanya untuk database
 
 ### Opsi A: PostgreSQL via Docker (Lebih Mudah — Direkomendasikan)
 
-Jika Docker sudah terinstall di server, ini cara termudah:
+Jika Docker belum terinstall di server, install terlebih dahulu sebagai **user sudo**:
 
 ```bash
-# Pastikan Docker terinstall (jalankan sebagai sudo user, bukan multica)
-docker --version
-
-# Sebagai user multica, pastikan ada akses docker
-sudo usermod -aG docker multica
-# Logout & login ulang agar group docker aktif
+# 1. Keluar dulu ke user sudo (jika saat ini sebagai multica)
 exit
+
+# 2. Install Docker Engine resmi
+sudo apt update
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# 3. Tambahkan user multica ke grup docker
+sudo usermod -aG docker multica
+
+# 4. Switch kembali ke user multica
 sudo su - multica
 
+# 5. Verifikasi
+docker --version
+docker compose version
+```
+
+Setelah Docker terinstall dan user `multica` masuk ke grup `docker`, jalankan container PostgreSQL:
+
+```bash
 # Mulai PostgreSQL menggunakan docker-compose.yml yang sudah ada
 cd /home/multica/multica
 docker compose up -d postgres
@@ -482,6 +531,10 @@ cd /home/multica/multica/server
 go mod download
 ```
 
+> 💡 **Troubleshooting versi Go (`go.mod requires go >= 1.26.6`) & DNS Timeout:**
+> - `server/go.mod` secara spesifik membutuhkan **Go 1.26.6+**. Jika Go terpasang versi di bawahnya (misal `1.26.3`), pastikan Anda sudah menginstall Go 1.26.6 pada Langkah 3.1.
+> - Jika muncul error DNS timeout (`lookup sum.golang.org i/o timeout`), perbaiki DNS server sebagai **user sudo**: `echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf`, lalu matikan `GOSUMDB` jika perlu: `export GOSUMDB=off`.
+
 ### Langkah 7.2 — Build Binary
 
 ```bash
@@ -512,11 +565,12 @@ go build -ldflags "-s -w" -o bin/migrate ./cmd/migrate
 ls -la /home/multica/multica/server/bin/
 # Harus ada: server, multica, migrate
 
-# Test binary
-/home/multica/multica/server/bin/server --help
-# Atau
-cd /home/multica/multica/server && ./bin/server --help
+# Test binary CLI & Migration Tool
+/home/multica/multica/server/bin/migrate --help
+/home/multica/multica/server/bin/multica --help
 ```
+
+> ⚠️ **Catatan**: Binary `./bin/server` adalah service daemon backend utama. Menjalankan `./bin/server` akan mendengarkan port 8080 dan langsung terhubung ke database. Jika tabel database belum di-migrate (**Langkah 9**), log server akan menampilkan error `relation "xxx" does not exist`. Jalankan **Langkah 9 (Database Migration)** terlebih dahulu sebelum menjalankan backend server.
 
 Output binary:
 
@@ -660,9 +714,22 @@ Frontend berjalan di `http://localhost:3000`.
 
 ### Langkah 10.3 — Verifikasi
 
-Buka browser: `http://localhost:3000` (atau `http://<IP-SERVER>:3000`).
+**Via Terminal (`curl`):**
 
-Halaman login Multica harus tampil. Tekan `Ctrl+C` di kedua terminal untuk stop.
+```bash
+# 1. Cek HTTP Header Frontend (port 3000)
+curl -I http://localhost:3000
+# Expected: HTTP/1.1 200 OK (atau 307/308 redirect ke /login)
+
+# 2. Cek HTML Content Frontend
+curl -sL http://localhost:3000 | head -n 15
+
+# 3. Cek Health Backend (port 8080)
+curl http://localhost:8080/health
+```
+
+**Via Browser:**
+Buka `http://localhost:3000` (atau `http://<IP-SERVER>:3000`). Halaman login Multica harus tampil. Tekan `Ctrl+C` di kedua terminal untuk menghentikan test run.
 
 ---
 
@@ -797,16 +864,19 @@ sudo journalctl -u multica-frontend -f
 
 Untuk deployment *production*, sangat disarankan menggunakan **Nginx** sebagai *reverse proxy*. Selain untuk HTTPS/SSL, Nginx diperlukan agar koneksi **WebSocket** (yang digunakan untuk pembaruan *Real-time*) tidak kehilangan header `Upgrade` yang sering kali diblokir jika *traffic* hanya dilewatkan melalui proxy bawaan Next.js.
 
-Contoh konfigurasi *Virtual Host* Nginx yang tepat untuk Multica:
+Buat file konfigurasi Nginx baru sebagai **user sudo**:
+
+```bash
+sudo nano /etc/nginx/sites-available/multica
+```
+
+Isi konfigurasi berikut:
 
 ```nginx
 server {
-    listen 443 ssl;
+    listen 80;
     server_name multica.domainanda.com;
 
-    ssl_certificate /path/to/cert.crt;
-    ssl_certificate_key /path/to/private.key;
-    
     # 1. Bypass WebSocket langsung ke Backend Go (Port 8080)
     location /ws {
         proxy_pass http://localhost:8080/ws;
@@ -839,9 +909,16 @@ server {
 }
 ```
 
-Aktifkan konfigurasi dengan:
+Aktifkan konfigurasi dengan membuat symlink ke `sites-enabled`:
+
 ```bash
+# 1. Buat symbolic link ke sites-enabled
+sudo ln -s /etc/nginx/sites-available/multica /etc/nginx/sites-enabled/
+
+# 2. Test sintaks konfigurasi Nginx
 sudo nginx -t
+
+# 3. Reload Nginx service
 sudo systemctl reload nginx
 ```
 
@@ -854,22 +931,39 @@ mengeksekusi tugas AI agent.
 
 ### Langkah 12.1 — Install CLI
 
-#### Opsi A: Build dari source (sudah ada dari Langkah 7)
+#### Opsi A: Copy Binary dari Server Build (Jika Server Sama atau via SCP)
 
+Jika CLI diinstall di server yang sama dengan tempat build (Langkah 7):
 ```bash
-# Binary sudah ada di /home/multica/multica/server/bin/multica
-# Copy ke PATH (jalankan sebagai sudo user)
 sudo cp /home/multica/multica/server/bin/multica /usr/local/bin/multica
 sudo chmod +x /usr/local/bin/multica
 ```
 
-#### Opsi B: Install via Homebrew (macOS/Linux)
+Jika server runtime terpisah dari server build, Anda bisa meng-copy binary dari server build via SCP:
+```bash
+# Jalankan di server runtime terpisah ini:
+scp multica@<IP-SERVER-BUILD>:/home/multica/multica/server/bin/multica /tmp/multica
+sudo mv /tmp/multica /usr/local/bin/multica
+sudo chmod +x /usr/local/bin/multica
+```
+
+#### Opsi B: Install via Shell Script (Linux / macOS — Tanpa Homebrew)
+
+Cocok untuk server runtime Linux terpisah tanpa memerlukan `brew`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.sh | bash
+```
+
+#### Opsi C: Install via Homebrew (macOS / Linux dengan Homebrew)
+
+> *Membutuhkan Homebrew (`brew`) yang sudah terpasang.*
 
 ```bash
 brew install multica-ai/tap/multica
 ```
 
-#### Opsi C: Windows (PowerShell)
+#### Opsi D: Windows (PowerShell)
 
 ```powershell
 irm https://raw.githubusercontent.com/multica-ai/multica/main/scripts/install.ps1 | iex
