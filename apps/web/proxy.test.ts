@@ -250,6 +250,9 @@ describe("proxy root and locale handling", () => {
     expect(csp).toContain("strict-dynamic");
     expect(csp).toContain("nonce-");
     expect(csp).not.toContain("'unsafe-eval'");
+    expect(csp).toContain("style-src 'self' 'nonce-");
+    expect(csp).not.toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("style-src-attr 'unsafe-inline'");
   });
 
   it("redirects trailing slashes with 308 and explicit content-type", () => {

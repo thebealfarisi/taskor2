@@ -41,7 +41,9 @@ function nextWithLocale(req: NextRequest): NextResponse {
   const cspHeader = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    `style-src-elem 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    "style-src-attr 'unsafe-inline'",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
