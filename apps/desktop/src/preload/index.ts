@@ -44,8 +44,14 @@ function fetchAppInfo(): { version: string; os: "macos" | "windows" | "linux" | 
   }
   // Fallback: derive OS from process.platform; version unknown.
   const p = process.platform;
-  const os: "macos" | "windows" | "linux" | "unknown" =
-    p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
+  let os: "macos" | "windows" | "linux" | "unknown" = "unknown";
+  if (p === "darwin") {
+    os = "macos";
+  } else if (p === "win32") {
+    os = "windows";
+  } else if (p === "linux") {
+    os = "linux";
+  }
   return { version: "unknown", os };
 }
 

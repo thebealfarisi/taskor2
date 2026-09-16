@@ -64,6 +64,10 @@ const SCOPES: { value: MyIssuesScope; label: string }[] = [
   { value: "agents", label: "Agents" },
 ];
 
+function IssueSeparator() {
+  return <View className="h-px bg-border ml-4" />;
+}
+
 export default function MyIssues() {
   const isFocused = useIsFocused();
   const userId = useAuthStore((s) => s.user?.id ?? null);
@@ -118,6 +122,59 @@ export default function MyIssues() {
   const showEmptyState =
     !isLoading && !error && filtered.length === 0;
 
+  let content = null;
+  if (isLoading) {
+    content = <IssuesLoading />;
+  } else if (error) {
+    content = (
+      <View className="px-4 gap-3 pt-4">
+        <Text className="text-sm text-destructive">
+          Failed to load issues:{" "}
+          {error instanceof Error ? error.message : "unknown error"}
+        </Text>
+        <Button variant="outline" onPress={() => refetch()}>
+          <Text>Retry</Text>
+        </Button>
+      </View>
+    );
+  } else if (showEmptyState) {
+    content = (
+      <EmptyState
+        message={
+          hasActiveFilters
+            ? "No issues match the current filters."
+            : emptyMessageForScope(scope)
+        }
+      />
+    );
+  } else {
+    content = (
+      <SectionList
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        stickySectionHeadersEnabled={false}
+        ItemSeparatorComponent={IssueSeparator}
+        renderSectionHeader={({ section }) => (
+          <SectionHeader
+            category={section.category}
+            count={section.data.length}
+          />
+        )}
+        contentContainerClassName="pb-6"
+        renderItem={({ item }) => (
+          <IssueRow
+            issue={item}
+            onPress={() => {
+              if (wsSlug) router.push(`/${wsSlug}/issue/${item.id}`);
+            }}
+          />
+        )}
+        refreshing={isFocused && isRefetching}
+        onRefresh={refetch}
+      />
+    );
+  }
+
   return (
     <View className="flex-1 bg-background">
       <Header title="My Issues" right={<HeaderActions />} />
@@ -141,54 +198,7 @@ export default function MyIssues() {
           }
         />
       ) : null}
-      {isLoading ? (
-        <IssuesLoading />
-      ) : error ? (
-        <View className="px-4 gap-3 pt-4">
-          <Text className="text-sm text-destructive">
-            Failed to load issues:{" "}
-            {error instanceof Error ? error.message : "unknown error"}
-          </Text>
-          <Button variant="outline" onPress={() => refetch()}>
-            <Text>Retry</Text>
-          </Button>
-        </View>
-      ) : showEmptyState ? (
-        <EmptyState
-          message={
-            hasActiveFilters
-              ? "No issues match the current filters."
-              : emptyMessageForScope(scope)
-          }
-        />
-      ) : (
-        <SectionList
-          sections={sections}
-          keyExtractor={(item) => item.id}
-          stickySectionHeadersEnabled={false}
-          ItemSeparatorComponent={() => (
-            <View className="h-px bg-border ml-4" />
-          )}
-          renderSectionHeader={({ section }) => (
-            <SectionHeader
-              category={section.category}
-              count={section.data.length}
-            />
-          )}
-          contentContainerClassName="pb-6"
-          renderItem={({ item }) => (
-            <IssueRow
-              issue={item}
-              onPress={() => {
-                if (wsSlug) router.push(`/${wsSlug}/issue/${item.id}`);
-              }}
-            />
-          )}
-          refreshing={isFocused && isRefetching}
-          onRefresh={refetch}
-        />
-      )}
-
+      {content}
     </View>
   );
 }

@@ -112,6 +112,43 @@ export default function Inbox() {
     );
   };
 
+  let content = null;
+  if (isLoading) {
+    content = <InboxLoading />;
+  } else if (error) {
+    content = (
+      <View className="px-4 gap-3 pt-4">
+        <Text className="text-sm text-destructive">
+          Failed to load inbox:{" "}
+          {error instanceof Error ? error.message : "unknown error"}
+        </Text>
+        <Button variant="outline" onPress={() => refetch()}>
+          <Text>Retry</Text>
+        </Button>
+      </View>
+    );
+  } else if (!data || data.length === 0) {
+    content = <InboxEmpty iconColor={THEME[colorScheme].mutedForeground} />;
+  } else {
+    content = (
+      <FlatList
+        data={data}
+        keyExtractor={(item) => item.id}
+        ItemSeparatorComponent={InboxSeparator}
+        contentContainerClassName="pb-6"
+        renderItem={({ item }) => (
+          <SwipeableInboxRow
+            item={item}
+            onPress={() => onPressItem(item)}
+            onArchive={() => archive.mutate(item.id)}
+          />
+        )}
+        refreshing={isRefetching}
+        onRefresh={refetch}
+      />
+    );
+  }
+
   return (
     <View className="flex-1 bg-background">
       <Header
@@ -127,39 +164,7 @@ export default function Inbox() {
           </>
         }
       />
-      {isLoading ? (
-        <InboxLoading />
-      ) : error ? (
-        <View className="px-4 gap-3 pt-4">
-          <Text className="text-sm text-destructive">
-            Failed to load inbox:{" "}
-            {error instanceof Error ? error.message : "unknown error"}
-          </Text>
-          <Button variant="outline" onPress={() => refetch()}>
-            <Text>Retry</Text>
-          </Button>
-        </View>
-      ) : !data || data.length === 0 ? (
-        <InboxEmpty iconColor={THEME[colorScheme].mutedForeground} />
-      ) : (
-        <FlatList
-          data={data}
-          keyExtractor={(item) => item.id}
-          ItemSeparatorComponent={() => (
-            <View className="h-px bg-border ml-16" />
-          )}
-          contentContainerClassName="pb-6"
-          renderItem={({ item }) => (
-            <SwipeableInboxRow
-              item={item}
-              onPress={() => onPressItem(item)}
-              onArchive={() => archive.mutate(item.id)}
-            />
-          )}
-          refreshing={isRefetching}
-          onRefresh={refetch}
-        />
-      )}
+      {content}
     </View>
   );
 }
@@ -167,11 +172,17 @@ export default function Inbox() {
 // Loading state — 6 row-shaped Skeletons matching InboxRow's layout
 // (avatar circle + two text lines). Perceived perf wins over a centered
 // spinner because the eye immediately sees the list-like structure.
+const SKELETON_KEYS = ["sk-1", "sk-2", "sk-3", "sk-4", "sk-5", "sk-6"];
+
+function InboxSeparator() {
+  return <View className="h-px bg-border ml-16" />;
+}
+
 function InboxLoading() {
   return (
     <View className="px-4 pt-4 gap-4">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <View key={i} className="flex-row gap-3">
+      {SKELETON_KEYS.map((key) => (
+        <View key={key} className="flex-row gap-3">
           <Skeleton className="size-9 rounded-full" />
           <View className="flex-1 gap-2 pt-1">
             <Skeleton className="h-3.5 w-3/4" />

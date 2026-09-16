@@ -151,7 +151,7 @@ export default function WorkspaceLayout() {
           options={{
             title: "Edit Project",
             presentation: "modal",
-            headerLeft: () => <ModalCloseButton />,
+            headerLeft: ModalCloseButton,
           }}
         />
         <Stack.Screen
@@ -159,7 +159,7 @@ export default function WorkspaceLayout() {
           options={{
             title: "Edit Issue",
             presentation: "modal",
-            headerLeft: () => <ModalCloseButton />,
+            headerLeft: ModalCloseButton,
           }}
         />
         <Stack.Screen
@@ -167,7 +167,7 @@ export default function WorkspaceLayout() {
           options={{
             title: "New Project",
             presentation: "modal",
-            headerLeft: () => <ModalCloseButton />,
+            headerLeft: ModalCloseButton,
           }}
         />
         {/* Issue-detail formSheet pickers. All share the same sheet config:
@@ -322,7 +322,7 @@ export default function WorkspaceLayout() {
           options={{
             title: "New Issue",
             presentation: "modal",
-            headerLeft: () => <ModalCloseButton />,
+            headerLeft: ModalCloseButton,
           }}
         />
         <Stack.Screen
@@ -330,7 +330,7 @@ export default function WorkspaceLayout() {
           options={{
             title: "Search",
             presentation: "modal",
-            headerLeft: () => <ModalCloseButton />,
+            headerLeft: ModalCloseButton,
           }}
         />
       </Stack>

@@ -34,9 +34,8 @@ import {
   DesktopRouteErrorPage,
 } from "./route-error-page";
 
-function Boom(): null {
+function Boom(): never {
   throw new Error("route render exploded");
-  return null;
 }
 
 /**

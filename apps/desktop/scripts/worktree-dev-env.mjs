@@ -90,7 +90,7 @@ export function appSuffixForPath(path) {
     basename(path)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "worktree";
+      .replace(/(?:^-+)|(?:-+$)/g, "") || "worktree";
   return `${slug}-${offsetForPath(path)}`;
 }
 

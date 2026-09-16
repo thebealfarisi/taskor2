@@ -440,17 +440,22 @@ function FilterChip({
   count: number;
   variant?: LogLevel;
 }) {
+  let badgeStyle = "border-dashed text-muted-foreground";
+  if (active) {
+    if (variant) {
+      badgeStyle = LEVEL_BADGE_CLASS[variant];
+    } else {
+      badgeStyle = "bg-accent text-accent-foreground";
+    }
+  }
+
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
         "inline-flex h-7 items-center gap-1 rounded-md border bg-background px-2 text-caption transition-colors hover:bg-accent",
-        active
-          ? variant
-            ? LEVEL_BADGE_CLASS[variant]
-            : "bg-accent text-accent-foreground"
-          : "border-dashed text-muted-foreground",
+        badgeStyle,
       )}
     >
       {label}

@@ -87,7 +87,12 @@ export function DaemonSettingsTab() {
   // Windows desktop): /health is reachable but the lifecycle CLI can't reach
   // its process. Auto-start/auto-stop can't work, so disable them and say why
   // rather than letting the toggles silently no-op. See #3916.
-  const externallyManaged = status.externallyManaged === true;
+  let cliStatusDescription = "multica CLI not found. Install it to enable daemon management.";
+  if (cliInstalled === null) {
+    cliStatusDescription = "Checking…";
+  } else if (cliInstalled) {
+    cliStatusDescription = "multica CLI is installed and available in PATH.";
+  }
 
   return (
     <SettingsTab
@@ -157,13 +162,7 @@ export function DaemonSettingsTab() {
 
         <SettingsRow
           label="CLI Status"
-          description={
-            cliInstalled === null
-              ? "Checking…"
-              : cliInstalled
-                ? "multica CLI is installed and available in PATH."
-                : "multica CLI not found. Install it to enable daemon management."
-          }
+          description={cliStatusDescription}
         >
           {cliInstalled === false && (
             <Button

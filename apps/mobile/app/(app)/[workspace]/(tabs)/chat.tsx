@@ -474,17 +474,31 @@ export default function ChatTab() {
     availability === "none" ||
     isArchived === true ||
     !runtimeBound;
-  const disabledReason = !currentAgent
-    ? "No agent selected"
-    : accessRevoked
-      ? "You can no longer run this agent"
-      : availability === "none"
-        ? "No agents in this workspace"
-        : isArchived
-          ? "This chat is archived"
-          : !runtimeBound
-            ? "Agent needs a runtime"
-          : undefined;
+
+  let disabledReason: string | undefined;
+  if (!currentAgent) {
+    disabledReason = "No agent selected";
+  } else if (accessRevoked) {
+    disabledReason = "You can no longer run this agent";
+  } else if (availability === "none") {
+    disabledReason = "No agents in this workspace";
+  } else if (isArchived) {
+    disabledReason = "This chat is archived";
+  } else if (!runtimeBound) {
+    disabledReason = "Agent needs a runtime";
+  }
+
+  let banner = null;
+  if (runtimeBound) {
+    banner = (
+      <OfflineBanner
+        agentName={currentAgent?.name}
+        availability={presenceAvailability}
+      />
+    );
+  } else if (currentAgent) {
+    banner = <RuntimeRequiredBanner agentName={currentAgent.name} />;
+  }
 
   return (
     <View className="flex-1 bg-background">
@@ -529,14 +543,7 @@ export default function ChatTab() {
           liveTaskMessages={liveTaskMessages}
           availability={presenceAvailability}
         />
-        {runtimeBound ? (
-          <OfflineBanner
-            agentName={currentAgent?.name}
-            availability={presenceAvailability}
-          />
-        ) : currentAgent ? (
-          <RuntimeRequiredBanner agentName={currentAgent.name} />
-        ) : null}
+        {banner}
         <ChatComposer
           value={draft}
           onChangeText={(next) => setDraft(draftKey, next)}

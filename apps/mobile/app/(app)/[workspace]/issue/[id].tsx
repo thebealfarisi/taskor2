@@ -43,6 +43,28 @@ import { useViewedIssuesStore } from "@/data/viewed-issues-store";
 import { useCommentSelectStore } from "@/data/comment-select-store";
 import { useReplyTargetStore } from "@/data/stores/reply-target-store";
 
+function IssueHeaderRight({
+  issueId,
+  onPressMore,
+}: {
+  issueId: string;
+  onPressMore: () => void;
+}) {
+  return (
+    <View className="flex-row items-center gap-2">
+      {/* Ambient agent-working badge — renders null when no
+       *  active tasks, so it doesn't crowd the header in the
+       *  common case. See agent-header-badge.tsx. */}
+      <AgentHeaderBadge issueId={issueId} />
+      <IconButton
+        name="ellipsis-horizontal"
+        onPress={onPressMore}
+        accessibilityLabel="Issue actions"
+      />
+    </View>
+  );
+}
+
 export default function IssueDetail() {
   // `highlight` + `h` come from inbox deep-link (apps/mobile/app/(app)/
   // [workspace]/(tabs)/inbox.tsx). `highlight` is the target comment id;
@@ -153,6 +175,43 @@ export default function IssueDetail() {
     );
   }, [issue, wsSlug, deleteIssue, isPinned, createPin, deletePin]);
 
+  let content = null;
+  if (detail.isLoading) {
+    content = (
+      <View className="flex-1 items-center justify-center">
+        <ActivityIndicator />
+      </View>
+    );
+  } else if (detail.error || !issue) {
+    const errorMessage =
+      detail.error instanceof Error ? detail.error.message : "not found";
+    content = (
+      <View className="flex-1 items-center justify-center px-6 gap-3">
+        <Text className="text-sm text-destructive text-center">
+          Failed to load issue: {errorMessage}
+        </Text>
+        <Button variant="outline" onPress={() => detail.refetch()}>
+          <Text>Retry</Text>
+        </Button>
+      </View>
+    );
+  } else {
+    content = (
+      <View className="flex-1">
+        <TimelineList
+          issue={issue}
+          entries={timeline.data}
+          timelineLoading={timeline.isLoading}
+          refreshing={detail.isRefetching || timeline.isRefetching}
+          onRefresh={onRefresh}
+          highlightCommentId={highlight}
+          highlightNonce={h}
+        />
+        <InlineCommentComposer issueId={id} />
+      </View>
+    );
+  }
+
   return (
     <View className="flex-1 bg-background">
       <Stack.Screen
@@ -161,51 +220,12 @@ export default function IssueDetail() {
           headerBackTitle: "Back",
           headerRight: issue
             ? () => (
-                <View className="flex-row items-center gap-2">
-                  {/* Ambient agent-working badge — renders null when no
-                   *  active tasks, so it doesn't crowd the header in the
-                   *  common case. See agent-header-badge.tsx. */}
-                  <AgentHeaderBadge issueId={id} />
-                  <IconButton
-                    name="ellipsis-horizontal"
-                    onPress={onPressMore}
-                    accessibilityLabel="Issue actions"
-                  />
-                </View>
+                <IssueHeaderRight issueId={id} onPressMore={onPressMore} />
               )
             : undefined,
         }}
       />
-      {detail.isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator />
-        </View>
-      ) : detail.error || !issue ? (
-        <View className="flex-1 items-center justify-center px-6 gap-3">
-          <Text className="text-sm text-destructive text-center">
-            Failed to load issue:{" "}
-            {detail.error instanceof Error
-              ? detail.error.message
-              : "not found"}
-          </Text>
-          <Button variant="outline" onPress={() => detail.refetch()}>
-            <Text>Retry</Text>
-          </Button>
-        </View>
-      ) : (
-        <View className="flex-1">
-          <TimelineList
-            issue={issue}
-            entries={timeline.data}
-            timelineLoading={timeline.isLoading}
-            refreshing={detail.isRefetching || timeline.isRefetching}
-            onRefresh={onRefresh}
-            highlightCommentId={highlight}
-            highlightNonce={h}
-          />
-          <InlineCommentComposer issueId={id} />
-        </View>
-      )}
+      {content}
     </View>
   );
 }

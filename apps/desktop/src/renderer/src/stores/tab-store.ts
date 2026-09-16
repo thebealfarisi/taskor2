@@ -304,12 +304,14 @@ function extractWorkspaceSlug(path: string): string | null {
 export function splitTabUrl(url: string): { pathname: string; suffix: string } {
   const searchIdx = url.indexOf("?");
   const hashIdx = url.indexOf("#");
-  const cut =
-    searchIdx === -1
-      ? hashIdx
-      : hashIdx === -1
-        ? searchIdx
-        : Math.min(searchIdx, hashIdx);
+  let cut: number;
+  if (searchIdx === -1) {
+    cut = hashIdx;
+  } else if (hashIdx === -1) {
+    cut = searchIdx;
+  } else {
+    cut = Math.min(searchIdx, hashIdx);
+  }
   if (cut === -1) return { pathname: url, suffix: "" };
   return { pathname: url.slice(0, cut), suffix: url.slice(cut) };
 }
@@ -1108,7 +1110,10 @@ export function mergePersistedTabs<T extends PersistedTabState>(
     // Enforce the "pinned first" invariant on rehydration in case a
     // user (or a buggy older write) persisted the pinned tabs out of
     // order. Stable sort preserves intra-group order.
-    tabs.sort((a, b) => (a.pinned === b.pinned ? 0 : a.pinned ? -1 : 1));
+    tabs.sort((a, b) => {
+      if (a.pinned === b.pinned) return 0;
+      return a.pinned ? -1 : 1;
+    });
     const activeTabId = tabs.some((t) => t.id === pGroup.activeTabId)
       ? pGroup.activeTabId
       : tabs[0].id;

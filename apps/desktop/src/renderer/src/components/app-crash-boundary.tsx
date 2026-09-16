@@ -25,20 +25,19 @@ import { DragStrip } from "@multica/views/platform";
  * A full `location.reload()` re-runs bootstrap from persisted state, which is
  * the recovery path the user would otherwise get by restarting the app.
  */
+function handleError(error: Error) {
+  captureException(error, { source: "desktop-renderer-boundary" });
+}
+
+function renderCrashFallback({ error }: { error: Error }) {
+  return <CrashFallback error={error} />;
+}
+
 export function AppCrashBoundary({ children }: { children: ReactNode }) {
   return (
     <ErrorBoundary
-      // captureException, not captureEvent: only `$exception` events pass
-      // through initAnalytics' before_send hook, which drops known-benign
-      // noise, runs redactExceptionProperties over the message and stack, and
-      // fuses repeats via shouldDropException. A plain event would ship a raw
-      // message and stack — which can carry emails, tokenised URLs or typed
-      // user input — straight to storage. Same entry point the web
-      // global-error route uses.
-      onError={(error) => {
-        captureException(error, { source: "desktop-renderer-boundary" });
-      }}
-      fallback={({ error }) => <CrashFallback error={error} />}
+      onError={handleError}
+      fallback={renderCrashFallback}
     >
       {children}
     </ErrorBoundary>

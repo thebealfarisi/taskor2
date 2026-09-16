@@ -4,7 +4,7 @@
 @import "@multica/ui/styles/tokens.css";
 @import "@multica/ui/styles/base.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark *)); /* NOSONAR */
 
 /* Tab strip hairlines sit on each tab's own left edge, so the hairline between
    two tabs belongs to the tab on the right. Hovering the left tab has to fade
@@ -12,7 +12,7 @@
    adjacent-sibling selector. The (hover: hover) gate mirrors what Tailwind
    already wraps group-hover in, so both halves of the fade stay in step on
    devices without a pointer. */
-@custom-variant prev-tab-hover {
+@custom-variant prev-tab-hover { /* NOSONAR */
   @media (hover: hover) {
     [data-tab-frame]:hover + [data-tab-frame] & {
       @slot;
@@ -65,10 +65,10 @@ html[lang|="ja"] {
                "Noto Sans CJK KR", sans-serif;
 }
 
-@source "../../../../../packages/ui/**/*.tsx";
-@source "../../../../../packages/core/**/*.{ts,tsx}";
-@source "../../../../../packages/views/**/*.{ts,tsx}";
-@source "./**/*.tsx";
+@source "../../../../../packages/ui/**/*.tsx"; /* NOSONAR */
+@source "../../../../../packages/core/**/*.{ts,tsx}"; /* NOSONAR */
+@source "../../../../../packages/views/**/*.{ts,tsx}"; /* NOSONAR */
+@source "./**/*.tsx"; /* NOSONAR */
 
 /* Desktop-specific: override sidebar container padding for traffic light layout */
 [data-slot="sidebar-container"] {

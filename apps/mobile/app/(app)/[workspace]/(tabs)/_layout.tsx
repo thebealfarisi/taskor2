@@ -43,6 +43,46 @@ const BADGE_STYLE = {
   backgroundColor: THEME.light.brand,
 };
 
+function InboxIcon({ color, size, focused }: { color: string; size: number; focused: boolean }) {
+  return (
+    <Image
+      source={focused ? "sf:tray.fill" : "sf:tray"}
+      tintColor={color}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function MyIssuesIcon({ color, size, focused }: { color: string; size: number; focused: boolean }) {
+  return (
+    <Image
+      source={focused ? "sf:checklist" : "sf:checklist.unchecked"}
+      tintColor={color}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function ChatIcon({ color, size, focused }: { color: string; size: number; focused: boolean }) {
+  return (
+    <Image
+      source={focused ? "sf:bubble.left.fill" : "sf:bubble.left"}
+      tintColor={color}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function MoreIcon({ color, size }: { color: string; size: number }) {
+  return (
+    <Image
+      source="sf:ellipsis"
+      tintColor={color}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
 export default function TabsLayout() {
   const { colorScheme } = useColorScheme();
   const t = THEME[colorScheme];
@@ -53,10 +93,19 @@ export default function TabsLayout() {
 
   // Truncation aligned with web's sidebar badges: 99+ for both. `undefined`
   // makes React Navigation hide the badge, so zero-count is a free no-op.
-  const inboxBadge =
-    inboxUnread > 0 ? (inboxUnread > 99 ? "99+" : String(inboxUnread)) : undefined;
-  const chatBadge =
-    chatUnread > 0 ? (chatUnread > 99 ? "99+" : String(chatUnread)) : undefined;
+  let inboxBadge: string | undefined;
+  if (inboxUnread > 99) {
+    inboxBadge = "99+";
+  } else if (inboxUnread > 0) {
+    inboxBadge = String(inboxUnread);
+  }
+
+  let chatBadge: string | undefined;
+  if (chatUnread > 99) {
+    chatBadge = "99+";
+  } else if (chatUnread > 0) {
+    chatBadge = String(chatUnread);
+  }
 
   // Imperative handle into the More tab's dropdown — listeners.tabPress
   // calls .open(); the @rn-primitives Trigger measures itself inside
@@ -80,26 +129,14 @@ export default function TabsLayout() {
             title: "Inbox",
             tabBarBadge: inboxBadge,
             tabBarBadgeStyle: BADGE_STYLE,
-            tabBarIcon: ({ color, size, focused }) => (
-              <Image
-                source={focused ? "sf:tray.fill" : "sf:tray"}
-                tintColor={color}
-                style={{ width: size, height: size }}
-              />
-            ),
+            tabBarIcon: InboxIcon,
           }}
         />
         <Tabs.Screen
           name="my-issues"
           options={{
             title: "My Issues",
-            tabBarIcon: ({ color, size, focused }) => (
-              <Image
-                source={focused ? "sf:checklist" : "sf:checklist.unchecked"}
-                tintColor={color}
-                style={{ width: size, height: size }}
-              />
-            ),
+            tabBarIcon: MyIssuesIcon,
           }}
         />
         <Tabs.Screen
@@ -108,26 +145,14 @@ export default function TabsLayout() {
             title: "Chat",
             tabBarBadge: chatBadge,
             tabBarBadgeStyle: BADGE_STYLE,
-            tabBarIcon: ({ color, size, focused }) => (
-              <Image
-                source={focused ? "sf:bubble.left.fill" : "sf:bubble.left"}
-                tintColor={color}
-                style={{ width: size, height: size }}
-              />
-            ),
+            tabBarIcon: ChatIcon,
           }}
         />
         <Tabs.Screen
           name="more"
           options={{
             title: "More",
-            tabBarIcon: ({ color, size }) => (
-              <Image
-                source="sf:ellipsis"
-                tintColor={color}
-                style={{ width: size, height: size }}
-              />
-            ),
+            tabBarIcon: MoreIcon,
           }}
           listeners={() => ({
             tabPress: (e) => {

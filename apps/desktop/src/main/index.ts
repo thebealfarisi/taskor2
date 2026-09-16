@@ -685,7 +685,14 @@ if (!gotTheLock) {
     // already carries X-Client-Version and X-Client-OS.
     ipcMain.on("app:get-info", (event) => {
       const p = process.platform;
-      const os = p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
+      let os = "unknown";
+      if (p === "darwin") {
+        os = "macos";
+      } else if (p === "win32") {
+        os = "windows";
+      } else if (p === "linux") {
+        os = "linux";
+      }
       event.returnValue = { version: getAppVersion(), os };
     });
 
@@ -819,7 +826,12 @@ if (!gotTheLock) {
     ipcMain.on("badge:set", (_event, rawCount: number) => {
       const count = Math.max(0, Math.floor(rawCount));
       if (process.platform === "darwin") {
-        const label = count === 0 ? "" : count > 99 ? "99+" : String(count);
+        let label = "";
+        if (count > 99) {
+          label = "99+";
+        } else if (count > 0) {
+          label = String(count);
+        }
         app.dock?.setBadge(label);
       } else {
         app.setBadgeCount(count);
