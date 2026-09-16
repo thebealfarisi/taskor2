@@ -259,18 +259,20 @@ export function LoginPage({
       setError("");
       try {
         await useAuthStore.getState().sendCode(email);
-        // BYPASS LOGIN: Immediately verify with dummy code instead of showing UI
-        await handleVerify("000000");
+        setStep("code");
+        setCode("");
+        setCooldown(60);
       } catch (err) {
         setError(
           err instanceof Error
             ? err.message
             : `${t(($) => $.errors.send_failed)} ${t(($) => $.errors.server_unreachable)}`,
         );
+      } finally {
         setLoading(false);
       }
     },
-    [email, t, handleVerify],
+    [email, t],
   );
 
   const handleResend = async () => {
