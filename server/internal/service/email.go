@@ -266,21 +266,35 @@ func (s *EmailService) sendSMTP(to, subject, htmlBody string) error {
 	defer c.Close()
 
 	if s.smtpUsername != "" {
-		fallbackToLogin, authErr := smtpAuthWithFallback(smtpClientAdapter{client: c}, s.smtpHost, s.smtpUsername, s.smtpPassword)
-		if authErr != nil {
-			if !fallbackToLogin {
-				return fmt.Errorf("smtp auth: %w", authErr)
-			}
+		ok, authLine := c.Extension("AUTH")
+		authUpper := strings.ToUpper(authLine)
+		hasPlain := ok && strings.Contains(authUpper, "PLAIN")
+		hasLogin := ok && strings.Contains(authUpper, "LOGIN")
 
-			c.Close()
-			c, err = s.openSMTPClient()
-			if err != nil {
-				return fmt.Errorf("smtp auth: plain auth failed (%v); login reconnect failed: %w", authErr, err)
-			}
-			defer c.Close()
-
+		if !hasPlain && hasLogin {
+			// The server (e.g. Office 365 / Exchange) only advertises LOGIN and not PLAIN.
+			// Authenticate using LOGIN directly on the active connection to avoid
+			// 504 Unrecognized authentication type and subsequent reconnect tarpit timeouts.
 			if err = c.Auth(&loginAuth{username: s.smtpUsername, password: s.smtpPassword, host: s.smtpHost}); err != nil {
-				return fmt.Errorf("smtp auth: plain auth failed (%v); login auth fallback failed: %w", authErr, err)
+				return fmt.Errorf("smtp auth: %w", err)
+			}
+		} else {
+			fallbackToLogin, authErr := smtpAuthWithFallback(smtpClientAdapter{client: c}, s.smtpHost, s.smtpUsername, s.smtpPassword)
+			if authErr != nil {
+				if !fallbackToLogin {
+					return fmt.Errorf("smtp auth: %w", authErr)
+				}
+
+				c.Close()
+				c, err = s.openSMTPClient()
+				if err != nil {
+					return fmt.Errorf("smtp auth: plain auth failed (%v); login reconnect failed: %w", authErr, err)
+				}
+				defer c.Close()
+
+				if err = c.Auth(&loginAuth{username: s.smtpUsername, password: s.smtpPassword, host: s.smtpHost}); err != nil {
+					return fmt.Errorf("smtp auth: plain auth failed (%v); login auth fallback failed: %w", authErr, err)
+				}
 			}
 		}
 	}
