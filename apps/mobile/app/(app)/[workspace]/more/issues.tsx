@@ -64,6 +64,10 @@ const SCOPES: { value: IssuesScope; label: string }[] = [
   { value: "agents", label: "Agents" },
 ];
 
+function IssueSeparator() {
+  return <View className="h-px bg-border ml-4" />;
+}
+
 export default function IssuesPage() {
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const wsSlug = useWorkspaceStore((s) => s.currentWorkspaceSlug);
