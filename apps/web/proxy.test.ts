@@ -244,4 +244,12 @@ describe("proxy root and locale handling", () => {
       res.headers.get(`x-middleware-request-${MULTICA_LOCALE_HEADER}`),
     ).toBe("zh-Hans");
   });
+
+  it("redirects trailing slashes with 308 and explicit content-type", () => {
+    const res = proxy(makeRequest("/auth/"));
+
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe("https://app.multica.test/auth");
+    expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  });
 });

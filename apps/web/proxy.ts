@@ -42,16 +42,12 @@ function nextWithLocale(req: NextRequest): NextResponse {
   return NextResponse.next({ request: { headers } });
 }
 
-function redirectWithSecurityHeaders(url: URL | string): NextResponse {
-  const res = NextResponse.redirect(url);
+function redirectWithSecurityHeaders(
+  url: URL | string,
+  status = 307,
+): NextResponse {
+  const res = NextResponse.redirect(url, status);
   res.headers.set("content-type", "text/plain; charset=utf-8");
-  res.headers.set("x-content-type-options", "nosniff");
-  res.headers.set("x-frame-options", "DENY");
-  res.headers.set(
-    "strict-transport-security",
-    "max-age=63072000; includeSubDomains; preload",
-  );
-  res.headers.set("referrer-policy", "strict-origin-when-cross-origin");
   return res;
 }
 
@@ -61,6 +57,16 @@ function redirectWithSecurityHeaders(url: URL | string): NextResponse {
 // edge.
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Normalize trailing slashes (e.g. /auth/ -> /auth) with explicit Content-Type
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    const cleanUrl = new URL(
+      pathname.replace(/\/+$/, "") + req.nextUrl.search,
+      req.url,
+    );
+    return redirectWithSecurityHeaders(cleanUrl, 308);
+  }
+
   const runtimeDestination = runtimeRewriteDestination(pathname, process.env);
   if (runtimeDestination) {
     const url = new URL(runtimeDestination);

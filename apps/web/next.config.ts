@@ -58,32 +58,16 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com data:",
-              "img-src 'self' data: https: blob:",
-              "connect-src 'self' https: wss: ws:",
+              "img-src 'self' data: blob:",
+              "connect-src 'self'",
               "frame-ancestors 'none'",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",
             ].join("; "),
-          },
-          {
-            key: "X-Frame-Options",
-            value: "DENY",
-          },
-          {
-            key: "X-Content-Type-Options",
-            value: "nosniff",
-          },
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
-          {
-            key: "Referrer-Policy",
-            value: "strict-origin-when-cross-origin",
           },
           {
             key: "Permissions-Policy",
@@ -96,7 +80,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=3600",
+            value: "public, max-age=86400, immutable",
           },
         ],
       },
@@ -105,7 +89,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=3600",
+            value: "public, max-age=86400, immutable",
           },
         ],
       },
@@ -114,7 +98,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=3600",
+            value: "public, max-age=86400, immutable",
           },
         ],
       },
@@ -162,8 +146,11 @@ const nextConfig: NextConfig = {
   webpack: (config, { dev }) => {
     if (!dev && config.optimization?.minimizer) {
       for (const minimizer of config.optimization.minimizer) {
-        if (minimizer?.options?.terserOptions?.format) {
-          minimizer.options.terserOptions.format.comments = false;
+        if (minimizer?.options) {
+          minimizer.options.extractComments = false;
+          if (minimizer.options.terserOptions?.format) {
+            minimizer.options.terserOptions.format.comments = false;
+          }
         }
       }
     }

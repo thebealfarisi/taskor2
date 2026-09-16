@@ -258,6 +258,7 @@ function FormCard({
 
   return (
     <form
+      method="post"
       onSubmit={onSubmit}
       className="space-y-8 rounded-[16px] border border-[#0a0d12]/8 bg-white p-6 shadow-[0_1px_2px_rgba(10,13,18,0.04)] sm:p-10"
     >
