@@ -24,6 +24,19 @@ func TestContentSecurityPolicy(t *testing.T) {
 		"base-uri 'self'",
 		"form-action 'self'",
 	})
+
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", got)
+	}
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Errorf("expected X-Frame-Options: DENY, got %q", got)
+	}
+	if got := rec.Header().Get("Strict-Transport-Security"); !strings.Contains(got, "max-age=") {
+		t.Errorf("expected Strict-Transport-Security header, got %q", got)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Errorf("expected Referrer-Policy: strict-origin-when-cross-origin, got %q", got)
+	}
 }
 
 func TestContentSecurityPolicyAllowsSameOriginAttachmentPreviews(t *testing.T) {

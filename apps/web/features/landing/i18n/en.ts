@@ -307,7 +307,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         fixes: [
           "Windows command-line builds now create correctly named executables.",
           "Agents can still load skills after a brief connection drop.",
-          "Run now no longer exposes internal error details.",
+          "Run now no longer exposes sensitive diagnostic information.",
           "Agent updates stay responsive in busy workspaces.",
         ],
       },

@@ -468,6 +468,7 @@ export function LoginPage({
         </CardHeader>
         <CardContent>
           <form id="login-form" onSubmit={handleSendCode} className="space-y-4">
+            <input type="hidden" name="csrf_token" value="" />
             <div className="space-y-2">
               <Label htmlFor="login-email">{t(($) => $.common.email)}</Label>
               <Input

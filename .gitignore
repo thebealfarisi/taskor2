@@ -3,6 +3,7 @@ dist
 *.log
 .DS_Store
 .envrc
+dev_taskor_bak/
 
 # build outputs
 .turbo

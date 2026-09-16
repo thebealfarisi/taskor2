@@ -261,6 +261,7 @@ function FormCard({
       onSubmit={onSubmit}
       className="space-y-8 rounded-[16px] border border-[#0a0d12]/8 bg-white p-6 shadow-[0_1px_2px_rgba(10,13,18,0.04)] sm:p-10"
     >
+      <input type="hidden" name="csrf_token" value="" />
       <div className="rounded-[12px] border border-[#0a0d12]/8 bg-[#f7f8fa] p-4 text-label leading-[1.6] text-[#0a0d12]/72">
         <p className="font-semibold text-[#0a0d12]">
           <span aria-hidden className="mr-1.5">📌</span>

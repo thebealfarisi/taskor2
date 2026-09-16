@@ -42,6 +42,19 @@ function nextWithLocale(req: NextRequest): NextResponse {
   return NextResponse.next({ request: { headers } });
 }
 
+function redirectWithSecurityHeaders(url: URL | string): NextResponse {
+  const res = NextResponse.redirect(url);
+  res.headers.set("content-type", "text/plain; charset=utf-8");
+  res.headers.set("x-content-type-options", "nosniff");
+  res.headers.set("x-frame-options", "DENY");
+  res.headers.set(
+    "strict-transport-security",
+    "max-age=63072000; includeSubDomains; preload",
+  );
+  res.headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  return res;
+}
+
 // Next.js 16 renamed `middleware` → `proxy`. API surface (NextRequest /
 // NextResponse / cookies / matcher) is identical; the only behavioral
 // change is the runtime — proxy is forced to nodejs and cannot opt into
@@ -67,13 +80,13 @@ export function proxy(req: NextRequest) {
 
     if (!hasSession) {
       url.pathname = "/login";
-      return NextResponse.redirect(url);
+      return redirectWithSecurityHeaders(url);
     }
 
     if (lastSlug) {
       // Preserve deep-link path + query: /issues/abc → /{lastSlug}/issues/abc
       url.pathname = `/${lastSlug}${pathname}`;
-      return NextResponse.redirect(url);
+      return redirectWithSecurityHeaders(url);
     }
 
     // Logged-in but no cookie yet (never opened a workspace, or the cookie was
@@ -87,7 +100,7 @@ export function proxy(req: NextRequest) {
     // segments themselves, so feeding one back would land here again.
     url.pathname = "/login";
     url.search = "";
-    return NextResponse.redirect(url);
+    return redirectWithSecurityHeaders(url);
   }
 
   // --- Root path: redirect logged-in users to their last workspace ---
@@ -103,7 +116,7 @@ export function proxy(req: NextRequest) {
   ) {
     const url = req.nextUrl.clone();
     url.pathname = `/${lastSlug}/issues`;
-    return NextResponse.redirect(url);
+    return redirectWithSecurityHeaders(url);
   }
 
   // --- Default: forward locale header to RSC, no redirect/rewrite ---
