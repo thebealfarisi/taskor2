@@ -38,6 +38,10 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
   { value: "system", label: "System" },
 ];
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 function initialsOf(name: string | undefined): string {
   if (!name) return "?";
   return name
@@ -62,7 +66,7 @@ export default function SettingsPage() {
   const onSwitch = async (ws: Workspace) => {
     if (ws.slug === currentSlug) return;
     await setCurrentWorkspace(ws.id, ws.slug);
-    router.replace(`/${ws.slug}/inbox`);
+    router.replace(`/${encodePathSegment(ws.slug)}/inbox`);
   };
 
   const onSignOut = () => {
@@ -83,9 +87,10 @@ export default function SettingsPage() {
     );
   };
 
-  const goProfile = () => router.push(`/${currentSlug}/more/settings/profile`);
+  const goProfile = () =>
+    router.push(`/${encodePathSegment(currentSlug)}/more/settings/profile`);
   const goNotifications = () =>
-    router.push(`/${currentSlug}/more/settings/notifications`);
+    router.push(`/${encodePathSegment(currentSlug)}/more/settings/notifications`);
 
   return (
     <ScrollView

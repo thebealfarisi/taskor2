@@ -64,6 +64,10 @@ const SCOPES: { value: IssuesScope; label: string }[] = [
   { value: "agents", label: "Agents" },
 ];
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 function IssueSeparator() {
   return <View className="h-px bg-border ml-4" />;
 }
@@ -187,7 +191,11 @@ export default function IssuesPage() {
             <IssueRow
               issue={item}
               onPress={() => {
-                if (wsSlug) router.push(`/${wsSlug}/issue/${item.id}`);
+                if (wsSlug) {
+                  router.push(
+                    `/${encodePathSegment(wsSlug)}/issue/${encodePathSegment(item.id)}`,
+                  );
+                }
               }}
             />
           )}

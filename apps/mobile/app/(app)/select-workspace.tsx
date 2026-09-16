@@ -9,6 +9,10 @@ import { workspaceListOptions } from "@/data/queries/workspaces";
 import { useAuthStore } from "@/data/auth-store";
 import { useWorkspaceStore } from "@/data/workspace-store";
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 export default function SelectWorkspace() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
@@ -17,7 +21,7 @@ export default function SelectWorkspace() {
 
   const onSelect = async (id: string, slug: string) => {
     await setCurrentWorkspace(id, slug);
-    router.replace(`/${slug}/inbox`);
+    router.replace(`/${encodePathSegment(slug)}/inbox`);
   };
 
   return (

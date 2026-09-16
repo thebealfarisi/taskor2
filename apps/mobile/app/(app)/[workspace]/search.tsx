@@ -140,6 +140,10 @@ function issueIconColor(category: IssueStatusCategory): string {
   }
 }
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 function navigateOnTap(slug: string | null, path: string) {
   // Search is `presentation: "modal"` (see (app)/[workspace]/_layout.tsx).
   // `router.replace` swaps the modal out for the destination in a single
@@ -168,7 +172,12 @@ function SearchIssueRow({ item, query, slug }: SearchIssueRowProps) {
   const statusLabel = labelOf(item.status);
   return (
     <Pressable
-      onPress={() => navigateOnTap(slug, `/${slug}/issue/${item.id}`)}
+      onPress={() =>
+        navigateOnTap(
+          slug,
+          `/${encodePathSegment(slug ?? "")}/issue/${encodePathSegment(item.id)}`,
+        )
+      }
       className="active:bg-secondary px-4 py-3"
     >
       <View className="flex-row items-center gap-3">
@@ -227,7 +236,12 @@ function SearchProjectRow({ item, query, slug }: SearchProjectRowProps) {
     item.match_source === "description" && !!item.matched_snippet;
   return (
     <Pressable
-      onPress={() => navigateOnTap(slug, `/${slug}/project/${item.id}`)}
+      onPress={() =>
+        navigateOnTap(
+          slug,
+          `/${encodePathSegment(slug ?? "")}/project/${encodePathSegment(item.id)}`,
+        )
+      }
       className="active:bg-secondary px-4 py-3"
     >
       <View className="flex-row items-center gap-3">
@@ -274,7 +288,12 @@ function RecentRow({ item, slug }: RecentRowProps) {
   const statusLabel = labelOf(item.status);
   return (
     <Pressable
-      onPress={() => navigateOnTap(slug, `/${slug}/issue/${item.id}`)}
+      onPress={() =>
+        navigateOnTap(
+          slug,
+          `/${encodePathSegment(slug ?? "")}/issue/${encodePathSegment(item.id)}`,
+        )
+      }
       className="active:bg-secondary px-4 py-3"
     >
       <View className="flex-row items-center gap-3">

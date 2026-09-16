@@ -45,6 +45,10 @@ import { useAuthStore } from "@/data/auth-store";
 import { useProjectRealtime } from "@/data/realtime/use-project-realtime";
 import { useWorkspaceStore } from "@/data/workspace-store";
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 export default function ProjectDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
@@ -112,11 +116,15 @@ export default function ProjectDetail() {
           return;
         }
         if (label === "Edit details") {
-          if (wsSlug) router.push(`/${wsSlug}/project/${id}/edit`);
+          if (wsSlug) {
+            router.push(`/${encodePathSegment(wsSlug)}/project/${encodePathSegment(id)}/edit`);
+          }
           return;
         }
         if (label === "Open on web" && wsUrl) {
-          Linking.openURL(`${wsUrl}/${wsSlug}/projects/${id}`);
+          Linking.openURL(
+            `${wsUrl}/${encodePathSegment(wsSlug)}/projects/${encodePathSegment(id)}`,
+          );
           return;
         }
         if (i === destructiveIndex) {
@@ -192,7 +200,11 @@ export default function ProjectDetail() {
           <ProjectHeaderCard
             project={project}
             onEdit={() => {
-              if (wsSlug) router.push(`/${wsSlug}/project/${id}/edit`);
+              if (wsSlug) {
+                router.push(
+                  `/${encodePathSegment(wsSlug)}/project/${encodePathSegment(id)}/edit`,
+                );
+              }
             }}
           />
           <ProjectPropertiesSection

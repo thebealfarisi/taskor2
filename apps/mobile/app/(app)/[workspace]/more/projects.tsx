@@ -29,6 +29,10 @@ import { ProjectRow } from "@/components/project/project-row";
 import { projectListOptions } from "@/data/queries/projects";
 import { useWorkspaceStore } from "@/data/workspace-store";
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 export default function ProjectsPage() {
   const wsId = useWorkspaceStore((s) => s.currentWorkspaceId);
   const wsSlug = useWorkspaceStore((s) => s.currentWorkspaceSlug);
@@ -46,7 +50,7 @@ export default function ProjectsPage() {
   }, [data]);
 
   const goCreate = useCallback(() => {
-    if (wsSlug) router.push(`/${wsSlug}/project/new`);
+    if (wsSlug) router.push(`/${encodePathSegment(wsSlug)}/project/new`);
   }, [wsSlug]);
 
   const headerRight = useCallback(() => {
@@ -84,7 +88,11 @@ export default function ProjectsPage() {
             <ProjectRow
               project={item}
               onPress={() => {
-                if (wsSlug) router.push(`/${wsSlug}/project/${item.id}`);
+                if (wsSlug) {
+                  router.push(
+                    `/${encodePathSegment(wsSlug)}/project/${encodePathSegment(item.id)}`,
+                  );
+                }
               }}
             />
           )}
