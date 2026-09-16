@@ -37,9 +37,28 @@ function resolveLocale(req: NextRequest): string {
 // `request: { headers }` form is what makes the header land on the upstream
 // request — without it the value would only sit on the response.
 function nextWithLocale(req: NextRequest): NextResponse {
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const cspHeader = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob:",
+    "connect-src 'self'",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+
   const headers = new Headers(req.headers);
   headers.set(MULTICA_LOCALE_HEADER, resolveLocale(req));
-  return NextResponse.next({ request: { headers } });
+  headers.set("x-nonce", nonce);
+  headers.set("Content-Security-Policy", cspHeader);
+
+  const res = NextResponse.next({ request: { headers } });
+  res.headers.set("Content-Security-Policy", cspHeader);
+  return res;
 }
 
 function redirectWithSecurityHeaders(

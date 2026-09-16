@@ -235,7 +235,7 @@ describe("proxy root and locale handling", () => {
     );
   });
 
-  it("forwards locale on login requests", () => {
+  it("forwards locale on login requests and sets Strict CSP with nonce", () => {
     const res = proxy(makeRequest("/login", { "multica-locale": "zh-Hans" }));
 
     expect(res.status).toBe(200);
@@ -243,6 +243,13 @@ describe("proxy root and locale handling", () => {
     expect(
       res.headers.get(`x-middleware-request-${MULTICA_LOCALE_HEADER}`),
     ).toBe("zh-Hans");
+    expect(res.headers.get("x-middleware-request-x-nonce")).toBeTruthy();
+
+    const csp = res.headers.get("content-security-policy");
+    expect(csp).toBeTruthy();
+    expect(csp).toContain("strict-dynamic");
+    expect(csp).toContain("nonce-");
+    expect(csp).not.toContain("'unsafe-eval'");
   });
 
   it("redirects trailing slashes with 308 and explicit content-type", () => {
