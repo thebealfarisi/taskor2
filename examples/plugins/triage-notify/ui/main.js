@@ -15,6 +15,8 @@ let port = null;
 let sequence = 0;
 
 window.addEventListener("message", (event) => {
+  const expectedOrigin = document.referrer ? new URL(document.referrer).origin : window.location.origin;
+  if (event.origin && event.origin !== "null" && event.origin !== expectedOrigin) return;
   const data = event.data;
   if (!data || data.type !== "multica:plugin-bridge-init" || !event.ports[0]) return;
   // Only the embedder may hand this frame a port, and only once. Sibling frames
@@ -40,7 +42,8 @@ window.addEventListener("message", (event) => {
 
 (function announce(attempts) {
   if (port || attempts > 50) return;
-  window.parent.postMessage({ type: "multica:plugin-surface-ready" }, "*");
+  const targetOrigin = document.referrer ? new URL(document.referrer).origin : "*";
+  window.parent.postMessage({ type: "multica:plugin-surface-ready" }, targetOrigin);
   setTimeout(() => announce(attempts + 1), 120);
 })(0);
 
