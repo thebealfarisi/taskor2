@@ -32,7 +32,6 @@
 
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -49,7 +48,7 @@ import {
   type DraftUpload,
 } from "@multica/core/drafts";
 import { createSafeId } from "@multica/core/utils";
-import { contentReferencesAttachment, type Attachment } from "@multica/core/types";
+import type { Attachment } from "@multica/core/types";
 import {
   toUploadResult,
   type UploadContext,
@@ -60,145 +59,21 @@ import { useT } from "../i18n";
 import type { UploadGate } from "./use-upload-gate";
 import type { ContentEditorRef } from "./content-editor";
 import { pastedTextSource } from "./extensions/file-upload";
+import {
+  liveEditors,
+  deliverFinishedUpload,
+  deliverPastedTextBack,
+  type UploadDraftBinding,
+} from "./upload-delivery";
+import { useUploadPlaceholderSync } from "./use-upload-placeholder-sync";
+
+export {
+  __liveEditorRegistryKeysForTest,
+  attachmentMarkdown,
+  type UploadDraftBinding,
+} from "./upload-delivery";
 
 const EMPTY_ATTACHMENTS: Attachment[] = [];
-
-/**
- * Store-backed accessors for one composer target's uploads and body. Every
- * method must go through the store's `getState()` (never captured React
- * state): settle handlers call them after the owning component is gone.
- */
-export interface UploadDraftBinding {
-  /**
-   * Identity for the live-editor registry — unique per composer target
-   * (e.g. `comment:new:{issueId}`, `issue-create:manual`). A reopened
-   * composer for the same target registers its editor under the same key,
-   * which is how a settle handler finds it.
-   */
-  registryKey: string;
-  getUploads: () => DraftUpload[];
-  addUpload: (upload: DraftUpload) => void;
-  settleUpload: (clientUploadId: string, attachment: Attachment) => void;
-  failUpload: (clientUploadId: string, error?: string) => void;
-  removeUpload: (clientUploadId: string) => void;
-  /** The draft body reference-filtering binds against at submit time. */
-  getBody: () => string;
-  /** Append a markdown fragment to the persisted body. */
-  appendToBody: (markdown: string) => void;
-}
-
-// The editor currently showing each registry key. Lets a settle handler whose
-// own mount is gone (the upload outlived the composer) hand the finished link
-// to the editor a REOPENED composer mounted for the same target.
-const liveEditors = new Map<string, RefObject<ContentEditorRef | null>>();
-
-/** Test-only: registry keys currently registered. Lets timing tests assert
- *  registration is part of the COMMIT (layout), not a passive task later. */
-export function __liveEditorRegistryKeysForTest(): string[] {
-  return [...liveEditors.keys()];
-}
-
-/** Markdown for a finished upload. Mirrors the shape the in-editor swap
- *  produces (`extensions/file-upload.ts`: image node for images, fileCard link
- *  for everything else) — keep the two in sync. */
-export function attachmentMarkdown(att: Attachment): string {
-  const link = toUploadResult(att).markdownLink;
-  return (att.content_type ?? "").startsWith("image/")
-    ? `![${att.filename}](${link})`
-    : `[${att.filename}](${link})`;
-}
-
-const DELIVER_RETRY_MS = 50;
-const DELIVER_MAX_TRIES = 100; // ~5s — editor init is a passive effect away
-
-/**
- * Land a finished upload's markdown link in the draft BODY after the mount
- * that owned the upload died. Delivery must be CONFIRMED, not assumed:
- *
- *  - live editor for the key, insert landed → also persist the same body via
- *    `appendToBody` as insurance — the editor's debounced emit is dropped on a
- *    quick unmount, and it converges to identical content anyway.
- *  - no composer mounted for the key → append to the persisted draft; the next
- *    mount reads it as `defaultValue`.
- *  - composer mounted but its Tiptap instance not created yet (the handle
- *    exists from first commit; the instance arrives in a passive effect) →
- *    RETRY. Appending to the store here would be erased by the mounted
- *    editor's first emit, which snapshots a body without the link.
- *
- * Every attempt re-checks the generation guard (draft may be cleared or
- * submitted while waiting) and the body (the link may have landed some other
- * way) before writing.
- */
-function deliverFinishedUpload(
-  binding: UploadDraftBinding,
-  clientUploadId: string,
-  attachment: Attachment,
-  tries = 0,
-): void {
-  if (!binding.getUploads().some((u) => u.clientUploadId === clientUploadId)) return;
-  if (contentReferencesAttachment(binding.getBody(), attachment)) return;
-
-  const md = attachmentMarkdown(attachment);
-  const live = liveEditors.get(binding.registryKey);
-  // A composer showing this target rebuilt the placeholder on mount, so the
-  // finished attachment REPLACES it where the user last saw it instead of
-  // being appended a second time at the end.
-  if (live?.current?.settleUploadPlaceholder(clientUploadId, toUploadResult(attachment)) === true) {
-    binding.appendToBody(md);
-    return;
-  }
-  if (live?.current?.insertMarkdownAtEnd(md) === true) {
-    binding.appendToBody(md);
-    return;
-  }
-  if (!live) {
-    binding.appendToBody(md);
-    return;
-  }
-  if (tries >= DELIVER_MAX_TRIES) {
-    // Editor never initialized — persist to the store as the least-bad option.
-    binding.appendToBody(md);
-    return;
-  }
-  setTimeout(
-    () => deliverFinishedUpload(binding, clientUploadId, attachment, tries + 1),
-    DELIVER_RETRY_MS,
-  );
-}
-
-/**
- * Put a failed paste-as-file's source text back where the user can see it.
- *
- * The mirror image of {@link deliverFinishedUpload}, and it exists for the
- * same reason: the upload outlives the mount, so the composer that swallowed
- * the paste may be gone by the time the failure lands. Unlike a dropped file,
- * this content has no other copy — it was never written into the document and
- * the tab it came from may be closed — so "the editor is gone, drop it" would
- * be silent data loss.
- *
- * Restored as markdown, not literal text: had the paste never been converted,
- * `markdown-paste` is exactly what would have handled it, so this reproduces
- * what the user would have gotten. Live editor first (it lands at the end of
- * the document, never mid-sentence at a caret the user has since moved), the
- * persisted body otherwise.
- */
-function deliverPastedTextBack(
-  binding: UploadDraftBinding | undefined,
-  editorRef: RefObject<ContentEditorRef | null>,
-  text: string,
-): void {
-  if (!binding) {
-    // No persistence context (a reply composer opened without a draft key):
-    // the live editor is the only place left to put it.
-    editorRef.current?.insertMarkdownAtEnd(text);
-    return;
-  }
-  // Same insurance as deliverFinishedUpload: a landed editor insert can still
-  // lose its debounced emit to a quick unmount, and both writes converge on
-  // identical content.
-  liveEditors.get(binding.registryKey)?.current?.insertMarkdownAtEnd(text);
-  binding.appendToBody(text);
-}
 
 export interface CoordinatedUploads {
   /** Every upload for this composer, placeholders included. */
@@ -307,58 +182,15 @@ export function useCoordinatedUploads(
     return done.length === 0 ? EMPTY_ATTACHMENTS : done;
   }, [uploads]);
 
-  // Rebuild placeholders for uploads this document is not showing.
-  //
-  // An upload outlives the mount that started it, but its placeholder node
-  // does not — placeholders are never serialised into the draft body, so a
-  // reopened composer starts with no trace of one that is still running. The
-  // draft still holds the record, which is enough to draw it again, and the
-  // settle then replaces it in place (see deliverFinishedUpload). Without this
-  // the composer looks idle while `gate` quietly blocks the send.
-  //
-  // ONCE per id per mount, tracked here rather than by scanning the document:
-  // a user who deletes the placeholder mid-upload means it, and MUL-5181's
-  // rule that a deleted placeholder stays deleted would be undone by the next
-  // store write re-drawing it.
-  //
-  // Retried while it cannot land, because the imperative handle exists from
-  // the first commit while the Tiptap instance arrives a passive effect later
-  // — the same window deliverFinishedUpload retries through.
   const rebuiltUploadIdsRef = useRef<Set<string>>(new Set());
-  // Chat pins its document to the draft an in-flight upload started while the
-  // user browses another session, so `uploads` (the SELECTED draft) can name a
-  // different target than the document holds. Drawing then would put one
-  // draft's placeholder into another draft's document. The registry key is
-  // already the signal for exactly this divergence.
   const editorHoldsThisTarget = !binding || registryKey === binding.registryKey;
-  useEffect(() => {
-    if (!editorHoldsThisTarget) return;
-    const pending = uploads.filter(
-      (u) => u.status === "uploading" && !rebuiltUploadIdsRef.current.has(u.clientUploadId),
-    );
-    if (pending.length === 0) return;
-    let cancelled = false;
-    let tries = 0;
-    const attempt = () => {
-      if (cancelled) return;
-      const missing = pending.filter((u) => {
-        const landed = editorRef.current?.insertUploadPlaceholder({
-          uploadId: u.clientUploadId,
-          filename: u.filename,
-          size: u.size,
-        });
-        if (landed === true) rebuiltUploadIdsRef.current.add(u.clientUploadId);
-        return landed !== true;
-      });
-      if (missing.length === 0) return;
-      if (++tries >= DELIVER_MAX_TRIES) return;
-      setTimeout(attempt, DELIVER_RETRY_MS);
-    };
-    attempt();
-    return () => {
-      cancelled = true;
-    };
-  }, [uploads, editorRef, editorHoldsThisTarget]);
+
+  useUploadPlaceholderSync(
+    uploads,
+    editorRef,
+    editorHoldsThisTarget,
+    rebuiltUploadIdsRef,
+  );
 
   const issueId = ctx.issueId;
   const commentId = ctx.commentId;
@@ -371,13 +203,6 @@ export function useCoordinatedUploads(
       // reaches a mount which did not start it can only find the node by id.
       // The fallback covers a caller with no editor placeholder to match.
       const clientUploadId = uploadId ?? createSafeId();
-      // An id handed in by the editor means it ALREADY drew the node, so this
-      // upload counts as rebuilt from here on. Registering it now rather than
-      // letting the effect discover the node closes the gap between the two:
-      // in that window the effect would see no node (the user could have
-      // deleted it) and draw a second one, resurrecting a placeholder the
-      // user removed. The window is sub-frame, but the rule reads better as
-      // "whoever drew it registers it" than as a race nobody can hit.
       if (uploadId) rebuiltUploadIdsRef.current.add(uploadId);
       // Snapshot the target NOW: settle handlers must keep addressing the
       // draft the file landed in, no matter what is selected when they fire.
@@ -446,17 +271,6 @@ export function useCoordinatedUploads(
               resolve(toUploadResult(outcome.attachment));
             } else {
               const reason = outcome.error.message;
-              // A failure leaves NOTHING behind. The toast below has already
-              // said it, at the moment it happened, and the file is still on
-              // disk — a chip adds no information and cannot retry (the bytes
-              // were never persisted). Keeping one costs more than it gives:
-              // it survives reload and reopen until dismissed by hand, and
-              // `isMeaningful` counts it, so a single flaky request keeps an
-              // otherwise-empty draft alive for the full 30-day TTL.
-              //
-              // Legacy `interrupted` records still get a chip for the reason
-              // this one does not: they are discovered a session later, when
-              // the user no longer remembers attaching anything.
               if (target) {
                 if (target.getUploads().some((u) => u.clientUploadId === clientUploadId)) {
                   target.removeUpload(clientUploadId);
@@ -488,9 +302,6 @@ export function useCoordinatedUploads(
     (clientUploadId: string) => {
       // Defensive cancel for a placeholder removed while still in flight: its
       // request has no destination left, so don't let it run to completion.
-      // Today's chips expose ✕ only for failed/interrupted entries, so this
-      // fires only if a future caller removes an `uploading` one. Guarded on
-      // OUR tracking so a stray id can never abort another surface's upload.
       const tracked = binding ? binding.getUploads() : localUploadsRef.current;
       if (tracked.some((u) => u.clientUploadId === clientUploadId && u.status === "uploading")) {
         abortUpload(clientUploadId);
