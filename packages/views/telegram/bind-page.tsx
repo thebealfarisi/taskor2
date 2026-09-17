@@ -54,62 +54,73 @@ export function TelegramBindPage({ token }: { token: string | null }) {
     })();
   }, [token, user, isAuthLoading, state.kind]);
 
+  let content: React.ReactNode;
+  if (state.kind === "idle" || state.kind === "redeeming") {
+    content = (
+      <p className="text-body text-muted-foreground">{t(($) => $.telegram_bind.redeeming)}</p>
+    );
+  } else if (state.kind === "needs-auth") {
+    const loginNext = `/telegram/bind?token=${encodeURIComponent(token ?? "")}`;
+    content = (
+      <>
+        <p className="text-body text-muted-foreground">
+          {t(($) => $.telegram_bind.needs_auth_description)}
+        </p>
+        <Button
+          size="sm"
+          onClick={() =>
+            navigation.push(`/login?next=${encodeURIComponent(loginNext)}`)
+          }
+        >
+          {t(($) => $.telegram_bind.sign_in)}
+        </Button>
+      </>
+    );
+  } else if (state.kind === "done") {
+    content = (
+      <>
+        <p className="text-body font-medium">{t(($) => $.telegram_bind.done_title)}</p>
+        <p className="text-caption text-muted-foreground">
+          {t(($) => $.telegram_bind.done_description)}
+        </p>
+      </>
+    );
+  } else {
+    let errorMessage: string;
+    switch (state.reason) {
+      case "missing_token":
+        errorMessage = t(($) => $.telegram_bind.error_missing_token);
+        break;
+      case "expired":
+        errorMessage = t(($) => $.telegram_bind.error_expired);
+        break;
+      case "already_bound":
+        errorMessage = t(($) => $.telegram_bind.error_already_bound);
+        break;
+      case "not_member":
+        errorMessage = t(($) => $.telegram_bind.error_not_member);
+        break;
+      default:
+        errorMessage = t(($) => $.telegram_bind.error_unknown);
+        break;
+    }
+    content = (
+      <>
+        <p className="text-body font-medium">{t(($) => $.telegram_bind.error_title)}</p>
+        <p className="text-caption text-muted-foreground">{errorMessage}</p>
+        <p className="text-micro text-muted-foreground">
+          {t(($) => $.telegram_bind.error_admin_hint)}
+        </p>
+      </>
+    );
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-6">
       <Card className="w-full">
         <CardContent className="space-y-4">
           <h1 className="text-title font-semibold">{t(($) => $.telegram_bind.page_title)}</h1>
-          {state.kind === "idle" || state.kind === "redeeming" ? (
-            <p className="text-body text-muted-foreground">{t(($) => $.telegram_bind.redeeming)}</p>
-          ) : state.kind === "needs-auth" ? (
-            <>
-              <p className="text-body text-muted-foreground">
-                {t(($) => $.telegram_bind.needs_auth_description)}
-              </p>
-              <Button
-                size="sm"
-                onClick={() =>
-                  navigation.push(
-                    `/login?next=${encodeURIComponent(
-                      `/telegram/bind?token=${encodeURIComponent(token ?? "")}`,
-                    )}`,
-                  )
-                }
-              >
-                {t(($) => $.telegram_bind.sign_in)}
-              </Button>
-            </>
-          ) : state.kind === "done" ? (
-            <>
-              <p className="text-body font-medium">{t(($) => $.telegram_bind.done_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {t(($) => $.telegram_bind.done_description)}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-body font-medium">{t(($) => $.telegram_bind.error_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {(() => {
-                  switch (state.reason) {
-                    case "missing_token":
-                      return t(($) => $.telegram_bind.error_missing_token);
-                    case "expired":
-                      return t(($) => $.telegram_bind.error_expired);
-                    case "already_bound":
-                      return t(($) => $.telegram_bind.error_already_bound);
-                    case "not_member":
-                      return t(($) => $.telegram_bind.error_not_member);
-                    default:
-                      return t(($) => $.telegram_bind.error_unknown);
-                  }
-                })()}
-              </p>
-              <p className="text-micro text-muted-foreground">
-                {t(($) => $.telegram_bind.error_admin_hint)}
-              </p>
-            </>
-          )}
+          {content}
         </CardContent>
       </Card>
     </div>

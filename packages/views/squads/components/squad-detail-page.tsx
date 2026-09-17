@@ -1153,13 +1153,20 @@ function SquadMembersTab({
             statusValue && statusValue in SQUAD_STATUS_DOT_CLASS
               ? SQUAD_STATUS_DOT_CLASS[statusValue as keyof typeof SQUAD_STATUS_DOT_CLASS]
               : null;
-          const statusLabel =
-            statusValue === "working" ? t(($) => $.members_tab.status_working)
-              : statusValue === "idle" ? t(($) => $.members_tab.status_idle)
-              : statusValue === "offline" ? t(($) => $.members_tab.status_offline)
-              : statusValue === "unstable" ? t(($) => $.members_tab.status_unstable)
-              : statusValue === "archived" ? t(($) => $.members_tab.status_archived)
-              : null;
+          let statusLabel: string | null;
+          if (statusValue === "working") {
+            statusLabel = t(($) => $.members_tab.status_working);
+          } else if (statusValue === "idle") {
+            statusLabel = t(($) => $.members_tab.status_idle);
+          } else if (statusValue === "offline") {
+            statusLabel = t(($) => $.members_tab.status_offline);
+          } else if (statusValue === "unstable") {
+            statusLabel = t(($) => $.members_tab.status_unstable);
+          } else if (statusValue === "archived") {
+            statusLabel = t(($) => $.members_tab.status_archived);
+          } else {
+            statusLabel = null;
+          }
           const activeIssues = status?.active_issues ?? [];
           const primaryIssue = activeIssues[0];
           const extraIssueCount = Math.max(0, activeIssues.length - 1);
