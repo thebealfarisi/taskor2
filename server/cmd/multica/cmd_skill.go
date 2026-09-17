@@ -121,28 +121,28 @@ func init() {
 	skillFilesCmd.AddCommand(skillFilesDeleteCmd)
 
 	// skill list
-	skillListCmd.Flags().String("output", "table", "Output format: table or json")
+	skillListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// skill get
-	skillGetCmd.Flags().String("output", "json", "Output format: table or json")
+	skillGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill create
 	skillCreateCmd.Flags().String("name", "", "Skill name (required)")
 	skillCreateCmd.Flags().String("description", "", "Skill description")
 	skillCreateCmd.Flags().String("content", "", "Skill content (SKILL.md body)")
-	skillCreateCmd.Flags().Bool("content-stdin", false, "Read skill content from stdin. Mutually exclusive with --content and --content-file.")
-	skillCreateCmd.Flags().String("content-file", "", "Read skill content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillCreateCmd.Flags().Bool(flagContentStdin, false, "Read skill content from stdin. Mutually exclusive with --content and --content-file.")
+	skillCreateCmd.Flags().String(flagContentFile, "", "Read skill content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
 	skillCreateCmd.Flags().String("config", "", "Skill config as JSON string")
-	skillCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	skillCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill update
 	skillUpdateCmd.Flags().String("name", "", "New name")
 	skillUpdateCmd.Flags().String("description", "", "New description")
 	skillUpdateCmd.Flags().String("content", "", "New content")
-	skillUpdateCmd.Flags().Bool("content-stdin", false, "Read new content from stdin. Mutually exclusive with --content and --content-file.")
-	skillUpdateCmd.Flags().String("content-file", "", "Read new content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillUpdateCmd.Flags().Bool(flagContentStdin, false, "Read new content from stdin. Mutually exclusive with --content and --content-file.")
+	skillUpdateCmd.Flags().String(flagContentFile, "", "Read new content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
 	skillUpdateCmd.Flags().String("config", "", "New config as JSON string")
-	skillUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	skillUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill delete
 	skillDeleteCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
@@ -151,23 +151,23 @@ func init() {
 	skillImportCmd.Flags().String("url", "", "URL to import from (clawhub.ai, skills.sh, or github.com). Mutually exclusive with --file.")
 	skillImportCmd.Flags().String("file", "", "Path to a local skill archive (.skill or .zip) to import. Mutually exclusive with --url.")
 	skillImportCmd.Flags().String("on-conflict", "fail", "Conflict strategy when a skill with the same name exists: fail, overwrite, rename, or skip")
-	skillImportCmd.Flags().String("output", "json", "Output format: table or json")
+	skillImportCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill refresh
-	skillRefreshCmd.Flags().String("output", "json", "Output format: table or json")
+	skillRefreshCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill search
-	skillSearchCmd.Flags().String("output", "json", "Output format: table or json")
+	skillSearchCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// skill files list
-	skillFilesListCmd.Flags().String("output", "table", "Output format: table or json")
+	skillFilesListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// skill files upsert
 	skillFilesUpsertCmd.Flags().String("path", "", "File path within the skill (required)")
 	skillFilesUpsertCmd.Flags().String("content", "", "File content (required)")
-	skillFilesUpsertCmd.Flags().Bool("content-stdin", false, "Read file content from stdin. Mutually exclusive with --content and --content-file.")
-	skillFilesUpsertCmd.Flags().String("content-file", "", "Read file content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
-	skillFilesUpsertCmd.Flags().String("output", "json", "Output format: table or json")
+	skillFilesUpsertCmd.Flags().Bool(flagContentStdin, false, "Read file content from stdin. Mutually exclusive with --content and --content-file.")
+	skillFilesUpsertCmd.Flags().String(flagContentFile, "", "Read file content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillFilesUpsertCmd.Flags().String("output", "json", flagOutputFormatDesc)
 }
 
 // ---------------------------------------------------------------------------
@@ -179,9 +179,9 @@ func init() {
 // inline --content is not backslash-unescaped, and stdin/file input is not
 // trimmed, so agents can round-trip generated SKILL.md content exactly.
 func resolveSkillContentFlag(cmd *cobra.Command) (string, bool, error) {
-	useStdin, _ := cmd.Flags().GetBool("content-stdin")
+	useStdin, _ := cmd.Flags().GetBool(flagContentStdin)
 	inline, _ := cmd.Flags().GetString("content")
-	filePath, _ := cmd.Flags().GetString("content-file")
+	filePath, _ := cmd.Flags().GetString(flagContentFile)
 	inlineSet := cmd.Flags().Changed("content")
 
 	sources := 0
@@ -271,7 +271,7 @@ func runSkillGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var skill map[string]any
-	if err := client.GetJSON(ctx, "/api/skills/"+args[0], &skill); err != nil {
+	if err := client.GetJSON(ctx, apiSkillsPrefix+args[0], &skill); err != nil {
 		return fmt.Errorf("get skill: %w", err)
 	}
 
@@ -380,7 +380,7 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/skills/"+args[0], body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiSkillsPrefix+args[0], body, &result); err != nil {
 		return fmt.Errorf("update skill: %w", err)
 	}
 
@@ -414,7 +414,7 @@ func runSkillDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	if err := client.DeleteJSON(ctx, "/api/skills/"+args[0]); err != nil {
+	if err := client.DeleteJSON(ctx, apiSkillsPrefix+args[0]); err != nil {
 		return fmt.Errorf("delete skill: %w", err)
 	}
 
@@ -434,7 +434,7 @@ func runSkillRefresh(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/skills/"+args[0]+"/refresh", map[string]any{}, &result); err != nil {
+	if err := client.PostJSON(ctx, apiSkillsPrefix+args[0]+"/refresh", map[string]any{}, &result); err != nil {
 		return fmt.Errorf("refresh skill: %w", err)
 	}
 
@@ -646,7 +646,7 @@ func runSkillFilesList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var files []map[string]any
-	if err := client.GetJSON(ctx, "/api/skills/"+args[0]+"/files", &files); err != nil {
+	if err := client.GetJSON(ctx, apiSkillsPrefix+args[0]+"/files", &files); err != nil {
 		return fmt.Errorf("list skill files: %w", err)
 	}
 
@@ -696,7 +696,7 @@ func runSkillFilesUpsert(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/skills/"+args[0]+"/files", body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiSkillsPrefix+args[0]+"/files", body, &result); err != nil {
 		return fmt.Errorf("upsert skill file: %w", err)
 	}
 
@@ -718,7 +718,7 @@ func runSkillFilesDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	if err := client.DeleteJSON(ctx, "/api/skills/"+args[0]+"/files/"+args[1]); err != nil {
+	if err := client.DeleteJSON(ctx, apiSkillsPrefix+args[0]+"/files/"+args[1]); err != nil {
 		return fmt.Errorf("delete skill file: %w", err)
 	}
 

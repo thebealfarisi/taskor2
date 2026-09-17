@@ -150,45 +150,45 @@ func init() {
 	agentEnvCmd.AddCommand(agentEnvSetCmd)
 
 	// agent list
-	agentListCmd.Flags().String("output", "table", "Output format: table or json")
+	agentListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	agentListCmd.Flags().Bool("include-archived", false, "Include archived agents")
 
 	// agent get
-	agentGetCmd.Flags().String("output", "json", "Output format: table or json")
+	agentGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent create
 	agentCreateCmd.Flags().String("name", "", "Agent name (required)")
 	agentCreateCmd.Flags().String("description", "", "Agent description")
 	agentCreateCmd.Flags().String("instructions", "", "Agent instructions")
-	agentCreateCmd.Flags().String("runtime-id", "", "Runtime ID (required)")
-	agentCreateCmd.Flags().String("runtime-config", "", "Runtime config as JSON string")
+	agentCreateCmd.Flags().String(flagRuntimeID, "", "Runtime ID (required)")
+	agentCreateCmd.Flags().String(flagRuntimeConfig, "", "Runtime config as JSON string")
 	agentCreateCmd.Flags().String("model", "", "Model identifier (e.g. claude-sonnet-4-6, openai/gpt-4o). Prefer this over passing --model in --custom-args.")
-	agentCreateCmd.Flags().String("thinking-level", "", "Reasoning/effort level for the agent's runtime (e.g. Claude: low|medium|high|xhigh|max; Codex values come from the runtime model catalog). The set is runtime/model-specific; malformed values are rejected server-side and the daemon validates the exact model/level pair. Some runtimes (e.g. hermes) expose no reasoning control and reject every value. Empty = runtime default.")
-	agentCreateCmd.Flags().String("service-tier", "", "Codex execution service tier from the selected model's runtime catalog (e.g. priority, displayed as Fast). Empty = inherit local Codex configuration.")
-	agentCreateCmd.Flags().String("custom-args", "", "Custom CLI arguments as JSON array. For model selection prefer --model; some providers (codex app-server, openclaw) reject --model in custom_args.")
-	agentCreateCmd.Flags().String("custom-env", "", "Custom environment variables as JSON object, e.g. '{\"KEY\":\"value\"}'. Treated as secret material — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --custom-env-stdin or --custom-env-file for real secrets. Pass '{}' to set an empty map.")
-	agentCreateCmd.Flags().Bool("custom-env-stdin", false, "Read the --custom-env JSON object from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --custom-env and --custom-env-file.")
-	agentCreateCmd.Flags().String("custom-env-file", "", "Read the --custom-env JSON object from a file path (suggested mode: 0600). Mutually exclusive with --custom-env and --custom-env-stdin.")
-	agentCreateCmd.Flags().String("mcp-config", "", "MCP server configuration as a JSON object, e.g. '{\"mcpServers\":{\"shortcut\":{...}}}'. Treated as secret material (MCP entries often carry API tokens) — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --mcp-config-stdin or --mcp-config-file for real secrets.")
+	agentCreateCmd.Flags().String(flagThinkingLevel, "", "Reasoning/effort level for the agent's runtime (e.g. Claude: low|medium|high|xhigh|max; Codex values come from the runtime model catalog). The set is runtime/model-specific; malformed values are rejected server-side and the daemon validates the exact model/level pair. Some runtimes (e.g. hermes) expose no reasoning control and reject every value. Empty = runtime default.")
+	agentCreateCmd.Flags().String(flagServiceTier, "", "Codex execution service tier from the selected model's runtime catalog (e.g. priority, displayed as Fast). Empty = inherit local Codex configuration.")
+	agentCreateCmd.Flags().String(flagCustomArgs, "", "Custom CLI arguments as JSON array. For model selection prefer --model; some providers (codex app-server, openclaw) reject --model in custom_args.")
+	agentCreateCmd.Flags().String(flagCustomEnv, "", "Custom environment variables as JSON object, e.g. '{\"KEY\":\"value\"}'. Treated as secret material — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --custom-env-stdin or --custom-env-file for real secrets. Pass '{}' to set an empty map.")
+	agentCreateCmd.Flags().Bool(flagCustomEnvStdin, false, "Read the --custom-env JSON object from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --custom-env and --custom-env-file.")
+	agentCreateCmd.Flags().String(flagCustomEnvFile, "", "Read the --custom-env JSON object from a file path (suggested mode: 0600). Mutually exclusive with --custom-env and --custom-env-stdin.")
+	agentCreateCmd.Flags().String(flagMCPConfig, "", "MCP server configuration as a JSON object, e.g. '{\"mcpServers\":{\"shortcut\":{...}}}'. Treated as secret material (MCP entries often carry API tokens) — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --mcp-config-stdin or --mcp-config-file for real secrets.")
 	agentCreateCmd.Flags().Bool("mcp-config-stdin", false, "Read the --mcp-config JSON object from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --mcp-config and --mcp-config-file.")
 	agentCreateCmd.Flags().String("mcp-config-file", "", "Read the --mcp-config JSON object from a file path (suggested mode: 0600). Mutually exclusive with --mcp-config and --mcp-config-stdin.")
 	agentCreateCmd.Flags().String("visibility", "private", "Visibility: private or workspace (legacy; mapped to --permission-mode. private->private, workspace->public_to+workspace target)")
-	agentCreateCmd.Flags().String("permission-mode", "", "Invocation permission mode: private (owner only) or public_to (allow-list via --public-to-*). Authoritative over --visibility when set.")
-	agentCreateCmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke this agent.")
-	agentCreateCmd.Flags().StringSlice("public-to-member", nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
-	agentCreateCmd.Flags().Int32("max-concurrent-tasks", 6, "Maximum concurrent tasks (1-50)")
-	agentCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	agentCreateCmd.Flags().String(flagPermissionMode, "", "Invocation permission mode: private (owner only) or public_to (allow-list via --public-to-*). Authoritative over --visibility when set.")
+	agentCreateCmd.Flags().Bool(flagPublicToWorkspace, false, "public_to: allow every workspace member to invoke this agent.")
+	agentCreateCmd.Flags().StringSlice(flagPublicToMember, nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
+	agentCreateCmd.Flags().Int32(flagMaxConcurrentTasks, 6, "Maximum concurrent tasks (1-50)")
+	agentCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent update
 	agentUpdateCmd.Flags().String("name", "", "New name")
 	agentUpdateCmd.Flags().String("description", "", "New description")
 	agentUpdateCmd.Flags().String("instructions", "", "New instructions")
-	agentUpdateCmd.Flags().String("runtime-id", "", "New runtime ID")
-	agentUpdateCmd.Flags().String("runtime-config", "", "New runtime config as JSON string")
+	agentUpdateCmd.Flags().String(flagRuntimeID, "", "New runtime ID")
+	agentUpdateCmd.Flags().String(flagRuntimeConfig, "", "New runtime config as JSON string")
 	agentUpdateCmd.Flags().String("model", "", "New model identifier. Pass an empty string to clear and fall back to the runtime default.")
-	agentUpdateCmd.Flags().String("thinking-level", "", "New reasoning/effort level for the agent's runtime (e.g. Claude: low|medium|high|xhigh|max; Codex values come from the runtime model catalog). The set is runtime/model-specific; malformed values are rejected server-side and the daemon validates the exact model/level pair. Some runtimes (e.g. hermes) expose no reasoning control and reject every value. Pass an empty string to clear and fall back to the runtime default.")
-	agentUpdateCmd.Flags().String("service-tier", "", "New Codex execution service tier from the selected model's runtime catalog. Pass an empty string to clear and inherit local Codex configuration.")
-	agentUpdateCmd.Flags().String("custom-args", "", "New custom CLI arguments as JSON array. For model selection prefer --model; some providers (codex app-server, openclaw) reject --model in custom_args.")
+	agentUpdateCmd.Flags().String(flagThinkingLevel, "", "New reasoning/effort level for the agent's runtime (e.g. Claude: low|medium|high|xhigh|max; Codex values come from the runtime model catalog). The set is runtime/model-specific; malformed values are rejected server-side and the daemon validates the exact model/level pair. Some runtimes (e.g. hermes) expose no reasoning control and reject every value. Pass an empty string to clear and fall back to the runtime default.")
+	agentUpdateCmd.Flags().String(flagServiceTier, "", "New Codex execution service tier from the selected model's runtime catalog. Pass an empty string to clear and inherit local Codex configuration.")
+	agentUpdateCmd.Flags().String(flagCustomArgs, "", "New custom CLI arguments as JSON array. For model selection prefer --model; some providers (codex app-server, openclaw) reject --model in custom_args.")
 	// custom_env is intentionally NOT part of `agent update`. Use
 	// `multica agent env set <id>` — that path admits the agent owner or a
 	// workspace owner/admin, denies agent actors, and writes a persisted
@@ -198,40 +198,40 @@ func init() {
 	// through the generic UpdateAgent endpoint (there is no dedicated
 	// audited endpoint for it). The same three secret-safe input channels
 	// as `agent create` are offered. Pass `--mcp-config null` to clear.
-	agentUpdateCmd.Flags().String("mcp-config", "", "New MCP server configuration as a JSON object, e.g. '{\"mcpServers\":{...}}'. Pass 'null' to clear. Treated as secret material — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --mcp-config-stdin or --mcp-config-file for real secrets.")
+	agentUpdateCmd.Flags().String(flagMCPConfig, "", "New MCP server configuration as a JSON object, e.g. '{\"mcpServers\":{...}}'. Pass 'null' to clear. Treated as secret material — never logged by the CLI, but values passed on the command line are visible to shell history and 'ps'; prefer --mcp-config-stdin or --mcp-config-file for real secrets.")
 	agentUpdateCmd.Flags().Bool("mcp-config-stdin", false, "Read the --mcp-config JSON from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --mcp-config and --mcp-config-file.")
 	agentUpdateCmd.Flags().String("mcp-config-file", "", "Read the --mcp-config JSON from a file path (suggested mode: 0600). Mutually exclusive with --mcp-config and --mcp-config-stdin.")
 	agentUpdateCmd.Flags().String("visibility", "", "New visibility: private or workspace (legacy; mapped to --permission-mode)")
-	agentUpdateCmd.Flags().String("permission-mode", "", "New invocation permission mode: private or public_to. Authoritative over --visibility. Owner-only.")
-	agentUpdateCmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke this agent.")
-	agentUpdateCmd.Flags().StringSlice("public-to-member", nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
+	agentUpdateCmd.Flags().String(flagPermissionMode, "", "New invocation permission mode: private or public_to. Authoritative over --visibility. Owner-only.")
+	agentUpdateCmd.Flags().Bool(flagPublicToWorkspace, false, "public_to: allow every workspace member to invoke this agent.")
+	agentUpdateCmd.Flags().StringSlice(flagPublicToMember, nil, "public_to: allow the given member user id(s) to invoke this agent. Repeatable.")
 	agentUpdateCmd.Flags().String("status", "", "New status")
-	agentUpdateCmd.Flags().Int32("max-concurrent-tasks", 0, "New max concurrent tasks (1-50)")
-	agentUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	agentUpdateCmd.Flags().Int32(flagMaxConcurrentTasks, 0, "New max concurrent tasks (1-50)")
+	agentUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent archive
-	agentArchiveCmd.Flags().String("output", "json", "Output format: table or json")
+	agentArchiveCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent restore
-	agentRestoreCmd.Flags().String("output", "json", "Output format: table or json")
+	agentRestoreCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent tasks
-	agentTasksCmd.Flags().String("output", "table", "Output format: table or json")
+	agentTasksCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// agent avatar
 	agentAvatarCmd.Flags().String("file", "", "Path to the avatar image file (required)")
-	agentAvatarCmd.Flags().String("output", "json", "Output format: table or json")
+	agentAvatarCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent skills list
-	agentSkillsListCmd.Flags().String("output", "table", "Output format: table or json")
+	agentSkillsListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// agent skills set
-	agentSkillsSetCmd.Flags().StringSlice("skill-ids", nil, "Skill IDs to assign (comma-separated)")
-	agentSkillsSetCmd.Flags().String("output", "json", "Output format: table or json")
+	agentSkillsSetCmd.Flags().StringSlice(flagSkillIDs, nil, "Skill IDs to assign (comma-separated)")
+	agentSkillsSetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent skills add
-	agentSkillsAddCmd.Flags().StringSlice("skill-ids", nil, "Skill IDs to add (comma-separated)")
-	agentSkillsAddCmd.Flags().String("output", "json", "Output format: table or json")
+	agentSkillsAddCmd.Flags().StringSlice(flagSkillIDs, nil, "Skill IDs to add (comma-separated)")
+	agentSkillsAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// agent env get
 	agentEnvGetCmd.Flags().String("output", "json", "Output format: json or table")
@@ -239,9 +239,9 @@ func init() {
 	// agent env set. Same three secret-safe input channels as `agent
 	// create` so scripts can keep secrets out of shell history. Mutual
 	// exclusion + empty-input handling is enforced by resolveCustomEnv.
-	agentEnvSetCmd.Flags().String("custom-env", "", "Replacement custom_env as a JSON object, e.g. '{\"KEY\":\"value\"}'. Values equal to '****' preserve the existing entry. Treated as secret material — values passed on the command line are visible to shell history and 'ps'; prefer --custom-env-stdin or --custom-env-file for real secrets. Pass '{}' to clear all keys.")
-	agentEnvSetCmd.Flags().Bool("custom-env-stdin", false, "Read the replacement custom_env JSON object from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --custom-env and --custom-env-file.")
-	agentEnvSetCmd.Flags().String("custom-env-file", "", "Read the replacement custom_env JSON object from a file path (suggested mode: 0600). Mutually exclusive with --custom-env and --custom-env-stdin.")
+	agentEnvSetCmd.Flags().String(flagCustomEnv, "", "Replacement custom_env as a JSON object, e.g. '{\"KEY\":\"value\"}'. Values equal to '****' preserve the existing entry. Treated as secret material — values passed on the command line are visible to shell history and 'ps'; prefer --custom-env-stdin or --custom-env-file for real secrets. Pass '{}' to clear all keys.")
+	agentEnvSetCmd.Flags().Bool(flagCustomEnvStdin, false, "Read the replacement custom_env JSON object from stdin. Keeps secrets out of shell history and 'ps'. Mutually exclusive with --custom-env and --custom-env-file.")
+	agentEnvSetCmd.Flags().String(flagCustomEnvFile, "", "Read the replacement custom_env JSON object from a file path (suggested mode: 0600). Mutually exclusive with --custom-env and --custom-env-stdin.")
 	agentEnvSetCmd.Flags().String("output", "json", "Output format: json or table")
 }
 
@@ -573,7 +573,7 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var agent map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0], &agent); err != nil {
+	if err := client.GetJSON(ctx, apiAgentsPrefix+args[0], &agent); err != nil {
 		return fmt.Errorf("get agent: %w", err)
 	}
 
@@ -603,24 +603,24 @@ func runAgentGet(cmd *cobra.Command, args []string) error {
 // drives the request. When any public-to-* flag is present without an explicit
 // --permission-mode, the mode defaults to public_to.
 func applyAgentPermissionFlags(cmd *cobra.Command, body map[string]any) {
-	hasMode := cmd.Flags().Changed("permission-mode")
-	hasWorkspace := cmd.Flags().Changed("public-to-workspace")
-	hasMembers := cmd.Flags().Changed("public-to-member")
+	hasMode := cmd.Flags().Changed(flagPermissionMode)
+	hasWorkspace := cmd.Flags().Changed(flagPublicToWorkspace)
+	hasMembers := cmd.Flags().Changed(flagPublicToMember)
 	if !hasMode && !hasWorkspace && !hasMembers {
 		return
 	}
 
 	mode := "public_to"
 	if hasMode {
-		mode, _ = cmd.Flags().GetString("permission-mode")
+		mode, _ = cmd.Flags().GetString(flagPermissionMode)
 	}
 	body["permission_mode"] = mode
 
 	targets := []map[string]any{}
-	if on, _ := cmd.Flags().GetBool("public-to-workspace"); on {
+	if on, _ := cmd.Flags().GetBool(flagPublicToWorkspace); on {
 		targets = append(targets, map[string]any{"target_type": "workspace"})
 	}
-	if members, _ := cmd.Flags().GetStringSlice("public-to-member"); len(members) > 0 {
+	if members, _ := cmd.Flags().GetStringSlice(flagPublicToMember); len(members) > 0 {
 		for _, m := range members {
 			targets = append(targets, map[string]any{"target_type": "member", "target_id": m})
 		}
@@ -638,7 +638,7 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 	if name == "" {
 		return fmt.Errorf("--name is required")
 	}
-	runtimeID, _ := cmd.Flags().GetString("runtime-id")
+	runtimeID, _ := cmd.Flags().GetString(flagRuntimeID)
 	if runtimeID == "" {
 		return fmt.Errorf("--runtime-id is required")
 	}
@@ -653,16 +653,16 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 	if v, _ := cmd.Flags().GetString("instructions"); v != "" {
 		body["instructions"] = v
 	}
-	if cmd.Flags().Changed("runtime-config") {
-		v, _ := cmd.Flags().GetString("runtime-config")
+	if cmd.Flags().Changed(flagRuntimeConfig) {
+		v, _ := cmd.Flags().GetString(flagRuntimeConfig)
 		var rc any
 		if err := json.Unmarshal([]byte(v), &rc); err != nil {
 			return fmt.Errorf("--runtime-config must be valid JSON: %w", err)
 		}
 		body["runtime_config"] = rc
 	}
-	if cmd.Flags().Changed("custom-args") {
-		v, _ := cmd.Flags().GetString("custom-args")
+	if cmd.Flags().Changed(flagCustomArgs) {
+		v, _ := cmd.Flags().GetString(flagCustomArgs)
 		ca, err := parseCustomArgs(v)
 		if err != nil {
 			return err
@@ -687,12 +687,12 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 	// field the server already accepts and validates (IsKnownThinkingValue).
 	// The CLI deliberately does not enumerate valid levels — they are
 	// runtime/model-specific and the server owns the catalog (MUL-2339).
-	if cmd.Flags().Changed("thinking-level") {
-		v, _ := cmd.Flags().GetString("thinking-level")
+	if cmd.Flags().Changed(flagThinkingLevel) {
+		v, _ := cmd.Flags().GetString(flagThinkingLevel)
 		body["thinking_level"] = v
 	}
-	if cmd.Flags().Changed("service-tier") {
-		v, _ := cmd.Flags().GetString("service-tier")
+	if cmd.Flags().Changed(flagServiceTier) {
+		v, _ := cmd.Flags().GetString(flagServiceTier)
 		body["service_tier"] = v
 	}
 	if cmd.Flags().Changed("visibility") {
@@ -700,8 +700,8 @@ func runAgentCreate(cmd *cobra.Command, _ []string) error {
 		body["visibility"] = v
 	}
 	applyAgentPermissionFlags(cmd, body)
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
+	if cmd.Flags().Changed(flagMaxConcurrentTasks) {
+		v, _ := cmd.Flags().GetInt32(flagMaxConcurrentTasks)
 		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
 			return err
 		}
@@ -744,20 +744,20 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("instructions")
 		body["instructions"] = v
 	}
-	if cmd.Flags().Changed("runtime-id") {
-		v, _ := cmd.Flags().GetString("runtime-id")
+	if cmd.Flags().Changed(flagRuntimeID) {
+		v, _ := cmd.Flags().GetString(flagRuntimeID)
 		body["runtime_id"] = v
 	}
-	if cmd.Flags().Changed("runtime-config") {
-		v, _ := cmd.Flags().GetString("runtime-config")
+	if cmd.Flags().Changed(flagRuntimeConfig) {
+		v, _ := cmd.Flags().GetString(flagRuntimeConfig)
 		var rc any
 		if err := json.Unmarshal([]byte(v), &rc); err != nil {
 			return fmt.Errorf("--runtime-config must be valid JSON: %w", err)
 		}
 		body["runtime_config"] = rc
 	}
-	if cmd.Flags().Changed("custom-args") {
-		v, _ := cmd.Flags().GetString("custom-args")
+	if cmd.Flags().Changed(flagCustomArgs) {
+		v, _ := cmd.Flags().GetString(flagCustomArgs)
 		ca, err := parseCustomArgs(v)
 		if err != nil {
 			return err
@@ -771,12 +771,12 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	// thinking_level is a tri-state on the server (omitted = no change, "" =
 	// clear to runtime default, value = set). Sending the key only when the
 	// flag was provided produces exactly that, the same way --model behaves.
-	if cmd.Flags().Changed("thinking-level") {
-		v, _ := cmd.Flags().GetString("thinking-level")
+	if cmd.Flags().Changed(flagThinkingLevel) {
+		v, _ := cmd.Flags().GetString(flagThinkingLevel)
 		body["thinking_level"] = v
 	}
-	if cmd.Flags().Changed("service-tier") {
-		v, _ := cmd.Flags().GetString("service-tier")
+	if cmd.Flags().Changed(flagServiceTier) {
+		v, _ := cmd.Flags().GetString(flagServiceTier)
 		body["service_tier"] = v
 	}
 	if cmd.Flags().Changed("visibility") {
@@ -788,8 +788,8 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("status")
 		body["status"] = v
 	}
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
+	if cmd.Flags().Changed(flagMaxConcurrentTasks) {
+		v, _ := cmd.Flags().GetInt32(flagMaxConcurrentTasks)
 		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
 			return err
 		}
@@ -809,7 +809,7 @@ func runAgentUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/agents/"+args[0], body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiAgentsPrefix+args[0], body, &result); err != nil {
 		return fmt.Errorf("update agent: %w", err)
 	}
 
@@ -832,7 +832,7 @@ func runAgentArchive(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/agents/"+args[0]+"/archive", nil, &result); err != nil {
+	if err := client.PostJSON(ctx, apiAgentsPrefix+args[0]+"/archive", nil, &result); err != nil {
 		return fmt.Errorf("archive agent: %w", err)
 	}
 
@@ -855,7 +855,7 @@ func runAgentRestore(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/agents/"+args[0]+"/restore", nil, &result); err != nil {
+	if err := client.PostJSON(ctx, apiAgentsPrefix+args[0]+"/restore", nil, &result); err != nil {
 		return fmt.Errorf("restore agent: %w", err)
 	}
 
@@ -878,7 +878,7 @@ func runAgentTasks(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var tasks []map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0]+"/tasks", &tasks); err != nil {
+	if err := client.GetJSON(ctx, apiAgentsPrefix+args[0]+"/tasks", &tasks); err != nil {
 		return fmt.Errorf("list agent tasks: %w", err)
 	}
 
@@ -947,7 +947,7 @@ func runAgentAvatar(cmd *cobra.Command, args []string) error {
 
 	// Agent existence pre-check.
 	var agent map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0], &agent); err != nil {
+	if err := client.GetJSON(ctx, apiAgentsPrefix+args[0], &agent); err != nil {
 		return fmt.Errorf("get agent: %w", err)
 	}
 
@@ -958,7 +958,7 @@ func runAgentAvatar(cmd *cobra.Command, args []string) error {
 
 	body := map[string]any{"avatar_url": url}
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/agents/"+args[0], body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiAgentsPrefix+args[0], body, &result); err != nil {
 		return fmt.Errorf("update agent avatar: %w", err)
 	}
 
@@ -995,7 +995,7 @@ func runAgentSkillsList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var skills []map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0]+"/skills", &skills); err != nil {
+	if err := client.GetJSON(ctx, apiAgentsPrefix+args[0]+"/skills", &skills); err != nil {
 		return fmt.Errorf("list agent skills: %w", err)
 	}
 
@@ -1023,7 +1023,7 @@ func runAgentSkillsSet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !cmd.Flags().Changed("skill-ids") {
+	if !cmd.Flags().Changed(flagSkillIDs) {
 		return fmt.Errorf("--skill-ids is required (comma-separated skill IDs; use --skill-ids '' to clear all)")
 	}
 	cleanIDs := cleanSkillIDsFlag(cmd)
@@ -1035,7 +1035,7 @@ func runAgentSkillsSet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result json.RawMessage
-	if err := client.PutJSON(ctx, "/api/agents/"+args[0]+"/skills", body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiAgentsPrefix+args[0]+"/skills", body, &result); err != nil {
 		return fmt.Errorf("set agent skills: %w", err)
 	}
 
@@ -1048,7 +1048,7 @@ func runAgentSkillsAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !cmd.Flags().Changed("skill-ids") {
+	if !cmd.Flags().Changed(flagSkillIDs) {
 		return fmt.Errorf("--skill-ids is required (comma-separated skill IDs)")
 	}
 	cleanIDs := cleanSkillIDsFlag(cmd)
@@ -1063,7 +1063,7 @@ func runAgentSkillsAdd(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result json.RawMessage
-	if err := client.PostJSON(ctx, "/api/agents/"+args[0]+"/skills/add", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiAgentsPrefix+args[0]+"/skills/add", body, &result); err != nil {
 		return fmt.Errorf("add agent skills: %w", err)
 	}
 
@@ -1071,7 +1071,7 @@ func runAgentSkillsAdd(cmd *cobra.Command, args []string) error {
 }
 
 func cleanSkillIDsFlag(cmd *cobra.Command) []string {
-	skillIDs, _ := cmd.Flags().GetStringSlice("skill-ids")
+	skillIDs, _ := cmd.Flags().GetStringSlice(flagSkillIDs)
 	cleanIDs := make([]string, 0, len(skillIDs))
 	for _, id := range skillIDs {
 		id = strings.TrimSpace(id)
@@ -1129,7 +1129,7 @@ func runAgentEnvGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var resp map[string]any
-	if err := client.GetJSON(ctx, "/api/agents/"+args[0]+"/env", &resp); err != nil {
+	if err := client.GetJSON(ctx, apiAgentsPrefix+args[0]+"/env", &resp); err != nil {
 		return fmt.Errorf("get agent env: %w", err)
 	}
 
@@ -1174,7 +1174,7 @@ func runAgentEnvSet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/agents/"+args[0]+"/env", body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiAgentsPrefix+args[0]+"/env", body, &result); err != nil {
 		return fmt.Errorf("update agent env: %w", err)
 	}
 
@@ -1237,13 +1237,13 @@ func parseCustomArgs(raw string) ([]string, error) {
 // secret twice. Stdin and file inputs exist to keep secret material out of
 // shell history and 'ps' / /proc/<pid>/cmdline.
 func resolveCustomEnv(cmd *cobra.Command) (map[string]string, bool, error) {
-	inline := cmd.Flags().Changed("custom-env")
-	fromStdin, _ := cmd.Flags().GetBool("custom-env-stdin")
-	filePath, _ := cmd.Flags().GetString("custom-env-file")
+	inline := cmd.Flags().Changed(flagCustomEnv)
+	fromStdin, _ := cmd.Flags().GetBool(flagCustomEnvStdin)
+	filePath, _ := cmd.Flags().GetString(flagCustomEnvFile)
 	// Note: an explicit --custom-env-file "" is honored as "the user asked
 	// for this channel with an empty path" and surfaces a real error below,
 	// rather than being silently swallowed.
-	fromFile := cmd.Flags().Changed("custom-env-file")
+	fromFile := cmd.Flags().Changed(flagCustomEnvFile)
 
 	count := 0
 	if inline {
@@ -1265,7 +1265,7 @@ func resolveCustomEnv(cmd *cobra.Command) (map[string]string, bool, error) {
 	var raw string
 	switch {
 	case inline:
-		raw, _ = cmd.Flags().GetString("custom-env")
+		raw, _ = cmd.Flags().GetString(flagCustomEnv)
 	case fromStdin:
 		buf, err := io.ReadAll(cmd.InOrStdin())
 		if err != nil {
@@ -1358,7 +1358,7 @@ func parseMcpJSONObject(flag, raw string, allowNull bool) (json.RawMessage, erro
 // (`null` here vs `{}` for custom_env), because mcp_config distinguishes an
 // explicit empty object from an absent config server-side.
 func resolveMcpConfig(cmd *cobra.Command) (json.RawMessage, bool, error) {
-	return resolveMcpJSONObject(cmd, "mcp-config", true)
+	return resolveMcpJSONObject(cmd, flagMCPConfig, true)
 }
 
 // resolveMcpJSONObject collects the `<prefix>`, `<prefix>-stdin`, and

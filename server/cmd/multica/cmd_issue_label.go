@@ -44,12 +44,12 @@ func init() {
 	issueLabelCmd.AddCommand(issueLabelAddCmd)
 	issueLabelCmd.AddCommand(issueLabelRemoveCmd)
 
-	issueLabelListCmd.Flags().String("output", "table", "Output format: table or json")
-	issueLabelAddCmd.Flags().String("output", "table", "Output format: table or json")
-	issueLabelRemoveCmd.Flags().String("output", "table", "Output format: table or json")
-	issueLabelListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
-	issueLabelAddCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
-	issueLabelRemoveCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
+	issueLabelListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueLabelAddCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueLabelRemoveCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueLabelListCmd.Flags().Bool(flagFullID, false, flagFullIDDesc)
+	issueLabelAddCmd.Flags().Bool(flagFullID, false, flagFullIDDesc)
+	issueLabelRemoveCmd.Flags().Bool(flagFullID, false, flagFullIDDesc)
 
 	// Register under the top-level `issue` command.
 	issueCmd.AddCommand(issueLabelCmd)
@@ -65,11 +65,11 @@ func runIssueLabelList(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 
 	var result map[string]any
-	if err := client.GetJSON(ctx, "/api/issues/"+issueRef.ID+"/labels", &result); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueRef.ID+pathLabels, &result); err != nil {
 		return fmt.Errorf("list issue labels: %w", err)
 	}
 	labelsRaw, _ := result["labels"].([]any)
@@ -78,7 +78,7 @@ func runIssueLabelList(cmd *cobra.Command, args []string) error {
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, labelsRaw)
 	}
-	fullID, _ := cmd.Flags().GetBool("full-id")
+	fullID, _ := cmd.Flags().GetBool(flagFullID)
 	printLabelTable(labelsRaw, fullID)
 	return nil
 }
@@ -93,7 +93,7 @@ func runIssueLabelAdd(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 	labelRef, err := resolveLabelID(ctx, client, args[1])
 	if err != nil {
@@ -102,7 +102,7 @@ func runIssueLabelAdd(cmd *cobra.Command, args []string) error {
 
 	body := map[string]any{"label_id": labelRef.ID}
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/issues/"+issueRef.ID+"/labels", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiIssuesPrefix+issueRef.ID+pathLabels, body, &result); err != nil {
 		return fmt.Errorf("attach label: %w", err)
 	}
 	labelsRaw, _ := result["labels"].([]any)
@@ -111,7 +111,7 @@ func runIssueLabelAdd(cmd *cobra.Command, args []string) error {
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, labelsRaw)
 	}
-	fullID, _ := cmd.Flags().GetBool("full-id")
+	fullID, _ := cmd.Flags().GetBool(flagFullID)
 	printLabelTable(labelsRaw, fullID)
 	return nil
 }
@@ -126,14 +126,14 @@ func runIssueLabelRemove(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 	labelRef, err := resolveLabelID(ctx, client, args[1])
 	if err != nil {
 		return fmt.Errorf("resolve label: %w", err)
 	}
 
-	if err := client.DeleteJSON(ctx, "/api/issues/"+issueRef.ID+"/labels/"+labelRef.ID); err != nil {
+	if err := client.DeleteJSON(ctx, apiIssuesPrefix+issueRef.ID+"/labels/"+labelRef.ID); err != nil {
 		return fmt.Errorf("detach label: %w", err)
 	}
 
@@ -142,7 +142,7 @@ func runIssueLabelRemove(cmd *cobra.Command, args []string) error {
 	// detach itself already succeeded.
 	var result map[string]any
 	output, _ := cmd.Flags().GetString("output")
-	if err := client.GetJSON(ctx, "/api/issues/"+issueRef.ID+"/labels", &result); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueRef.ID+pathLabels, &result); err != nil {
 		if output == "json" {
 			return cli.PrintJSON(os.Stdout, map[string]any{"detached": true})
 		}
@@ -153,7 +153,7 @@ func runIssueLabelRemove(cmd *cobra.Command, args []string) error {
 	if output == "json" {
 		return cli.PrintJSON(os.Stdout, labelsRaw)
 	}
-	fullID, _ := cmd.Flags().GetBool("full-id")
+	fullID, _ := cmd.Flags().GetBool(flagFullID)
 	printLabelTable(labelsRaw, fullID)
 	return nil
 }

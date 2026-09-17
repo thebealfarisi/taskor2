@@ -110,11 +110,11 @@ func init() {
 
 	// list
 	autopilotListCmd.Flags().String("status", "", "Filter by status (active, paused)")
-	autopilotListCmd.Flags().String("output", "table", "Output format: table or json")
+	autopilotListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	autopilotListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
 
 	// get
-	autopilotGetCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// create
 	autopilotCreateCmd.Flags().String("title", "", "Autopilot title (required)")
@@ -123,9 +123,9 @@ func init() {
 	autopilotCreateCmd.Flags().String("mode", "", "Execution mode: create_issue or run_only (required)")
 	autopilotCreateCmd.Flags().String("priority", "none", "Priority for created issues (none, low, medium, high, urgent)")
 	autopilotCreateCmd.Flags().String("project", "", "Project ID (optional)")
-	autopilotCreateCmd.Flags().String("issue-title-template", "", "Template for issue titles (create_issue mode). Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected at create-time.")
+	autopilotCreateCmd.Flags().String(flagIssueTitleTemplate, "", "Template for issue titles (create_issue mode). Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected at create-time.")
 	autopilotCreateCmd.Flags().StringArray("subscriber", nil, "Member subscriber to notify for issues this autopilot creates (name or user ID; repeatable)")
-	autopilotCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// update
 	autopilotUpdateCmd.Flags().String("title", "", "New title")
@@ -135,31 +135,31 @@ func init() {
 	autopilotUpdateCmd.Flags().String("priority", "", "New priority")
 	autopilotUpdateCmd.Flags().String("status", "", "New status (active, paused)")
 	autopilotUpdateCmd.Flags().String("mode", "", "New execution mode (create_issue or run_only)")
-	autopilotUpdateCmd.Flags().String("issue-title-template", "", "New issue title template. Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected.")
+	autopilotUpdateCmd.Flags().String(flagIssueTitleTemplate, "", "New issue title template. Only {{date}} (UTC, YYYY-MM-DD) is interpolated; any other {{...}} token is rejected.")
 	autopilotUpdateCmd.Flags().StringArray("subscriber", nil, "Replace subscribers with this member (name or user ID; repeatable)")
 	autopilotUpdateCmd.Flags().Bool("clear-subscribers", false, "Remove all autopilot subscribers")
-	autopilotUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// delete
 	// (no flags)
 
 	// trigger (manual run)
-	autopilotTriggerCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotTriggerCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// runs
 	autopilotRunsCmd.Flags().Int("limit", 20, "Max number of runs to return")
 	autopilotRunsCmd.Flags().Int("offset", 0, "Pagination offset")
-	autopilotRunsCmd.Flags().String("output", "table", "Output format: table or json")
+	autopilotRunsCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// trigger-add — supports schedule and webhook
 	autopilotTriggerAddCmd.Flags().String("kind", "schedule", "Trigger kind: schedule or webhook")
 	autopilotTriggerAddCmd.Flags().String("cron", "", "Cron expression (required for --kind schedule)")
 	autopilotTriggerAddCmd.Flags().String("timezone", "", "IANA timezone (default UTC; schedule only)")
 	autopilotTriggerAddCmd.Flags().String("label", "", "Optional human-readable label")
-	autopilotTriggerAddCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotTriggerAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// trigger-rotate-url — webhook only
-	autopilotTriggerRotateURLCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotTriggerRotateURLCmd.Flags().String("output", "json", flagOutputFormatDesc)
 	autopilotTriggerRotateURLCmd.Flags().BoolP("yes", "y", false, "Skip the interactive confirmation prompt")
 
 	// trigger-update
@@ -167,7 +167,7 @@ func init() {
 	autopilotTriggerUpdateCmd.Flags().String("cron", "", "New cron expression")
 	autopilotTriggerUpdateCmd.Flags().String("timezone", "", "New IANA timezone")
 	autopilotTriggerUpdateCmd.Flags().String("label", "", "New label")
-	autopilotTriggerUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	autopilotTriggerUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 }
 
 // ---------------------------------------------------------------------------
@@ -233,11 +233,11 @@ func runAutopilotGet(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
 	var resp map[string]any
-	if err := client.GetJSON(ctx, "/api/autopilots/"+autopilotRef.ID, &resp); err != nil {
+	if err := client.GetJSON(ctx, apiAutopilotsPrefix+autopilotRef.ID, &resp); err != nil {
 		return fmt.Errorf("get autopilot: %w", err)
 	}
 
@@ -313,7 +313,7 @@ func runAutopilotCreate(cmd *cobra.Command, _ []string) error {
 		}
 		body["project_id"] = projectRef.ID
 	}
-	if v, _ := cmd.Flags().GetString("issue-title-template"); v != "" {
+	if v, _ := cmd.Flags().GetString(flagIssueTitleTemplate); v != "" {
 		body["issue_title_template"] = v
 	}
 	if subscriberRefs, _ := cmd.Flags().GetStringArray("subscriber"); len(subscriberRefs) > 0 {
@@ -348,7 +348,7 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
 	body := map[string]any{}
@@ -396,8 +396,8 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 		}
 		body["execution_mode"] = v
 	}
-	if cmd.Flags().Changed("issue-title-template") {
-		v, _ := cmd.Flags().GetString("issue-title-template")
+	if cmd.Flags().Changed(flagIssueTitleTemplate) {
+		v, _ := cmd.Flags().GetString(flagIssueTitleTemplate)
 		body["issue_title_template"] = v
 	}
 	clearSubscribers, _ := cmd.Flags().GetBool("clear-subscribers")
@@ -420,7 +420,7 @@ func runAutopilotUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PatchJSON(ctx, "/api/autopilots/"+autopilotRef.ID, body, &result); err != nil {
+	if err := client.PatchJSON(ctx, apiAutopilotsPrefix+autopilotRef.ID, body, &result); err != nil {
 		return fmt.Errorf("update autopilot: %w", err)
 	}
 
@@ -443,10 +443,10 @@ func runAutopilotDelete(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
-	if err := client.DeleteJSON(ctx, "/api/autopilots/"+autopilotRef.ID); err != nil {
+	if err := client.DeleteJSON(ctx, apiAutopilotsPrefix+autopilotRef.ID); err != nil {
 		return fmt.Errorf("delete autopilot: %w", err)
 	}
 	fmt.Printf("Autopilot %s deleted.\n", autopilotRef.Display)
@@ -464,11 +464,11 @@ func runAutopilotTrigger(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
 	var run map[string]any
-	if err := client.PostJSON(ctx, "/api/autopilots/"+autopilotRef.ID+"/trigger", nil, &run); err != nil {
+	if err := client.PostJSON(ctx, apiAutopilotsPrefix+autopilotRef.ID+"/trigger", nil, &run); err != nil {
 		return fmt.Errorf("trigger autopilot: %w", err)
 	}
 
@@ -491,7 +491,7 @@ func runAutopilotRuns(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
 	params := url.Values{}
@@ -501,7 +501,7 @@ func runAutopilotRuns(cmd *cobra.Command, args []string) error {
 	if v, _ := cmd.Flags().GetInt("offset"); v > 0 {
 		params.Set("offset", fmt.Sprintf("%d", v))
 	}
-	path := "/api/autopilots/" + autopilotRef.ID + "/runs"
+	path := apiAutopilotsPrefix + autopilotRef.ID + "/runs"
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
@@ -577,11 +577,11 @@ func runAutopilotTriggerAdd(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/autopilots/"+autopilotRef.ID+"/triggers", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiAutopilotsPrefix+autopilotRef.ID+"/triggers", body, &result); err != nil {
 		return fmt.Errorf("create trigger: %w", err)
 	}
 
@@ -621,11 +621,11 @@ func runAutopilotTriggerRotateURL(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 	triggerRef, err := resolveAutopilotTriggerID(ctx, client, autopilotRef.ID, args[1])
 	if err != nil {
-		return fmt.Errorf("resolve trigger: %w", err)
+		return fmt.Errorf(errResolveTrigger, err)
 	}
 
 	// Confirmation: rotation invalidates the current URL immediately. The UI
@@ -645,7 +645,7 @@ func runAutopilotTriggerRotateURL(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	path := "/api/autopilots/" + autopilotRef.ID + "/triggers/" + triggerRef.ID + "/rotate-webhook-token"
+	path := apiAutopilotsPrefix + autopilotRef.ID + pathTriggers + triggerRef.ID + "/rotate-webhook-token"
 	if err := client.PostJSON(ctx, path, nil, &result); err != nil {
 		return fmt.Errorf("rotate webhook url: %w", err)
 	}
@@ -691,15 +691,15 @@ func runAutopilotTriggerUpdate(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 	triggerRef, err := resolveAutopilotTriggerID(ctx, client, autopilotRef.ID, args[1])
 	if err != nil {
-		return fmt.Errorf("resolve trigger: %w", err)
+		return fmt.Errorf(errResolveTrigger, err)
 	}
 
 	var result map[string]any
-	path := "/api/autopilots/" + autopilotRef.ID + "/triggers/" + triggerRef.ID
+	path := apiAutopilotsPrefix + autopilotRef.ID + pathTriggers + triggerRef.ID
 	if err := client.PatchJSON(ctx, path, body, &result); err != nil {
 		return fmt.Errorf("update trigger: %w", err)
 	}
@@ -723,14 +723,14 @@ func runAutopilotTriggerDelete(cmd *cobra.Command, args []string) error {
 
 	autopilotRef, err := resolveAutopilotID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve autopilot: %w", err)
+		return fmt.Errorf(errResolveAutopilot, err)
 	}
 	triggerRef, err := resolveAutopilotTriggerID(ctx, client, autopilotRef.ID, args[1])
 	if err != nil {
-		return fmt.Errorf("resolve trigger: %w", err)
+		return fmt.Errorf(errResolveTrigger, err)
 	}
 
-	path := "/api/autopilots/" + autopilotRef.ID + "/triggers/" + triggerRef.ID
+	path := apiAutopilotsPrefix + autopilotRef.ID + pathTriggers + triggerRef.ID
 	if err := client.DeleteJSON(ctx, path); err != nil {
 		return fmt.Errorf("delete trigger: %w", err)
 	}

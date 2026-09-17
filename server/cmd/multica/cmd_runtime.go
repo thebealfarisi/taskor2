@@ -77,27 +77,27 @@ func init() {
 	runtimeCmd.AddCommand(runtimeDeleteCmd)
 
 	// runtime list
-	runtimeListCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// runtime usage
-	runtimeUsageCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeUsageCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	runtimeUsageCmd.Flags().Int("days", 90, "Number of days of usage data to retrieve (max 365)")
 
 	// runtime activity
-	runtimeActivityCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeActivityCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// runtime update
 	runtimeUpdateCmd.Flags().String("target-version", "", "Target version to update to (required)")
-	runtimeUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	runtimeUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 	runtimeUpdateCmd.Flags().Bool("wait", false, "Wait for update to complete (poll until done)")
 
 	// runtime rename
 	runtimeRenameCmd.Flags().Bool("machine", false, "Apply the name to every runtime on the same machine")
-	runtimeRenameCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeRenameCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// runtime delete
 	runtimeDeleteCmd.Flags().Bool("cascade", false, "Unbind active agents from the runtime, cancel their tasks, then delete the runtime")
-	runtimeDeleteCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeDeleteCmd.Flags().String("output", "table", flagOutputFormatDesc)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ func runRuntimeActivity(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var activity []map[string]any
-	if err := client.GetJSON(ctx, "/api/runtimes/"+args[0]+"/activity", &activity); err != nil {
+	if err := client.GetJSON(ctx, apiRuntimesPrefix+args[0]+"/activity", &activity); err != nil {
 		return fmt.Errorf("get runtime activity: %w", err)
 	}
 
@@ -222,7 +222,7 @@ func runRuntimeDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	err = client.DeleteJSON(ctx, "/api/runtimes/"+runtimeID)
+	err = client.DeleteJSON(ctx, apiRuntimesPrefix+runtimeID)
 	if err == nil {
 		return printRuntimeDeleteResult(cmd, map[string]any{
 			"id":      runtimeID,
@@ -247,7 +247,7 @@ func runRuntimeDelete(cmd *cobra.Command, args []string) error {
 		"expected_active_agent_ids": conflict.AgentIDs(),
 	}
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/runtimes/"+runtimeID+"/unbind-agents-and-delete", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiRuntimesPrefix+runtimeID+"/unbind-agents-and-delete", body, &result); err != nil {
 		return fmt.Errorf("cascade delete runtime: %w", err)
 	}
 	result["id"] = runtimeID
@@ -271,7 +271,7 @@ func runRuntimeRename(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var rt map[string]any
-	if err := client.PatchJSON(ctx, "/api/runtimes/"+args[0], body, &rt); err != nil {
+	if err := client.PatchJSON(ctx, apiRuntimesPrefix+args[0], body, &rt); err != nil {
 		return fmt.Errorf("rename runtime: %w", err)
 	}
 
@@ -307,7 +307,7 @@ func runRuntimeUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var update map[string]any
-	if err := client.PostJSON(ctx, "/api/runtimes/"+args[0]+"/update", body, &update); err != nil {
+	if err := client.PostJSON(ctx, apiRuntimesPrefix+args[0]+"/update", body, &update); err != nil {
 		return fmt.Errorf("initiate update: %w", err)
 	}
 
@@ -330,7 +330,7 @@ func runRuntimeUpdate(cmd *cobra.Command, args []string) error {
 		case <-time.After(2 * time.Second):
 		}
 
-		if err := client.GetJSON(ctx, "/api/runtimes/"+args[0]+"/update/"+updateID, &update); err != nil {
+		if err := client.GetJSON(ctx, apiRuntimesPrefix+args[0]+"/update/"+updateID, &update); err != nil {
 			return fmt.Errorf("get update status: %w", err)
 		}
 

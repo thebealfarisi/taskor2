@@ -76,7 +76,7 @@ func init() {
 	setupSelfHostCmd.Flags().String("server-url", "", "Backend server URL (e.g. https://api.internal.co) (env: MULTICA_SERVER_URL)")
 	setupSelfHostCmd.Flags().String("app-url", "", "Frontend app URL (e.g. https://app.internal.co) (env: MULTICA_APP_URL)")
 	setupSelfHostCmd.Flags().Int("port", 8080, "Backend server port (used when --server-url is not set)")
-	setupSelfHostCmd.Flags().Int("frontend-port", 3000, "Frontend port (used when --app-url is not set)")
+	setupSelfHostCmd.Flags().Int(flagFrontendPort, 3000, "Frontend port (used when --app-url is not set)")
 	setupSelfHostCmd.Flags().String(callbackHostFlag, "", callbackHostFlagHelp)
 
 	setupCmd.AddCommand(setupCloudCmd)
@@ -111,8 +111,8 @@ func confirmOverwrite(profile, newServerURL, newAppURL string) (bool, error) {
 	}
 
 	fmt.Fprintln(os.Stderr, "Current configuration:")
-	fmt.Fprintf(os.Stderr, "  server_url: %s\n", formatURLChange(cfg.ServerURL, newServerURL))
-	fmt.Fprintf(os.Stderr, "  app_url:    %s\n", formatURLChange(cfg.AppURL, newAppURL))
+	fmt.Fprintf(os.Stderr, formatServerURL, formatURLChange(cfg.ServerURL, newServerURL))
+	fmt.Fprintf(os.Stderr, formatAppURL, formatURLChange(cfg.AppURL, newAppURL))
 	if cfg.WorkspaceID != "" {
 		fmt.Fprintf(os.Stderr, "  workspace:  %s\n", cfg.WorkspaceID)
 	}
@@ -162,8 +162,8 @@ func runSetupCloud(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "Configured for Multica Cloud (https://multica.ai).")
-	fmt.Fprintf(os.Stderr, "  server_url: %s\n", cfg.ServerURL)
-	fmt.Fprintf(os.Stderr, "  app_url:    %s\n", cfg.AppURL)
+	fmt.Fprintf(os.Stderr, formatServerURL, cfg.ServerURL)
+	fmt.Fprintf(os.Stderr, formatAppURL, cfg.AppURL)
 	printConfigLocation(profile)
 
 	// Authenticate.
@@ -199,7 +199,7 @@ func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 	existing, _ := cli.LoadCLIConfigForProfile(profile)
 	serverURL, userProvidedServerURL := resolveSelfHostServerURL(cmd, existing)
 	appURL := resolveSelfHostAppURL(cmd, existing)
-	frontendPort, _ := cmd.Flags().GetInt("frontend-port")
+	frontendPort, _ := cmd.Flags().GetInt(flagFrontendPort)
 
 	if appURL == "" {
 		if userProvidedServerURL && !serverHostIsLocal(serverURL) {
@@ -243,8 +243,8 @@ func runSetupSelfHost(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "Configured for self-hosted server.")
-	fmt.Fprintf(os.Stderr, "  server_url: %s\n", serverURL)
-	fmt.Fprintf(os.Stderr, "  app_url:    %s\n", appURL)
+	fmt.Fprintf(os.Stderr, formatServerURL, serverURL)
+	fmt.Fprintf(os.Stderr, formatAppURL, appURL)
 	printConfigLocation(profile)
 
 	// Authenticate.
@@ -397,7 +397,7 @@ func resolveSelfHostAppURL(cmd *cobra.Command, existing cli.CLIConfig) string {
 	if v := cli.FlagOrEnv(cmd, "app-url", "MULTICA_APP_URL", ""); v != "" {
 		return v
 	}
-	if !cmd.Flags().Changed("frontend-port") && existing.AppURL != "" {
+	if !cmd.Flags().Changed(flagFrontendPort) && existing.AppURL != "" {
 		return existing.AppURL
 	}
 	return ""

@@ -58,14 +58,14 @@ var repoCheckoutCmd = &cobra.Command{
 var repoCheckoutRef string
 
 func init() {
-	repoListCmd.Flags().String("output", "table", "Output format: table or json")
+	repoListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	repoAddCmd.Flags().StringArray("url", nil, "Repository URL to add (may be repeated)")
 	repoAddCmd.Flags().String("description", "", "Optional description; only valid when adding one URL")
-	repoAddCmd.Flags().String("output", "json", "Output format: table or json")
+	repoAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	repoRemoveCmd.Flags().StringArray("url", nil, "Repository URL to remove (may be repeated)")
-	repoRemoveCmd.Flags().String("output", "json", "Output format: table or json")
+	repoRemoveCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	repoCheckoutCmd.Flags().StringVar(&repoCheckoutRef, "ref", "", "branch, tag, or commit to check out instead of the remote default branch")
 

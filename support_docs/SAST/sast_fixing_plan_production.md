@@ -196,11 +196,12 @@ graph TD
 - **Rule Key:** `go:S1192` (412 temuan pada 122 file)
 - **Pengelompokan Sub-Modul:**
 
-#### Sub-batch P4.1: CLI Commands Flags & Help Text (`server/cmd/multica/`) — 138 Temuan
+#### Sub-batch P4.1: CLI Commands Flags & Help Text (`server/cmd/multica/`) — 121 Temuan — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil diimplementasikan dengan membuat `server/cmd/multica/flags_const.go` (89 konstanta) dan memperbarui 19 file CLI (636 substitusi literal); lolos kompilasi `go build` dan seluruh unit tests `go test ./cmd/multica`.
 - **File Utama:**
-  - `cmd_agent.go` (16), `cmd_issue.go` (15), `cmd_daemon.go` (14), `cmd_project.go` (12), `cmd_squad.go` (8), `cmd_workspace.go` (7), `cmd_agent_copy.go` (6), `cmd_autopilot.go` (6), `cmd_issue_label.go` (6), `cmd_issue_metadata.go` (6).
-- **Literal Berulang:** `"workspace id"`, `"Output format: table or json"`, `"full-id"`, `"thinking-level"`, `"service-tier"`.
-- **Solusi:** Buat file konstanta bersama `server/cmd/multica/flags_const.go` berisi definisi flag CLI bersama.
+  - `cmd_agent.go` (16), `cmd_issue.go` (15), `cmd_daemon.go` (14), `cmd_project.go` (12), `cmd_squad.go` (8), `cmd_workspace.go` (7), `cmd_agent_copy.go` (6), `cmd_autopilot.go` (6), `cmd_issue_label.go` (6), `cmd_issue_metadata.go` (6), `cmd_property.go` (4), `cmd_skill.go` (4), `cmd_auth.go` (3), `cmd_label.go` (3), `cmd_runtime_profile.go` (3), `cmd_setup.go` (3), `cmd_config.go` (2), `cmd_runtime.go` (2), `cmd_repo.go` (1).
+- **Literal Berulang:** `"Output format: table or json"`, `"full-id"`, `"thinking-level"`, `"service-tier"`, `"/api/issues/"`, `"resolve issue: %w"`, dll.
+- **Solusi:** File konstanta bersama `server/cmd/multica/flags_const.go` berisi definisi flag CLI, path API, dan deskripsi/error standar.
 
 #### Sub-batch P4.2: HTTP Handlers Error & API Paths (`server/internal/handler/`) — 164 Temuan
 - **File Utama:**

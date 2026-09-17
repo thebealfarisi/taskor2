@@ -55,14 +55,14 @@ func init() {
 // between init() and the tests so both stay in lockstep.
 func registerAgentCopyFlags(cmd *cobra.Command) {
 	cmd.Flags().String("name", "", "Name for the new agent (default: \"<source name> (copy)\")")
-	cmd.Flags().String("runtime-id", "", "Target runtime ID (default: the source agent's runtime). A different value forks the agent onto that runtime.")
+	cmd.Flags().String(flagRuntimeID, "", "Target runtime ID (default: the source agent's runtime). A different value forks the agent onto that runtime.")
 	cmd.Flags().String("description", "", "Override the copied description")
 	cmd.Flags().String("instructions", "", "Override the copied instructions")
 	cmd.Flags().String("model", "", "Model identifier for the copy. Required when --runtime-id selects a different runtime (pass \"\" to accept the target runtime default). Empty otherwise = runtime default.")
-	cmd.Flags().String("thinking-level", "", "Override thinking level. Not carried across a runtime change unless set here.")
-	cmd.Flags().String("service-tier", "", "Override Codex service tier. Not carried across a runtime change unless set here.")
-	cmd.Flags().String("custom-args", "", "Override custom CLI arguments as a JSON array.")
-	cmd.Flags().Int32("max-concurrent-tasks", 6, "Override maximum concurrent tasks")
+	cmd.Flags().String(flagThinkingLevel, "", "Override thinking level. Not carried across a runtime change unless set here.")
+	cmd.Flags().String(flagServiceTier, "", "Override Codex service tier. Not carried across a runtime change unless set here.")
+	cmd.Flags().String(flagCustomArgs, "", "Override custom CLI arguments as a JSON array.")
+	cmd.Flags().Int32(flagMaxConcurrentTasks, 6, "Override maximum concurrent tasks")
 	cmd.Flags().String("visibility", "", "Override visibility: private or workspace (legacy; mapped to --permission-mode)")
 	cmd.Flags().String("permission-mode", "", "Override invocation permission mode: private or public_to. Authoritative over --visibility.")
 	cmd.Flags().Bool("public-to-workspace", false, "public_to: allow every workspace member to invoke the copy.")
@@ -76,7 +76,7 @@ func registerAgentCopyFlags(cmd *cobra.Command) {
 	cmd.Flags().String("mcp-config", "", "Set mcp_config on the copy as a JSON object (never copied from the source). Prefer --mcp-config-stdin/--mcp-config-file for secrets.")
 	cmd.Flags().Bool("mcp-config-stdin", false, "Read --mcp-config from stdin. Mutually exclusive with --mcp-config and --mcp-config-file.")
 	cmd.Flags().String("mcp-config-file", "", "Read --mcp-config from a file path (suggested mode: 0600). Mutually exclusive with --mcp-config and --mcp-config-stdin.")
-	cmd.Flags().String("runtime-config", "", "Set runtime_config on the copy as a JSON string (never copied from the source).")
+	cmd.Flags().String(flagRuntimeConfig, "", "Set runtime_config on the copy as a JSON string (never copied from the source).")
 	cmd.Flags().String("output", "json", "Output format: table or json")
 }
 
@@ -86,8 +86,8 @@ func registerAgentCopyFlags(cmd *cobra.Command) {
 // set only when supplied explicitly on the command line.
 func runAgentCopy(cmd *cobra.Command, args []string) error {
 	var maxConcurrentTasksOverride *int32
-	if cmd.Flags().Changed("max-concurrent-tasks") {
-		v, _ := cmd.Flags().GetInt32("max-concurrent-tasks")
+	if cmd.Flags().Changed(flagMaxConcurrentTasks) {
+		v, _ := cmd.Flags().GetInt32(flagMaxConcurrentTasks)
 		if err := validateAgentMaxConcurrentTasksFlag(v); err != nil {
 			return err
 		}
@@ -112,8 +112,8 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 	// Resolve the target runtime: default to the source's runtime, override
 	// with --runtime-id. A different value is a cross-runtime fork.
 	targetRuntimeID := srcRuntimeID
-	if cmd.Flags().Changed("runtime-id") {
-		v, _ := cmd.Flags().GetString("runtime-id")
+	if cmd.Flags().Changed(flagRuntimeID) {
+		v, _ := cmd.Flags().GetString(flagRuntimeID)
 		if v == "" {
 			return fmt.Errorf("--runtime-id must not be empty")
 		}
@@ -161,8 +161,8 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 	if ca, ok := src["custom_args"].([]any); ok && len(ca) > 0 {
 		body["custom_args"] = ca
 	}
-	if cmd.Flags().Changed("custom-args") {
-		v, _ := cmd.Flags().GetString("custom-args")
+	if cmd.Flags().Changed(flagCustomArgs) {
+		v, _ := cmd.Flags().GetString(flagCustomArgs)
 		ca, err := parseCustomArgs(v)
 		if err != nil {
 			return err
@@ -202,12 +202,12 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 		v, _ := cmd.Flags().GetString("model")
 		body["model"] = v
 	}
-	if cmd.Flags().Changed("thinking-level") {
-		v, _ := cmd.Flags().GetString("thinking-level")
+	if cmd.Flags().Changed(flagThinkingLevel) {
+		v, _ := cmd.Flags().GetString(flagThinkingLevel)
 		body["thinking_level"] = v
 	}
-	if cmd.Flags().Changed("service-tier") {
-		v, _ := cmd.Flags().GetString("service-tier")
+	if cmd.Flags().Changed(flagServiceTier) {
+		v, _ := cmd.Flags().GetString(flagServiceTier)
 		body["service_tier"] = v
 	}
 
@@ -266,8 +266,8 @@ func runAgentCopy(cmd *cobra.Command, args []string) error {
 	} else if ok {
 		body["mcp_config"] = mc
 	}
-	if cmd.Flags().Changed("runtime-config") {
-		v, _ := cmd.Flags().GetString("runtime-config")
+	if cmd.Flags().Changed(flagRuntimeConfig) {
+		v, _ := cmd.Flags().GetString(flagRuntimeConfig)
 		var rc any
 		if err := json.Unmarshal([]byte(v), &rc); err != nil {
 			return fmt.Errorf("--runtime-config must be valid JSON: %w", err)

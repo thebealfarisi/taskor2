@@ -161,7 +161,7 @@ func resolveCallbackBinding(flagHost, serverURL, appURL string, detectOutbound f
 	// Explicit flag always wins. Bind on all interfaces so the browser can
 	// reach us regardless of which interface the host name resolves to.
 	if h := strings.TrimSpace(flagHost); h != "" {
-		return h, "0.0.0.0"
+		return h, bindAllIPv4
 	}
 
 	appIP := urlPrivateIP(appURL)
@@ -180,12 +180,12 @@ func resolveCallbackBinding(flagHost, serverURL, appURL string, detectOutbound f
 	if cliIP == nil {
 		// Detection failed (offline, unreachable server, etc.). Fall back to
 		// the app IP — preserves the pre-existing same-machine behaviour.
-		return appIP.String(), "0.0.0.0"
+		return appIP.String(), bindAllIPv4
 	}
 	if cliIP.Equal(appIP) {
 		return "localhost", "127.0.0.1"
 	}
-	return cliIP.String(), "0.0.0.0"
+	return cliIP.String(), bindAllIPv4
 }
 
 // urlPrivateIP returns the hostname of rawURL parsed as an RFC 1918 IP, or
@@ -340,7 +340,7 @@ func runAuthLoginBrowser(cmd *cobra.Command) error {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	if err := patClient.GetJSON(ctx, "/api/me", &me); err != nil {
+	if err := patClient.GetJSON(ctx, apiMe, &me); err != nil {
 		return cli.WithUserMessage("Sign-in did not complete: the server did not accept the new credential. Run `multica login` again.", err)
 	}
 
@@ -353,7 +353,7 @@ func runAuthLoginBrowser(cmd *cobra.Command) error {
 	cfg.ServerURL = serverURL
 	cfg.AppURL = appURL
 	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+		return fmt.Errorf(errFailedToSaveConfig, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Authenticated as %s (%s)\nToken saved to config.\n", me.Name, me.Email)
@@ -443,7 +443,7 @@ func runAuthLoginToken(cmd *cobra.Command, providedToken string) error {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	if err := client.GetJSON(ctx, "/api/me", &me); err != nil {
+	if err := client.GetJSON(ctx, apiMe, &me); err != nil {
 		return cli.WithUserMessage("Could not sign in with that token — make sure it is valid and not expired, then run `multica login --token <token>` again.", err)
 	}
 
@@ -456,7 +456,7 @@ func runAuthLoginToken(cmd *cobra.Command, providedToken string) error {
 		cfg.AppURL = defaultCloudAppURL
 	}
 	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+		return fmt.Errorf(errFailedToSaveConfig, err)
 	}
 
 	fmt.Fprintf(os.Stderr, "Authenticated as %s (%s)\nToken saved to config.\n", me.Name, me.Email)
@@ -488,7 +488,7 @@ func runAuthStatus(cmd *cobra.Command, _ []string) error {
 		Name  string `json:"name"`
 		Email string `json:"email"`
 	}
-	if err := client.GetJSON(ctx, "/api/me", &me); err != nil {
+	if err := client.GetJSON(ctx, apiMe, &me); err != nil {
 		fmt.Fprintf(os.Stderr, "Token is invalid or expired: %v\nRun 'multica login' to re-authenticate.\n", err)
 		return nil
 	}
@@ -558,7 +558,7 @@ func runAuthLogout(cmd *cobra.Command, _ []string) error {
 
 	cfg.Token = ""
 	if err := cli.SaveCLIConfigForProfile(cfg, profile); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
+		return fmt.Errorf(errFailedToSaveConfig, err)
 	}
 
 	fmt.Fprintln(os.Stderr, "Token removed. You are now logged out.")

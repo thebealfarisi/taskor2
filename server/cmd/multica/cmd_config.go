@@ -94,20 +94,20 @@ func runConfigShow(cmd *cobra.Command, _ []string) error {
 	if profile != "" {
 		fmt.Fprintf(os.Stdout, "Profile:      %s\n", profile)
 	}
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "server_url:", valueOrDefault(cfg.ServerURL, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "app_url:", valueOrDefault(cfg.AppURL, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "workspace_id:", valueOrDefault(cfg.WorkspaceID, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "device_name:", valueOrDefault(cfg.DeviceName, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "runtime_name:", valueOrDefault(cfg.RuntimeName, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "workspaces_root:", valueOrDefault(cfg.WorkspacesRoot, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "max_concurrent_tasks:", intOrDefault(cfg.MaxConcurrentTasks, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "poll_interval:", valueOrDefault(cfg.PollInterval, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "heartbeat_interval:", valueOrDefault(cfg.HeartbeatInterval, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "agent_timeout:", agentTimeoutDisplay(cfg.AgentTimeout))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "codex_semantic_inactivity_timeout:", valueOrDefault(cfg.CodexSemanticInactivityTimeout, "(not set)"))
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "codex_handshake_timeout:", valueOrDefault(cfg.CodexHandshakeTimeout, "(not set)"))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "server_url:", valueOrDefault(cfg.ServerURL, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "app_url:", valueOrDefault(cfg.AppURL, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "workspace_id:", valueOrDefault(cfg.WorkspaceID, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "device_name:", valueOrDefault(cfg.DeviceName, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "runtime_name:", valueOrDefault(cfg.RuntimeName, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "workspaces_root:", valueOrDefault(cfg.WorkspacesRoot, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "max_concurrent_tasks:", intOrDefault(cfg.MaxConcurrentTasks, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "poll_interval:", valueOrDefault(cfg.PollInterval, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "heartbeat_interval:", valueOrDefault(cfg.HeartbeatInterval, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "agent_timeout:", agentTimeoutDisplay(cfg.AgentTimeout))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "codex_semantic_inactivity_timeout:", valueOrDefault(cfg.CodexSemanticInactivityTimeout, valNotSet))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "codex_handshake_timeout:", valueOrDefault(cfg.CodexHandshakeTimeout, valNotSet))
 	fmt.Fprintf(os.Stdout, "%-34s %t\n", "disable_auto_update:", cfg.DisableAutoUpdate)
-	fmt.Fprintf(os.Stdout, "%-34s %s\n", "auto_update_check_interval:", valueOrDefault(cfg.AutoUpdateCheckInterval, "(not set)"))
+	fmt.Fprintf(os.Stdout, formatConfigRow, "auto_update_check_interval:", valueOrDefault(cfg.AutoUpdateCheckInterval, valNotSet))
 	fmt.Fprintf(os.Stdout, "%-34s %t\n", "disable_auto_reload:", cfg.DisableAutoReload)
 	return nil
 }
@@ -296,10 +296,10 @@ func assignPositiveDuration(dst *string, key, value string) error {
 // duration string.
 func agentTimeoutDisplay(v *string) string {
 	if v == nil {
-		return "(not set)"
+		return valNotSet
 	}
 	if *v == "" {
-		return "(not set)"
+		return valNotSet
 	}
 	if d, err := time.ParseDuration(*v); err == nil && d == 0 {
 		return *v + " (disabled)"
