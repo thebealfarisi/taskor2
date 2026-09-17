@@ -460,7 +460,7 @@ func githubSettingsURL(frontend, returnTo string) string {
 // repos. The state token binds the resulting setup callback to this workspace.
 func (h *Handler) GitHubConnect(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	if _, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id"); !ok {
+	if _, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID); !ok {
 		return
 	}
 	if !isGitHubConfigured() {
@@ -710,7 +710,7 @@ func signGitHubAppJWT(now time.Time) (string, error) {
 // management handle.
 func (h *Handler) ListGitHubInstallations(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -745,7 +745,7 @@ func (h *Handler) ListGitHubInstallations(w http.ResponseWriter, r *http.Request
 // check happens before any GitHub API call.
 func (h *Handler) ListGitHubInstallationRepositories(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	if _, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id"); !ok {
+	if _, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID); !ok {
 		return
 	}
 	installationRowID := chi.URLParam(r, "installationId")
@@ -936,7 +936,7 @@ func revokeGitHubInstallationToken(client *http.Client, token string) {
 
 func (h *Handler) DeleteGitHubInstallation(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}

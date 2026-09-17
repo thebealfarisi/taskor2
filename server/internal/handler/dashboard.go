@@ -214,7 +214,7 @@ func (h *Handler) listDashboardUsageDaily(
 	resp := make([]DashboardUsageDailyResponse, len(rows))
 	for i, row := range rows {
 		resp[i] = DashboardUsageDailyResponse{
-			Date:                     row.Date.Time.Format("2006-01-02"),
+			Date:                     row.Date.Time.Format(dateLayoutISO),
 			Provider:                 row.Provider,
 			Model:                    row.Model,
 			InputTokens:              row.InputTokens,
@@ -496,7 +496,7 @@ func (h *Handler) GetDashboardRunTimeDaily(w http.ResponseWriter, r *http.Reques
 	resp := make([]DashboardRunTimeDailyResponse, len(rows))
 	for i, row := range rows {
 		resp[i] = DashboardRunTimeDailyResponse{
-			Date:           row.Date.Time.Format("2006-01-02"),
+			Date:           row.Date.Time.Format(dateLayoutISO),
 			TotalSeconds:   row.TotalSeconds,
 			TaskCount:      row.TaskCount,
 			FailedCount:    row.FailedCount,
@@ -563,7 +563,7 @@ func (h *Handler) GetDashboardFailuresDaily(w http.ResponseWriter, r *http.Reque
 	resp := make([]DashboardFailureDailyResponse, len(rows))
 	for i, row := range rows {
 		resp[i] = DashboardFailureDailyResponse{
-			Date:          row.Date.Time.Format("2006-01-02"),
+			Date:          row.Date.Time.Format(dateLayoutISO),
 			FailureReason: row.FailureReason,
 			TaskCount:     row.TaskCount,
 		}

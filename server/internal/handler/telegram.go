@@ -59,7 +59,7 @@ func (h *Handler) ListTelegramInstallations(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -97,7 +97,7 @@ func (h *Handler) RegisterTelegramBot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -175,7 +175,7 @@ func (h *Handler) RevokeTelegramInstallation(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}

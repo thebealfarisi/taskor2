@@ -1608,7 +1608,7 @@ func (h *Handler) PreviewCommentTriggers(w http.ResponseWriter, r *http.Request)
 
 	var req CommentTriggerPreviewRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -1723,7 +1723,7 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateCommentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -3201,14 +3201,14 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, "comment id")
+	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, paramCommentID)
 	if !ok {
 		return
 	}
 
 	// Load comment scoped to current workspace.
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -3217,7 +3217,7 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "comment not found")
+		writeError(w, http.StatusNotFound, errMsgCommentNotFound)
 		return
 	}
 
@@ -3242,7 +3242,7 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		ExpectedRevision *int64    `json:"expected_revision,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	// See CreateComment: strip NUL / invalid-UTF-8 bytes PostgreSQL's TEXT column
@@ -3467,14 +3467,14 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, "comment id")
+	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, paramCommentID)
 	if !ok {
 		return
 	}
 
 	// Load comment scoped to current workspace.
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -3483,7 +3483,7 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "comment not found")
+		writeError(w, http.StatusNotFound, errMsgCommentNotFound)
 		return
 	}
 
@@ -3540,7 +3540,7 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to delete comment")
 		} else {
-			writeError(w, http.StatusNotFound, "comment not found")
+			writeError(w, http.StatusNotFound, errMsgCommentNotFound)
 		}
 		return
 	}
@@ -3678,12 +3678,12 @@ func (h *Handler) loadCommentForActor(w http.ResponseWriter, r *http.Request) (d
 	if !ok {
 		return db.Comment{}, "", "", "", false
 	}
-	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, "comment id")
+	commentUUID, ok := parseUUIDOrBadRequest(w, commentId, paramCommentID)
 	if !ok {
 		return db.Comment{}, "", "", "", false
 	}
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return db.Comment{}, "", "", "", false
 	}
@@ -3695,7 +3695,7 @@ func (h *Handler) loadCommentForActor(w http.ResponseWriter, r *http.Request) (d
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "comment not found")
+		writeError(w, http.StatusNotFound, errMsgCommentNotFound)
 		return db.Comment{}, "", "", "", false
 	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
@@ -3721,7 +3721,7 @@ func (h *Handler) ResolveComment(w http.ResponseWriter, r *http.Request) {
 	// is atomic, so a crash can never leave two resolutions (or none) visible.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to resolve comment")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveComment)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -3734,7 +3734,7 @@ func (h *Handler) ResolveComment(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Warn("clear other thread resolutions failed", append(logger.RequestAttrs(r), "error", err, "comment_id", uuidToString(comment.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to resolve comment")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveComment)
 		return
 	}
 
@@ -3745,13 +3745,13 @@ func (h *Handler) ResolveComment(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Warn("resolve comment failed", append(logger.RequestAttrs(r), "error", err, "comment_id", uuidToString(comment.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to resolve comment")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveComment)
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("resolve comment commit failed", append(logger.RequestAttrs(r), "error", err, "comment_id", uuidToString(comment.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to resolve comment")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveComment)
 		return
 	}
 

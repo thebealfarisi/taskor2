@@ -643,7 +643,7 @@ func (h *Handler) requirePropertyAdmin(w http.ResponseWriter, r *http.Request) (
 
 func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -666,18 +666,18 @@ func (h *Handler) ListProperties(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetProperty(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "property id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramPropertyID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
 	property, err := h.Queries.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: idUUID, WorkspaceID: wsUUID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "property not found")
+			writeError(w, http.StatusNotFound, errMsgPropertyNotFound)
 			return
 		}
 		slog.Warn("GetIssueProperty failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -694,7 +694,7 @@ func (h *Handler) CreateProperty(w http.ResponseWriter, r *http.Request) {
 	}
 	var req CreatePropertyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	name, err := validatePropertyName(req.Name)
@@ -721,7 +721,7 @@ func (h *Handler) CreateProperty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -769,17 +769,17 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "property id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramPropertyID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
 	var req UpdatePropertyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -800,7 +800,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 		existing, err := q.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: idUUID, WorkspaceID: wsUUID})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fail(http.StatusNotFound, "property not found")
+				return fail(http.StatusNotFound, errMsgPropertyNotFound)
 			}
 			return err
 		}
@@ -864,7 +864,7 @@ func (h *Handler) UpdateProperty(w http.ResponseWriter, r *http.Request) {
 		property, err = q.UpdateIssueProperty(r.Context(), params)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fail(http.StatusNotFound, "property not found")
+				return fail(http.StatusNotFound, errMsgPropertyNotFound)
 			}
 			if isUniqueViolation(err) {
 				return fail(http.StatusConflict, "a property with that name already exists")
@@ -897,13 +897,13 @@ type SetIssuePropertyRequest struct {
 
 func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 	issueID := chi.URLParam(r, "id")
-	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), "property id")
+	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), paramPropertyID)
 	if !ok {
 		return
 	}
 	var req SetIssuePropertyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -931,7 +931,7 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 		def, err := q.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: propertyID, WorkspaceID: issue.WorkspaceID})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return fail(http.StatusNotFound, "property not found")
+				return fail(http.StatusNotFound, errMsgPropertyNotFound)
 			}
 			return err
 		}
@@ -991,7 +991,7 @@ func (h *Handler) SetIssueProperty(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteIssueProperty(w http.ResponseWriter, r *http.Request) {
 	issueID := chi.URLParam(r, "id")
-	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), "property id")
+	propertyID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "propertyId"), paramPropertyID)
 	if !ok {
 		return
 	}
@@ -1010,7 +1010,7 @@ func (h *Handler) DeleteIssueProperty(w http.ResponseWriter, r *http.Request) {
 	// workspace; `properties - key` is a no-op when the key is absent.
 	if _, err := h.Queries.GetIssueProperty(r.Context(), db.GetIssuePropertyParams{ID: propertyID, WorkspaceID: issue.WorkspaceID}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "property not found")
+			writeError(w, http.StatusNotFound, errMsgPropertyNotFound)
 			return
 		}
 		slog.Warn("GetIssueProperty in DeleteIssueProperty failed", append(logger.RequestAttrs(r), "error", err)...)

@@ -338,7 +338,7 @@ func parseIssueTableUUIDList(w http.ResponseWriter, values []string, field strin
 	for _, raw := range values {
 		parsed, err := util.ParseUUID(raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid "+field)
+			writeError(w, http.StatusBadRequest, prefixInvalid+field)
 			return nil, false
 		}
 		result = append(result, parsed)
@@ -348,12 +348,12 @@ func parseIssueTableUUIDList(w http.ResponseWriter, values []string, field strin
 
 func parseIssueTableActor(w http.ResponseWriter, actor issueTableActorRef, field string) (issueActorFilter, bool) {
 	if !isIssueActorType(actor.Type) {
-		writeError(w, http.StatusBadRequest, "invalid "+field)
+		writeError(w, http.StatusBadRequest, prefixInvalid+field)
 		return issueActorFilter{}, false
 	}
 	id, err := util.ParseUUID(actor.ID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid "+field)
+		writeError(w, http.StatusBadRequest, prefixInvalid+field)
 		return issueActorFilter{}, false
 	}
 	return issueActorFilter{actorType: actor.Type, actorID: id}, true

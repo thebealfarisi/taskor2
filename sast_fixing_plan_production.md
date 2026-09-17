@@ -205,11 +205,12 @@ graph TD
 - **Literal Berulang:** `"Output format: table or json"`, `"full-id"`, `"thinking-level"`, `"service-tier"`, `"/api/issues/"`, `"resolve issue: %w"`, dll.
 - **Solusi:** File konstanta bersama `server/cmd/multica/flags_const.go` berisi definisi flag CLI, path API, dan deskripsi/error standar.
 
-#### Sub-batch P4.2: HTTP Handlers Error & API Paths (`server/internal/handler/`) — 164 Temuan
+#### Sub-batch P4.2: HTTP Handlers Error & API Paths (`server/internal/handler/`) — 174 Temuan — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil diimplementasikan dengan membuat `server/internal/handler/constants.go` (125 konstanta) dan memperbarui 56 file handler (710 substitusi literal); lolos kompilasi `go build ./cmd/server` dan unit tests.
 - **File Utama:**
-  - `autopilot.go` (13), `issue.go` (12), `chat.go` (10), `skill.go` (10), `workspace_mcp_api.go` (7), `file.go` (6), `comment.go` (5), `dingtalk.go` (5), `invitation.go` (5).
-- **Literal Berulang:** `"invalid request body"`, `"database not available"`, `"workspace not found"`, `"/api/issues/"`, `"resolve issue: %w"`.
-- **Solusi:** Ekstrak konstanta error terpusat di `server/internal/handler/constants.go`.
+  - `autopilot.go` (13), `issue.go` (12), `chat.go` (10), `skill.go` (10), `workspace_mcp_api.go` (7), `file.go` (6), `comment.go` (5), `dingtalk.go` (5), `invitation.go` (5), `issue_status.go` (5), `issue_table_group.go` (5), `label.go` (5), `project.go` (5), `squad.go` (5), `workspace.go` (5), dan 41 file handler lainnya.
+- **Literal Berulang:** `"workspace id"`, `"invalid request body"`, `"workspace not found"`, `"insufficient permissions"`, `"failed to start transaction"`, dll.
+- **Solusi:** File konstanta terpusat `server/internal/handler/constants.go` memuat 125 konstanta HTTP error, URL params, SQL column names, dan headers.
 
 #### Sub-batch P4.3: Core Daemon, Router & Agent Service (`server/internal/daemon/`, `router.go`, `pkg/agent/`) — 110 Temuan
 - **File Utama:**

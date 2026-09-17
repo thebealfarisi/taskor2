@@ -589,11 +589,11 @@ func (h *Handler) UpdateProjectResource(w http.ResponseWriter, r *http.Request) 
 		ID: resourceUUID, WorkspaceID: project.WorkspaceID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project resource not found")
+		writeError(w, http.StatusNotFound, errMsgProjectResourceNotFound)
 		return
 	}
 	if uuidToString(existing.ProjectID) != uuidToString(project.ID) {
-		writeError(w, http.StatusNotFound, "project resource not found")
+		writeError(w, http.StatusNotFound, errMsgProjectResourceNotFound)
 		return
 	}
 
@@ -816,11 +816,11 @@ func (h *Handler) DeleteProjectResource(w http.ResponseWriter, r *http.Request) 
 		ID: resourceUUID, WorkspaceID: project.WorkspaceID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project resource not found")
+		writeError(w, http.StatusNotFound, errMsgProjectResourceNotFound)
 		return
 	}
 	if uuidToString(resource.ProjectID) != uuidToString(project.ID) {
-		writeError(w, http.StatusNotFound, "project resource not found")
+		writeError(w, http.StatusNotFound, errMsgProjectResourceNotFound)
 		return
 	}
 	if err := h.Queries.DeleteProjectResource(r.Context(), resource.ID); err != nil {

@@ -177,7 +177,7 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -216,7 +216,7 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateWorkspaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -371,14 +371,14 @@ func validateAndNormalizeWorkspaceRepos(value any) ([]byte, error) {
 
 func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	id := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramWorkspaceID)
 	if !ok {
 		return
 	}
 
 	var req UpdateWorkspaceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -493,7 +493,7 @@ type MemberWithUserResponse struct {
 
 func (h *Handler) ListMembersWithUser(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -562,7 +562,7 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -578,7 +578,7 @@ func (h *Handler) CreateMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if role == "owner" && requester.Role != "owner" {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -651,7 +651,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateMemberRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if strings.TrimSpace(req.Role) == "" {
@@ -666,7 +666,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if (target.Role == "owner" || role == "owner") && requester.Role != "owner" {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -677,7 +677,7 @@ func (h *Handler) UpdateMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if countOwners(members) <= 1 {
-			writeError(w, http.StatusBadRequest, "workspace must have at least one owner")
+			writeError(w, http.StatusBadRequest, errMsgWorkspaceMustHaveOwner)
 			return
 		}
 	}
@@ -726,7 +726,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if target.Role == "owner" && requester.Role != "owner" {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -737,7 +737,7 @@ func (h *Handler) DeleteMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if countOwners(members) <= 1 {
-			writeError(w, http.StatusBadRequest, "workspace must have at least one owner")
+			writeError(w, http.StatusBadRequest, errMsgWorkspaceMustHaveOwner)
 			return
 		}
 	}
@@ -781,7 +781,7 @@ func (h *Handler) LeaveWorkspace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if countOwners(members) <= 1 {
-			writeError(w, http.StatusBadRequest, "workspace must have at least one owner")
+			writeError(w, http.StatusBadRequest, errMsgWorkspaceMustHaveOwner)
 			return
 		}
 	}
@@ -873,7 +873,7 @@ func failWorkspaceDelete(w http.ResponseWriter, r *http.Request, workspaceID, st
 		return
 	}
 	slog.Warn("workspace delete step failed", attrs...)
-	writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+	writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteWorkspace)
 }
 
 // workspaceDeleteTaskPageSize bounds one task page: the ids held in this process,
@@ -1131,7 +1131,7 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if requester.Role != "owner" {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -1166,7 +1166,7 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
 		slog.Warn("begin workspace delete tx failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteWorkspace)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1330,7 +1330,7 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("commit workspace delete failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteWorkspace)
 		return
 	}
 

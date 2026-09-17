@@ -108,7 +108,7 @@ func (h *Handler) PinTaskSession(w http.ResponseWriter, r *http.Request) {
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
 		slog.Warn("pin-session failed to start tx", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "pin session failed")
+		writeError(w, http.StatusInternalServerError, errMsgPinSessionFailed)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -116,12 +116,12 @@ func (h *Handler) PinTaskSession(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := qtx.LockChatSessionForTask(r.Context(), params.ID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		slog.Warn("pin-session failed to lock chat session", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "pin session failed")
+		writeError(w, http.StatusInternalServerError, errMsgPinSessionFailed)
 		return
 	}
 	if err := qtx.UpdateAgentTaskSession(r.Context(), params); err != nil {
 		slog.Warn("pin-session failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "pin session failed")
+		writeError(w, http.StatusInternalServerError, errMsgPinSessionFailed)
 		return
 	}
 	// The statement re-reads the row, ignores anything that is not a cancelled
@@ -129,12 +129,12 @@ func (h *Handler) PinTaskSession(w http.ResponseWriter, r *http.Request) {
 	// a session — so a straggler pin cannot drag the conversation backwards.
 	if err := qtx.AdvanceCancelledChatSessionPointer(r.Context(), params.ID); err != nil {
 		slog.Warn("advance cancelled chat session pointer failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "pin session failed")
+		writeError(w, http.StatusInternalServerError, errMsgPinSessionFailed)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("pin-session commit failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusInternalServerError, "pin session failed")
+		writeError(w, http.StatusInternalServerError, errMsgPinSessionFailed)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

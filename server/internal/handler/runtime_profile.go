@@ -126,11 +126,11 @@ type createRuntimeProfileRequest struct {
 // router. protocol_family is validated against the agent backend whitelist.
 func (h *Handler) CreateRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	wsID := strings.TrimSpace(chi.URLParam(r, "id"))
-	member, ok := h.requireWorkspaceMember(w, r, wsID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, wsID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -205,10 +205,10 @@ func (h *Handler) CreateRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 // Member-gated by the router.
 func (h *Handler) ListRuntimeProfiles(w http.ResponseWriter, r *http.Request) {
 	wsID := strings.TrimSpace(chi.URLParam(r, "id"))
-	if _, ok := h.requireWorkspaceMember(w, r, wsID, "workspace not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, wsID, errMsgWorkspaceNotFound); !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -228,14 +228,14 @@ func (h *Handler) ListRuntimeProfiles(w http.ResponseWriter, r *http.Request) {
 // GetRuntimeProfile returns one runtime profile. Member-gated by the router.
 func (h *Handler) GetRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	wsID := strings.TrimSpace(chi.URLParam(r, "id"))
-	if _, ok := h.requireWorkspaceMember(w, r, wsID, "workspace not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, wsID, errMsgWorkspaceNotFound); !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), "profile id")
+	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), paramProfileID)
 	if !ok {
 		return
 	}
@@ -245,7 +245,7 @@ func (h *Handler) GetRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime profile not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeProfileNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, runtimeProfileToResponse(profile))
@@ -264,15 +264,15 @@ type updateRuntimeProfileRequest struct {
 // Admin-gated by the router.
 func (h *Handler) UpdateRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	wsID := strings.TrimSpace(chi.URLParam(r, "id"))
-	member, ok := h.requireWorkspaceMember(w, r, wsID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, wsID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), "profile id")
+	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), paramProfileID)
 	if !ok {
 		return
 	}
@@ -318,7 +318,7 @@ func (h *Handler) UpdateRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	profile, err := h.Queries.UpdateRuntimeProfile(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "runtime profile not found")
+			writeError(w, http.StatusNotFound, errMsgRuntimeProfileNotFound)
 			return
 		}
 		if isUniqueViolation(err) {
@@ -346,15 +346,15 @@ func (h *Handler) UpdateRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 // profile's runtimes. Admin-gated by the router.
 func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 	wsID := strings.TrimSpace(chi.URLParam(r, "id"))
-	member, ok := h.requireWorkspaceMember(w, r, wsID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, wsID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), "profile id")
+	profileUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "profileId"), paramProfileID)
 	if !ok {
 		return
 	}
@@ -402,7 +402,7 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if profileMissing && len(runtimeIDs) == 0 {
-		writeError(w, http.StatusNotFound, "runtime profile not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeProfileNotFound)
 		return
 	}
 	for _, runtimeID := range runtimeIDs {
@@ -500,7 +500,7 @@ func (h *Handler) DaemonListRuntimeProfiles(w http.ResponseWriter, r *http.Reque
 	if !h.requireDaemonWorkspaceAccess(w, r, workspaceID) {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}

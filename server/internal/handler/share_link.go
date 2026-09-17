@@ -115,7 +115,7 @@ func (h *Handler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
 	// (workspace_id) WHERE is_active also fails closed on concurrent creates.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create share link")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateShareLink)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -124,14 +124,14 @@ func (h *Handler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
 
 	if err := qtx.DeactivateWorkspaceShareLinks(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("deactivate share links failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to create share link")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateShareLink)
 		return
 	}
 
 	code, err := generateShareCode()
 	if err != nil {
 		slog.Warn("generate share code failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to create share link")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateShareLink)
 		return
 	}
 
@@ -149,13 +149,13 @@ func (h *Handler) CreateShareLink(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Warn("create share link failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to create share link")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateShareLink)
 		return
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("commit share link failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to create share link")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateShareLink)
 		return
 	}
 

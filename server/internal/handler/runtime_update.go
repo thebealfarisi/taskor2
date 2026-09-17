@@ -218,11 +218,11 @@ func (h *Handler) InitiateUpdate(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found")
+	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound)
 	if !ok {
 		return
 	}
@@ -279,10 +279,10 @@ func (h *Handler) GetUpdate(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
-	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found")
+	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound)
 	if !ok {
 		return
 	}

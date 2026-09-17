@@ -80,13 +80,13 @@ func (h *Handler) ListWecomInstallations(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
 	svc := h.wecomInstallService()
 	if svc == nil {
-		writeError(w, http.StatusServiceUnavailable, "wecom integration not enabled")
+		writeError(w, http.StatusServiceUnavailable, errMsgWecomNotEnabled)
 		return
 	}
 	rows, err := svc.ListByWorkspace(r.Context(), wsUUID)
@@ -126,19 +126,19 @@ type RegisterWecomBYORequest struct {
 // Admin-only at the router.
 func (h *Handler) RegisterWecomBYO(w http.ResponseWriter, r *http.Request) {
 	if !h.wecomIntegrationConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "wecom integration not enabled")
+		writeError(w, http.StatusServiceUnavailable, errMsgWecomNotEnabled)
 		return
 	}
 	svc := h.wecomInstallService()
 	if svc == nil {
-		writeError(w, http.StatusServiceUnavailable, "wecom integration not enabled")
+		writeError(w, http.StatusServiceUnavailable, errMsgWecomNotEnabled)
 		return
 	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -264,19 +264,19 @@ func writeWecomInstallError(w http.ResponseWriter, err error, wsUUID, agentUUID 
 // re-install through Upsert flips it back to 'active' atomically.
 func (h *Handler) RevokeWecomInstallation(w http.ResponseWriter, r *http.Request) {
 	if !h.wecomIntegrationConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "wecom integration not enabled")
+		writeError(w, http.StatusServiceUnavailable, errMsgWecomNotEnabled)
 		return
 	}
 	svc := h.wecomInstallService()
 	if svc == nil {
-		writeError(w, http.StatusServiceUnavailable, "wecom integration not enabled")
+		writeError(w, http.StatusServiceUnavailable, errMsgWecomNotEnabled)
 		return
 	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}

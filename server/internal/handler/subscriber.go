@@ -84,7 +84,7 @@ func (h *Handler) SubscribeToIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !h.isWorkspaceEntity(r.Context(), targetUserType, targetUserID, workspaceID) {
-		writeError(w, http.StatusForbidden, "target user is not a member of this workspace")
+		writeError(w, http.StatusForbidden, errMsgTargetUserNotMember)
 		return
 	}
 
@@ -162,7 +162,7 @@ func (h *Handler) unsubscribeFromIssue(w http.ResponseWriter, r *http.Request, s
 	}
 
 	if !h.isWorkspaceEntity(r.Context(), targetUserType, targetUserID, workspaceID) {
-		writeError(w, http.StatusForbidden, "target user is not a member of this workspace")
+		writeError(w, http.StatusForbidden, errMsgTargetUserNotMember)
 		return
 	}
 
@@ -187,7 +187,7 @@ func (h *Handler) unsubscribeFromIssue(w http.ResponseWriter, r *http.Request, s
 		// comes back as an active watcher (MUL-5483 review round 7).
 		ids, err := h.unsubscribeSubtreeSerialized(r.Context(), workspaceID, issue.ID, targetUserType, targetUserID)
 		if errors.Is(err, errTargetNoLongerMember) {
-			writeError(w, http.StatusForbidden, "target user is not a member of this workspace")
+			writeError(w, http.StatusForbidden, errMsgTargetUserNotMember)
 			return
 		}
 		if err != nil {

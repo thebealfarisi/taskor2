@@ -193,7 +193,7 @@ func (h *Handler) PreviewPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req previewPluginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	preview, err := h.PluginService.PreviewPlugin(r.Context(), workspaceID, req.SourceURL)
@@ -225,7 +225,7 @@ func (h *Handler) InstallPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req installPluginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	installation, err := h.PluginService.InstallPlugin(r.Context(), workspaceID, member.UserID, req.SourceURL, req.GrantedScopes)
@@ -253,7 +253,7 @@ func (h *Handler) ConfigurePlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	var req configurePluginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	updated, err := h.PluginService.SetConfig(r.Context(), installation, req.Values)

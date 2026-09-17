@@ -106,7 +106,7 @@ func (h *Handler) openVCSSecret(enc string) (string, error) {
 // connect/disconnect are admin-gated by the router. No secrets returned.
 func (h *Handler) ListVCSConnections(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -156,7 +156,7 @@ type connectVCSRequest struct {
 // plus the one-time webhook secret. Reconnecting the same instance rotates it.
 func (h *Handler) ConnectVCS(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -247,7 +247,7 @@ func (h *Handler) ConnectVCS(w http.ResponseWriter, r *http.Request) {
 // DeleteVCSConnection (DELETE /workspaces/{id}/vcs/connections/{connectionId}).
 func (h *Handler) DeleteVCSConnection(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -273,7 +273,7 @@ func (h *Handler) DeleteVCSConnection(w http.ResponseWriter, r *http.Request) {
 // and returns the connection plus the one-time plaintext secret.
 func (h *Handler) RotateVCSConnectionWebhook(w http.ResponseWriter, r *http.Request) {
 	workspaceID := chi.URLParam(r, "id")
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}

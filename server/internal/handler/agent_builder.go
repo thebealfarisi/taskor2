@@ -62,7 +62,7 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 
 	var req CreateAgentBuilderSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	runtimeID := strings.TrimSpace(req.RuntimeID)
@@ -71,7 +71,7 @@ func (h *Handler) CreateAgentBuilderSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -189,7 +189,7 @@ func (h *Handler) ListAgentBuilderSessions(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -256,7 +256,7 @@ func (h *Handler) SaveAgentBuilderDraft(w http.ResponseWriter, r *http.Request) 
 
 	var req SaveAgentBuilderDraftRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if len(req.Draft) == 0 {
@@ -287,13 +287,13 @@ func (h *Handler) SaveAgentBuilderDraft(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !isAgentBuilderCarrier(agent) {
-		writeError(w, http.StatusNotFound, "agent builder session not found")
+		writeError(w, http.StatusNotFound, errMsgAgentBuilderSessionNotFound)
 		return
 	}
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save agent builder draft")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToSaveAgentDraft)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -323,11 +323,11 @@ func (h *Handler) SaveAgentBuilderDraft(w http.ResponseWriter, r *http.Request) 
 		WorkspaceID:   locked.WorkspaceID,
 		Draft:         req.Draft,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save agent builder draft")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToSaveAgentDraft)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save agent builder draft")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToSaveAgentDraft)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -401,7 +401,7 @@ func (h *Handler) SwitchAgentBuilderRuntime(w http.ResponseWriter, r *http.Reque
 
 	var req SwitchAgentBuilderRuntimeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	runtimeID := strings.TrimSpace(req.RuntimeID)
@@ -429,11 +429,11 @@ func (h *Handler) SwitchAgentBuilderRuntime(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !isAgentBuilderCarrier(agent) {
-		writeError(w, http.StatusNotFound, "agent builder session not found")
+		writeError(w, http.StatusNotFound, errMsgAgentBuilderSessionNotFound)
 		return
 	}
 
-	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -479,7 +479,7 @@ func (h *Handler) SwitchAgentBuilderRuntime(w http.ResponseWriter, r *http.Reque
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "agent builder session not found")
+			writeError(w, http.StatusNotFound, errMsgAgentBuilderSessionNotFound)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to switch agent builder runtime")

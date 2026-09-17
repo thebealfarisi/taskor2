@@ -125,7 +125,7 @@ func (h *Handler) CreateIssueView(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -232,7 +232,7 @@ func (h *Handler) ListIssueViews(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -272,7 +272,7 @@ func (h *Handler) ListIssueViews(w http.ResponseWriter, r *http.Request) {
 // applies read authorization. Unauthorized and missing are both 404 so a
 // private view's existence never leaks.
 func (h *Handler) loadIssueViewForUser(w http.ResponseWriter, r *http.Request, userID string) (db.IssueView, pgtype.UUID, bool) {
-	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), paramWorkspaceID)
 	if !ok {
 		return db.IssueView{}, pgtype.UUID{}, false
 	}

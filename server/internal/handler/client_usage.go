@@ -114,7 +114,7 @@ func (h *Handler) UpsertClientUsage(w http.ResponseWriter, r *http.Request) {
 		tx, err = h.TxStarter.Begin(r.Context())
 		if err != nil {
 			slog.Error("failed to begin client usage transaction", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to record client usage")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToRecordClientUsage)
 			return
 		}
 		defer tx.Rollback(r.Context())
@@ -128,7 +128,7 @@ func (h *Handler) UpsertClientUsage(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			slog.Error("failed to lock client usage workspace", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to record client usage")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToRecordClientUsage)
 			return
 		}
 		if _, err := queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
@@ -139,7 +139,7 @@ func (h *Handler) UpsertClientUsage(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			slog.Error("failed to validate client usage workspace", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to record client usage")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToRecordClientUsage)
 			return
 		}
 	}
@@ -159,13 +159,13 @@ func (h *Handler) UpsertClientUsage(w http.ResponseWriter, r *http.Request) {
 		OfflineCount:    runtime.OfflineCount,
 	}); err != nil {
 		slog.Error("failed to upsert client usage", "error", err, "client_type", clientType)
-		writeError(w, http.StatusInternalServerError, "failed to record client usage")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToRecordClientUsage)
 		return
 	}
 	if tx != nil {
 		if err := tx.Commit(r.Context()); err != nil {
 			slog.Error("failed to commit client usage", "error", err, "client_type", clientType)
-			writeError(w, http.StatusInternalServerError, "failed to record client usage")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToRecordClientUsage)
 			return
 		}
 	}

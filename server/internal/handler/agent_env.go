@@ -215,7 +215,7 @@ func (h *Handler) UpdateAgentEnv(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("agent_env update: begin tx failed",
 			append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(agent.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to update env")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateEnv)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -228,7 +228,7 @@ func (h *Handler) UpdateAgentEnv(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("update agent custom_env failed",
 			append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(agent.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to update env")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateEnv)
 		return
 	}
 
@@ -259,7 +259,7 @@ func (h *Handler) UpdateAgentEnv(w http.ResponseWriter, r *http.Request) {
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Error("agent_env update: tx commit failed",
 			append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(agent.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to update env")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateEnv)
 		return
 	}
 

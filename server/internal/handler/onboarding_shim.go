@@ -241,7 +241,7 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	)
 	if err != nil {
 		slog.Warn("bootstrap onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
 		return
 	}
 	issueCreated := false
@@ -273,7 +273,7 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 		})
 		if err != nil {
 			slog.Warn("bootstrap onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
 			return
 		}
 		issueCreated = true
@@ -401,7 +401,7 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 	)
 	if err != nil {
 		slog.Warn("bootstrap no-runtime onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
 		return
 	}
 
@@ -433,7 +433,7 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		})
 		if err != nil {
 			slog.Warn("bootstrap no-runtime onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
 			return
 		}
 		issueCreated = true

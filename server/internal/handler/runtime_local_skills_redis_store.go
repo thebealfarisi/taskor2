@@ -91,7 +91,7 @@ func (s *RedisLocalSkillListStore) Create(ctx context.Context, runtimeID string)
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal list request: %w", err)
+		return nil, fmt.Errorf(errFmtMarshalListReq, err)
 	}
 
 	requestKey := localSkillListKey(req.ID)
@@ -152,7 +152,7 @@ func (s *RedisLocalSkillListStore) loadListRequest(ctx context.Context, id strin
 func (s *RedisLocalSkillListStore) persistListRequest(ctx context.Context, req *RuntimeLocalSkillListRequest) error {
 	data, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("marshal list request: %w", err)
+		return fmt.Errorf(errFmtMarshalListReq, err)
 	}
 	if err := s.rdb.Set(ctx, localSkillListKey(req.ID), data, runtimeLocalSkillStoreRetention).Err(); err != nil {
 		return fmt.Errorf("persist list request: %w", err)
@@ -208,7 +208,7 @@ func (s *RedisLocalSkillListStore) PopPending(ctx context.Context, runtimeID str
 		req.UpdatedAt = now
 		data, err := json.Marshal(req)
 		if err != nil {
-			return nil, fmt.Errorf("marshal list request: %w", err)
+			return nil, fmt.Errorf(errFmtMarshalListReq, err)
 		}
 
 		result, err := claimPendingScript.Run(

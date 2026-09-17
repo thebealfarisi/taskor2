@@ -223,13 +223,13 @@ func stripBOM(b []byte) []byte {
 // Other providers fall back to the generic header to keep manual replays from
 // Postman / curl behaving the same way regardless of trigger config.
 func extractDedupeKey(provider string, headers http.Header) (string, string) {
-	if v := strings.TrimSpace(headers.Get("X-GitHub-Delivery")); v != "" && provider == "github" {
+	if v := strings.TrimSpace(headers.Get(headerXGitHubDelivery)); v != "" && provider == "github" {
 		return v, "x-github-delivery"
 	}
 	if v := strings.TrimSpace(headers.Get("Idempotency-Key")); v != "" {
 		return v, "idempotency-key"
 	}
-	if v := strings.TrimSpace(headers.Get("X-GitHub-Delivery")); v != "" {
+	if v := strings.TrimSpace(headers.Get(headerXGitHubDelivery)); v != "" {
 		return v, "x-github-delivery"
 	}
 	return "", ""
@@ -290,7 +290,7 @@ func selectedHeadersJSON(headers http.Header) []byte {
 	}
 	add("User-Agent")
 	add("X-GitHub-Event")
-	add("X-GitHub-Delivery")
+	add(headerXGitHubDelivery)
 	add("X-Gitlab-Event")
 	add("X-Event-Type")
 	add("Idempotency-Key")
@@ -340,14 +340,14 @@ func selectedHeadersJSON(headers http.Header) []byte {
 //   - 200 {"status":"duplicate", "delivery_id", "run_id?"}
 //   - 400 {"error":"..."}                                          — invalid JSON / scalar / empty
 //   - 401 {"status":"rejected",  "delivery_id", "reason":"..."}    — signature failure
-//   - 404 {"error":"webhook not found"}                            — unknown token
+//   - 404 {"error":errMsgWebhookNotFound}                            — unknown token
 //   - 413 {"error":"payload too large"}                            — body exceeded cap
 //   - 429 {"error":"rate limit exceeded"}                          — IP safety/debt gate
 //   - 500 {"error":"..."}                                          — internal failure
 func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 	if token == "" {
-		writeError(w, http.StatusNotFound, "webhook not found")
+		writeError(w, http.StatusNotFound, errMsgWebhookNotFound)
 		return
 	}
 
@@ -374,11 +374,11 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 			if ip != "" && h.WebhookIPRateLimiter != nil {
 				h.WebhookIPRateLimiter.Allow(r.Context(), ip)
 			}
-			writeError(w, http.StatusNotFound, "webhook not found")
+			writeError(w, http.StatusNotFound, errMsgWebhookNotFound)
 			return
 		}
 		slog.Error("webhook: token lookup failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errMsgInternalError)
 		return
 	}
 
@@ -406,14 +406,14 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 	autopilot, err := h.Queries.GetAutopilot(r.Context(), trigRow.AutopilotID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "webhook not found")
+			writeError(w, http.StatusNotFound, errMsgWebhookNotFound)
 			return
 		}
 		slog.Error("webhook: autopilot lookup failed",
 			"error", err,
 			"trigger_id", uuidToString(trigRow.ID),
 		)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errMsgInternalError)
 		return
 	}
 	if uuidToString(autopilot.WorkspaceID) != uuidToString(trigRow.AutopilotWorkspaceID) {
@@ -421,7 +421,7 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 			"trigger_id", uuidToString(trigRow.ID),
 			"autopilot_id", uuidToString(autopilot.ID),
 		)
-		writeError(w, http.StatusNotFound, "webhook not found")
+		writeError(w, http.StatusNotFound, errMsgWebhookNotFound)
 		return
 	}
 
@@ -465,7 +465,7 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 			"error", err,
 			"trigger_id", uuidToString(trigRow.ID),
 		)
-		writeError(w, http.StatusInternalServerError, "internal error")
+		writeError(w, http.StatusInternalServerError, errMsgInternalError)
 		return
 	}
 	if dup {
@@ -489,7 +489,7 @@ func (h *Handler) HandleAutopilotWebhook(w http.ResponseWriter, r *http.Request)
 					"delivery_id", uuidToString(delivery.ID),
 					"error", runErr,
 				)
-				writeError(w, http.StatusInternalServerError, "internal error")
+				writeError(w, http.StatusInternalServerError, errMsgInternalError)
 				return
 			}
 		}

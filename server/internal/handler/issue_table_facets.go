@@ -142,7 +142,7 @@ GROUP BY GROUPING SETS (%s)`, strings.Join(markerCases, " "), strings.Join(value
 	rows, err := h.DB.Query(r.Context(), query, base.args...)
 	if err != nil {
 		slog.Warn("ListIssueTableFacets batch query failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeIssueTableQueryFailure(w, r, "failed to list table facets")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 		return nil, 0, false
 	}
 	defer rows.Close()
@@ -153,7 +153,7 @@ GROUP BY GROUPING SETS (%s)`, strings.Join(markerCases, " "), strings.Join(value
 		var value string
 		var count int64
 		if err := rows.Scan(&identity, &value, &count); err != nil {
-			writeIssueTableQueryFailure(w, r, "failed to list table facets")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 			return nil, 0, false
 		}
 		if identity == "__total__" {
@@ -162,14 +162,14 @@ GROUP BY GROUPING SETS (%s)`, strings.Join(markerCases, " "), strings.Join(value
 		}
 		response, ok := responses[identity]
 		if !ok {
-			writeIssueTableQueryFailure(w, r, "failed to list table facets")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 			return nil, 0, false
 		}
 		response.Values = append(response.Values, issueTableFacetValueResponse{Key: value, Count: count})
 		responses[identity] = response
 	}
 	if err := rows.Err(); err != nil {
-		writeIssueTableQueryFailure(w, r, "failed to list table facets")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 		return nil, 0, false
 	}
 	for identity, response := range responses {
@@ -266,7 +266,7 @@ GROUP BY a.id`, compiled.where)
 	rows, err := h.DB.Query(r.Context(), query, compiled.args...)
 	if err != nil {
 		slog.Warn("ListIssueTableFacets query failed", append(logger.RequestAttrs(r), "facet", issueTableFacetIdentity(facet), "error", err)...)
-		writeIssueTableQueryFailure(w, r, "failed to list table facets")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 		return response, false
 	}
 	defer rows.Close()
@@ -274,13 +274,13 @@ GROUP BY a.id`, compiled.where)
 		var value string
 		var count int64
 		if err := rows.Scan(&value, &count); err != nil {
-			writeIssueTableQueryFailure(w, r, "failed to list table facets")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 			return response, false
 		}
 		response.Values = append(response.Values, issueTableFacetValueResponse{Key: value, Count: count})
 	}
 	if err := rows.Err(); err != nil {
-		writeIssueTableQueryFailure(w, r, "failed to list table facets")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableFacets)
 		return response, false
 	}
 	if facet.Kind == "working_agents" {

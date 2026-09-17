@@ -46,14 +46,14 @@ import (
 // For PAT/JWT fallback, verifies user membership in the workspace.
 func (h *Handler) requireDaemonWorkspaceAccess(w http.ResponseWriter, r *http.Request, workspaceID string) bool {
 	if workspaceID == "" {
-		writeError(w, http.StatusNotFound, "not found")
+		writeError(w, http.StatusNotFound, errMsgNotFound)
 		return false
 	}
 
 	// Daemon token: workspace must match.
 	if daemonWsID := middleware.DaemonWorkspaceIDFromContext(r.Context()); daemonWsID != "" {
 		if daemonWsID != workspaceID {
-			writeError(w, http.StatusNotFound, "not found")
+			writeError(w, http.StatusNotFound, errMsgNotFound)
 			return false
 		}
 		return true
@@ -67,7 +67,7 @@ func (h *Handler) requireDaemonWorkspaceAccess(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	_, ok := h.requireWorkspaceMember(w, r, workspaceID, "not found")
+	_, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgNotFound)
 	if ok && userID != "" {
 		h.MembershipCache.Set(r.Context(), userID, workspaceID)
 	}
@@ -125,7 +125,7 @@ func (h *Handler) requireDaemonTaskAccessWithWorkspace(w http.ResponseWriter, r 
 		// uses this 404 to interrupt the running agent, so a transient DB
 		// error must not be reported as a deletion.
 		if isNotFound(err) {
-			writeError(w, http.StatusNotFound, "task not found")
+			writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 			return db.AgentTaskQueue{}, "", false
 		}
 		slog.Warn("get agent task failed", "task_id", taskID, "error", err)
@@ -135,7 +135,7 @@ func (h *Handler) requireDaemonTaskAccessWithWorkspace(w http.ResponseWriter, r 
 
 	wsID := h.TaskService.ResolveTaskWorkspaceID(r.Context(), task)
 	if wsID == "" {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return db.AgentTaskQueue{}, "", false
 	}
 
@@ -385,7 +385,7 @@ func sharedDaemonCustomName(names []pgtype.Text) (string, bool) {
 func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 	var req DaemonRegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -418,12 +418,12 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 	var ownerID pgtype.UUID
 	if daemonWsID := middleware.DaemonWorkspaceIDFromContext(r.Context()); daemonWsID != "" {
 		if daemonWsID != req.WorkspaceID {
-			writeError(w, http.StatusNotFound, "workspace not found")
+			writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
 			return
 		}
 		// ownerID stays zero — COALESCE keeps the existing owner on upsert.
 	} else {
-		member, ok := h.requireWorkspaceMember(w, r, req.WorkspaceID, "workspace not found")
+		member, ok := h.requireWorkspaceMember(w, r, req.WorkspaceID, errMsgWorkspaceNotFound)
 		if !ok {
 			return
 		}
@@ -432,7 +432,7 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 
 	ws, err := h.Queries.GetWorkspace(r.Context(), wsUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "workspace not found")
+		writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
 		return
 	}
 
@@ -893,7 +893,7 @@ func (h *Handler) GetDaemonWorkspaceRepos(w http.ResponseWriter, r *http.Request
 
 	ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(workspaceID))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "workspace not found")
+		writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
 		return
 	}
 
@@ -924,7 +924,7 @@ func (h *Handler) DaemonDeregister(w http.ResponseWriter, r *http.Request) {
 		OfflineReasons map[string]json.RawMessage `json:"offline_reasons"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -1064,7 +1064,7 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	decodeMs = time.Since(decodeStart).Milliseconds()
 	if decodeErr != nil {
 		outcome = "bad_body"
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -1589,7 +1589,7 @@ func (h *Handler) ClaimTasksByRuntime(w http.ResponseWriter, r *http.Request) {
 		MaxTasks   int      `json:"max_tasks"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -3303,7 +3303,7 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if taskWorkspaceID != uuidToString(runtime.WorkspaceID) || uuidToString(task.RuntimeID) != runtimeID {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 	if task.Status != "dispatched" && task.Status != "waiting_local_directory" {
@@ -3313,7 +3313,7 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 
 	var req resolveSkillBundlesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if len(req.Skills) == 0 {
@@ -3422,7 +3422,7 @@ func (h *Handler) ExtendTaskPrepareLease(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if taskWorkspaceID != uuidToString(runtime.WorkspaceID) || uuidToString(task.RuntimeID) != runtimeID {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 
@@ -3482,7 +3482,7 @@ func (h *Handler) MarkTaskWaitingLocalDirectory(w http.ResponseWriter, r *http.R
 	var req TaskWaitLocalDirectoryRequest
 	if r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid request body")
+			writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 			return
 		}
 	}
@@ -3509,7 +3509,7 @@ func (h *Handler) ReportTaskProgress(w http.ResponseWriter, r *http.Request) {
 
 	var req TaskProgressRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -3592,7 +3592,7 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	// Strip bytes PostgreSQL cannot store BEFORE anything reads this payload
@@ -4207,7 +4207,7 @@ func (h *Handler) ReportTaskUsage(w http.ResponseWriter, r *http.Request) {
 		Usage []TaskUsagePayload `json:"usage"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -4316,7 +4316,7 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 
 	var req TaskFailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	// TaskService.FailTask normalizes req.Error itself, but every other field
@@ -4387,7 +4387,7 @@ func (h *Handler) ReportTaskMessages(w http.ResponseWriter, r *http.Request) {
 
 	var req TaskMessageBatchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if len(req.Messages) == 0 {
@@ -4680,7 +4680,7 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskId")
 	existing, err := h.Queries.GetAgentTask(r.Context(), parseUUID(taskID))
 	if err != nil || uuidToString(existing.IssueID) != uuidToString(issue.ID) {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 
@@ -4782,14 +4782,14 @@ func (h *Handler) ListTaskMessagesByUser(w http.ResponseWriter, r *http.Request)
 
 	task, err := h.Queries.GetAgentTask(r.Context(), taskUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 
 	// Verify the task belongs to the caller's workspace.
 	wsID := h.TaskService.ResolveTaskWorkspaceID(r.Context(), task)
 	if wsID == "" || wsID != middleware.WorkspaceIDFromContext(r.Context()) {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 
@@ -4888,7 +4888,7 @@ func (h *Handler) BatchIssueGCCheck(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxIssueGCBatchBodyBytes)
 	var req batchIssueGCCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if len(req.IssueIDs) > maxIssueGCBatchSize {

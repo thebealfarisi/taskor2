@@ -900,7 +900,7 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	// Batch-load skills for all agents to avoid N+1.
 	skillRows, err := h.Queries.ListAgentSkillsByWorkspace(r.Context(), parseUUID(workspaceID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadAgentSkills)
 		return
 	}
 	skillMap := map[string][]AgentSkillSummary{}
@@ -1004,7 +1004,7 @@ func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
 	// SKILL.md bodies just to discard them is the exact regression we fixed
 	// in #2174.
 	if err := h.attachAgentSkills(r.Context(), &resp, agent.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadAgentSkills)
 		return
 	}
 
@@ -1981,7 +1981,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// update and assume their bindings were cleared — see #3459.
 	if err := h.attachAgentSkills(r.Context(), &resp, updated.ID); err != nil {
 		slog.Warn("load agent skills after update failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadAgentSkills)
 		return
 	}
 	slog.Info("agent updated", append(logger.RequestAttrs(r), "agent_id", id, "workspace_id", uuidToString(updated.WorkspaceID))...)
@@ -2223,7 +2223,7 @@ func (h *Handler) ArchiveAgent(w http.ResponseWriter, r *http.Request) {
 	resp := h.agentToResponse(archived)
 	if err := h.attachAgentSkills(r.Context(), &resp, archived.ID); err != nil {
 		slog.Warn("load agent skills after archive failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadAgentSkills)
 		return
 	}
 	actorType, actorID := h.resolveActor(r, userID, wsID)
@@ -2258,7 +2258,7 @@ func (h *Handler) RestoreAgent(w http.ResponseWriter, r *http.Request) {
 	resp := h.agentToResponse(restored)
 	if err := h.attachAgentSkills(r.Context(), &resp, restored.ID); err != nil {
 		slog.Warn("load agent skills after restore failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
-		writeError(w, http.StatusInternalServerError, "failed to load agent skills")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadAgentSkills)
 		return
 	}
 	userID := requestUserID(r)
@@ -2465,7 +2465,7 @@ func (h *Handler) ListWorkspaceWorkingAgents(w http.ResponseWriter, r *http.Requ
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -2506,7 +2506,7 @@ func (h *Handler) GetWorkspaceAgentRunCounts(w http.ResponseWriter, r *http.Requ
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -2547,7 +2547,7 @@ func (h *Handler) GetWorkspaceAgentActivity30d(w http.ResponseWriter, r *http.Re
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -2596,7 +2596,7 @@ func (h *Handler) ListWorkspaceAgentTaskSnapshot(w http.ResponseWriter, r *http.
 	actorType, actorID := h.resolveActor(r, requestUserID(r), workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 

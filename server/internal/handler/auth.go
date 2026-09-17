@@ -278,7 +278,7 @@ func contains(slice []string, s string) bool {
 func (h *Handler) SendCode(w http.ResponseWriter, r *http.Request) {
 	var req SendCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -368,7 +368,7 @@ func (h *Handler) SendCode(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	var req VerifyCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -427,7 +427,7 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Warn("login failed", append(logger.RequestAttrs(r), "error", err, "email", req.Email)...)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToGenerateToken)
 		return
 	}
 
@@ -458,7 +458,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		writeError(w, http.StatusNotFound, errMsgUserNotFound)
 		return
 	}
 
@@ -494,7 +494,7 @@ type googleUserInfo struct {
 func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 	var req GoogleLoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -635,7 +635,7 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Warn("google login failed", append(logger.RequestAttrs(r), "error", err, "email", email)...)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToGenerateToken)
 		return
 	}
 
@@ -667,7 +667,7 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		writeError(w, http.StatusNotFound, errMsgUserNotFound)
 		return
 	}
 
@@ -678,7 +678,7 @@ func (h *Handler) IssueCliToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Warn("cli-token: failed to issue JWT", append(logger.RequestAttrs(r), "error", err, "user_id", userID)...)
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToGenerateToken)
 		return
 	}
 
@@ -698,13 +698,13 @@ func (h *Handler) UpdateMe(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateMeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
 	currentUser, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		writeError(w, http.StatusNotFound, errMsgUserNotFound)
 		return
 	}
 

@@ -116,11 +116,11 @@ func (h *Handler) GetRuntimeUsage(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound); !ok {
 		return
 	}
 
@@ -180,11 +180,11 @@ func (h *Handler) GetRuntimeTaskActivity(w http.ResponseWriter, r *http.Request)
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound); !ok {
 		return
 	}
 
@@ -248,11 +248,11 @@ func (h *Handler) GetRuntimeUsageByAgent(w http.ResponseWriter, r *http.Request)
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound); !ok {
 		return
 	}
 
@@ -330,11 +330,11 @@ func (h *Handler) GetRuntimeUsageByHour(w http.ResponseWriter, r *http.Request) 
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound); !ok {
 		return
 	}
 
@@ -533,11 +533,11 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
-	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), "runtime not found")
+	member, ok := h.requireWorkspaceMember(w, r, uuidToString(rt.WorkspaceID), errMsgRuntimeNotFound)
 	if !ok {
 		return
 	}
@@ -595,7 +595,7 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			slog.Error("UpdateAgentRuntimeVisibility failed", "error", err, "runtime_id", runtimeID)
-			writeError(w, http.StatusInternalServerError, "failed to update runtime")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateRuntime)
 			return
 		}
 		rt = updated
@@ -624,7 +624,7 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				slog.Error("UpdateAgentRuntimeCustomNameByDaemon failed", "error", err, "runtime_id", runtimeID)
-				writeError(w, http.StatusInternalServerError, "failed to update runtime")
+				writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateRuntime)
 				return
 			}
 			// The actor always owns (or admins) the runtime addressed by :id,
@@ -643,7 +643,7 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 			})
 			if err != nil {
 				slog.Error("UpdateAgentRuntimeCustomName failed", "error", err, "runtime_id", runtimeID)
-				writeError(w, http.StatusInternalServerError, "failed to update runtime")
+				writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateRuntime)
 				return
 			}
 			rt = updated
@@ -921,12 +921,12 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
 	wsID := uuidToString(rt.WorkspaceID)
-	member, ok := h.requireWorkspaceMember(w, r, wsID, "runtime not found")
+	member, ok := h.requireWorkspaceMember(w, r, wsID, errMsgRuntimeNotFound)
 	if !ok {
 		return
 	}
@@ -978,7 +978,7 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteRuntime)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1021,16 +1021,16 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("runtime delete teardown failed", "runtime_id", uuidToString(rt.ID), "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteRuntime)
 		return
 	}
 
 	if err := qtx.DeleteAgentRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteRuntime)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteRuntime)
 		return
 	}
 
@@ -1133,12 +1133,12 @@ func (h *Handler) UnbindAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.Re
 
 	rt, err := h.Queries.GetAgentRuntime(r.Context(), runtimeUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "runtime not found")
+		writeError(w, http.StatusNotFound, errMsgRuntimeNotFound)
 		return
 	}
 
 	wsID := uuidToString(rt.WorkspaceID)
-	member, ok := h.requireWorkspaceMember(w, r, wsID, "runtime not found")
+	member, ok := h.requireWorkspaceMember(w, r, wsID, errMsgRuntimeNotFound)
 	if !ok {
 		return
 	}
@@ -1238,7 +1238,7 @@ func (h *Handler) UnbindAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.Re
 
 	// Finally delete the runtime row itself.
 	if err := qtx.DeleteAgentRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteRuntime)
 		return
 	}
 

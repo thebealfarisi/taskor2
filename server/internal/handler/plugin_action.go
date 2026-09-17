@@ -95,7 +95,7 @@ func (h *Handler) pluginSessionCaller(w http.ResponseWriter, r *http.Request, sc
 
 	caller, err := h.PluginService.AuthorizePluginAction(r.Context(), r.Header.Get(pluginInstallationHeader), parsedUserID, scope)
 	if err != nil {
-		writePluginError(w, err, "failed to authorize the Plugin call")
+		writePluginError(w, err, errMsgFailedToAuthPluginCall)
 		return service.PluginActionCaller{}, pluginActor{}, false
 	}
 
@@ -129,7 +129,7 @@ func (h *Handler) pluginTokenCaller(w http.ResponseWriter, r *http.Request, toke
 		}
 		grant, err := h.PluginService.Callbacks.Resolve(token)
 		if err != nil {
-			writePluginError(w, err, "failed to authorize the Plugin call")
+			writePluginError(w, err, errMsgFailedToAuthPluginCall)
 			return service.PluginActionCaller{}, pluginActor{}, false
 		}
 		installationID = grant.InstallationID
@@ -140,7 +140,7 @@ func (h *Handler) pluginTokenCaller(w http.ResponseWriter, r *http.Request, toke
 	default:
 		installation, err := h.PluginService.AuthenticateInstallToken(r.Context(), token)
 		if err != nil {
-			writePluginError(w, err, "failed to authorize the Plugin call")
+			writePluginError(w, err, errMsgFailedToAuthPluginCall)
 			return service.PluginActionCaller{}, pluginActor{}, false
 		}
 		installationID = installation.ID
@@ -148,7 +148,7 @@ func (h *Handler) pluginTokenCaller(w http.ResponseWriter, r *http.Request, toke
 
 	caller, err := h.PluginService.AuthorizePluginAction(r.Context(), uuidToString(installationID), memberUserID, scope)
 	if err != nil {
-		writePluginError(w, err, "failed to authorize the Plugin call")
+		writePluginError(w, err, errMsgFailedToAuthPluginCall)
 		return service.PluginActionCaller{}, pluginActor{}, false
 	}
 
@@ -178,7 +178,7 @@ func (h *Handler) pluginTokenCaller(w http.ResponseWriter, r *http.Request, toke
 // not be able to confirm that an id it cannot read exists.
 func (h *Handler) pluginIssueForUser(w http.ResponseWriter, r *http.Request, caller service.PluginActionCaller, issueID string) (db.Issue, bool) {
 	if issueID == "" {
-		writeError(w, http.StatusNotFound, "issue not found")
+		writeError(w, http.StatusNotFound, errMsgIssueNotFound)
 		return db.Issue{}, false
 	}
 	// Resolve first, then compare ids: a caller may name an issue by identifier
@@ -186,7 +186,7 @@ func (h *Handler) pluginIssueForUser(w http.ResponseWriter, r *http.Request, cal
 	// pass under one spelling and fail under the other.
 	issue, ok := h.resolvePluginIssue(r, caller, issueID)
 	if !ok {
-		writeError(w, http.StatusNotFound, "issue not found")
+		writeError(w, http.StatusNotFound, errMsgIssueNotFound)
 		return db.Issue{}, false
 	}
 	// A callback grant issued about one issue reaches only that issue. Without
@@ -196,7 +196,7 @@ func (h *Handler) pluginIssueForUser(w http.ResponseWriter, r *http.Request, cal
 	// 404 rather than 403: the caller may well be able to see this issue by
 	// other means, and "you are scoped elsewhere" would confirm the id exists.
 	if caller.IssueScope.Valid && uuidToString(issue.ID) != uuidToString(caller.IssueScope) {
-		writeError(w, http.StatusNotFound, "issue not found")
+		writeError(w, http.StatusNotFound, errMsgIssueNotFound)
 		return db.Issue{}, false
 	}
 	return issue, true
@@ -298,7 +298,7 @@ func (h *Handler) PatchPluginIssue(w http.ResponseWriter, r *http.Request) {
 
 	var req patchPluginIssueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Title == nil && req.Description == nil {
@@ -420,7 +420,7 @@ func (h *Handler) CreatePluginComment(w http.ResponseWriter, r *http.Request) {
 
 	var req createPluginCommentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	content := sanitizeNullBytes(req.Content)
@@ -600,7 +600,7 @@ func (h *Handler) PutPluginStorage(w http.ResponseWriter, r *http.Request) {
 	}
 	var req putPluginStorageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if err := h.PluginService.SetStorageValue(r.Context(), caller.Installation.ID, scopeType, scopeID, chi.URLParam(r, "key"), req.Value); err != nil {

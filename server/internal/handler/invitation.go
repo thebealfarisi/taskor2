@@ -242,14 +242,14 @@ func (h *Handler) RevokeInvitation(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, "invitation id")
+	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, paramInvitationID)
 	if !ok {
 		return
 	}
 
 	inv, err := h.Queries.GetInvitation(r.Context(), invitationUUID)
 	if err != nil || uuidToString(inv.WorkspaceID) != uuidToString(workspaceUUID) || inv.Status != "pending" {
-		writeError(w, http.StatusNotFound, "invitation not found")
+		writeError(w, http.StatusNotFound, errMsgInvitationNotFound)
 		return
 	}
 
@@ -282,24 +282,24 @@ func (h *Handler) GetMyInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	invitationID := chi.URLParam(r, "id")
-	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, "invitation id")
+	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, paramInvitationID)
 	if !ok {
 		return
 	}
 	inv, err := h.Queries.GetInvitation(r.Context(), invitationUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "invitation not found")
+		writeError(w, http.StatusNotFound, errMsgInvitationNotFound)
 		return
 	}
 
 	// Verify the invitation belongs to the current user.
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadUser)
 		return
 	}
 	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
+		writeError(w, http.StatusForbidden, errMsgInvitationNotYours)
 		return
 	}
 
@@ -330,7 +330,7 @@ func (h *Handler) ListMyInvitations(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadUser)
 		return
 	}
 
@@ -377,24 +377,24 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	invitationID := chi.URLParam(r, "id")
-	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, "invitation id")
+	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, paramInvitationID)
 	if !ok {
 		return
 	}
 	inv, err := h.Queries.GetInvitation(r.Context(), invitationUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "invitation not found")
+		writeError(w, http.StatusNotFound, errMsgInvitationNotFound)
 		return
 	}
 
 	// Verify the invitation belongs to the current user.
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadUser)
 		return
 	}
 	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
+		writeError(w, http.StatusForbidden, errMsgInvitationNotYours)
 		return
 	}
 
@@ -412,7 +412,7 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	// Use a transaction: mark accepted + create member atomically.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to accept invitation")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAcceptInvitation)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -421,7 +421,7 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 
 	accepted, err := qtx.AcceptInvitation(r.Context(), inv.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to accept invitation")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAcceptInvitation)
 		return
 	}
 
@@ -456,7 +456,7 @@ func (h *Handler) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to accept invitation")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAcceptInvitation)
 		return
 	}
 
@@ -520,24 +520,24 @@ func (h *Handler) DeclineInvitation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	invitationID := chi.URLParam(r, "id")
-	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, "invitation id")
+	invitationUUID, ok := parseUUIDOrBadRequest(w, invitationID, paramInvitationID)
 	if !ok {
 		return
 	}
 	inv, err := h.Queries.GetInvitation(r.Context(), invitationUUID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "invitation not found")
+		writeError(w, http.StatusNotFound, errMsgInvitationNotFound)
 		return
 	}
 
 	// Verify the invitation belongs to the current user.
 	user, err := h.Queries.GetUser(r.Context(), parseUUID(userID))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load user")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadUser)
 		return
 	}
 	if strings.ToLower(user.Email) != inv.InviteeEmail && uuidToString(inv.InviteeUserID) != userID {
-		writeError(w, http.StatusForbidden, "invitation does not belong to you")
+		writeError(w, http.StatusForbidden, errMsgInvitationNotYours)
 		return
 	}
 

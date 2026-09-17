@@ -81,11 +81,11 @@ type UpdateIssueStatusRequest struct {
 // Any member may read it.
 func (h *Handler) ListIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found"); !ok {
+	if _, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound); !ok {
 		return
 	}
 
@@ -122,11 +122,11 @@ func (h *Handler) ListIssueStatuses(w http.ResponseWriter, r *http.Request) {
 // CreateIssueStatus adds a custom status to the workspace catalog.
 func (h *Handler) CreateIssueStatus(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	member, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	member, ok := h.requireWorkspaceRole(w, r, workspaceID, errMsgWorkspaceNotFound, "owner", "admin")
 	if !ok {
 		return
 	}
@@ -142,7 +142,7 @@ func (h *Handler) CreateIssueStatus(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateIssueStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *Handler) UpdateIssueStatus(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateIssueStatusRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -315,7 +315,7 @@ func (h *Handler) ArchiveIssueStatus(w http.ResponseWriter, r *http.Request) {
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
 		slog.Warn("ArchiveIssueStatus begin failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to archive issue status")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToArchiveIssueStatus)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -323,7 +323,7 @@ func (h *Handler) ArchiveIssueStatus(w http.ResponseWriter, r *http.Request) {
 
 	if err := qtx.LockIssueStatusCatalog(r.Context(), wsUUID); err != nil {
 		slog.Warn("ArchiveIssueStatus lock failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to archive issue status")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToArchiveIssueStatus)
 		return
 	}
 
@@ -337,12 +337,12 @@ func (h *Handler) ArchiveIssueStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Warn("ArchiveIssueStatus failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to archive issue status")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToArchiveIssueStatus)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("ArchiveIssueStatus commit failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to archive issue status")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToArchiveIssueStatus)
 		return
 	}
 	// After the commit, never before: an event that announced a change the
@@ -357,11 +357,11 @@ func (h *Handler) ArchiveIssueStatus(w http.ResponseWriter, r *http.Request) {
 // returned so the write can name its actor on the realtime event.
 func (h *Handler) loadIssueStatusForAdmin(w http.ResponseWriter, r *http.Request) (db.IssueStatus, pgtype.UUID, db.Member, bool) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return db.IssueStatus{}, pgtype.UUID{}, db.Member{}, false
 	}
-	member, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	member, ok := h.requireWorkspaceRole(w, r, workspaceID, errMsgWorkspaceNotFound, "owner", "admin")
 	if !ok {
 		return db.IssueStatus{}, pgtype.UUID{}, db.Member{}, false
 	}
@@ -426,18 +426,18 @@ type ReorderIssueStatusesRequest struct {
 //     prefix.
 func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	member, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	member, ok := h.requireWorkspaceRole(w, r, workspaceID, errMsgWorkspaceNotFound, "owner", "admin")
 	if !ok {
 		return
 	}
 
 	var req ReorderIssueStatusesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if !issuestatus.IsCategory(req.Category) {
@@ -467,7 +467,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
 		slog.Warn("ReorderIssueStatuses begin failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -478,7 +478,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	// validate-then-write window.
 	if err := qtx.LockIssueStatusCatalogShared(r.Context(), wsUUID); err != nil {
 		slog.Warn("ReorderIssueStatuses lock failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		return
 	}
 
@@ -492,7 +492,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Warn("ReorderIssueStatuses list failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		return
 	}
 	activeIDs := make(map[string]struct{}, len(active))
@@ -516,7 +516,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "issue status not found")
 		case err != nil:
 			slog.Warn("load issue status for reorder failed", append(logger.RequestAttrs(r), "error", err)...)
-			writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		case entry.IsSystem:
 			writeError(w, http.StatusForbidden, "built-in statuses cannot be reordered")
 		case entry.ArchivedAt.Valid:
@@ -542,7 +542,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Warn("ReorderIssueStatuses failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		return
 	}
 	if affected != int64(len(ids)) {
@@ -565,7 +565,7 @@ func (h *Handler) ReorderIssueStatuses(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		slog.Warn("ReorderIssueStatuses commit failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeError(w, http.StatusInternalServerError, "failed to reorder issue statuses")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReorderIssueStatuses)
 		return
 	}
 	h.publishIssueStatusChanged(workspaceID, member, "reordered")
