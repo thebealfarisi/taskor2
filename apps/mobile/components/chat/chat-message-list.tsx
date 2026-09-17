@@ -296,15 +296,19 @@ function MessageRow({
     // `packages/views/chat/components/chat-message-list.tsx` user branch.
     // Width is capped at 80% so the bubble keeps the iMessage-style
     // trailing alignment instead of stretching across the column.
+    let bubbleTone: string;
+    if (isSelecting) {
+      bubbleTone = "bg-primary/5 border-primary/30";
+    } else if (longPress.isPressed) {
+      bubbleTone = "bg-muted border-primary/30";
+    } else {
+      bubbleTone = "bg-muted border-transparent";
+    }
     const body = (
       <View
         className={cn(
           "self-end max-w-[80%] gap-1.5 rounded-2xl border-2 px-3.5 py-2 transition-colors",
-          isSelecting
-            ? "bg-primary/5 border-primary/30"
-            : longPress.isPressed
-              ? "bg-muted border-primary/30"
-              : "bg-muted border-transparent",
+          bubbleTone,
         )}
       >
         <Markdown
@@ -465,9 +469,9 @@ function QuickActions({
       className="flex-row flex-wrap gap-2 pt-0.5"
       accessibilityLabel="Suggested follow-ups"
     >
-      {actions.slice(0, 3).map((action, index) => (
+      {actions.slice(0, 3).map((action) => (
         <Pressable
-          key={`${action.label}-${index}`}
+          key={`${action.label}-${action.prompt}`}
           accessibilityRole="button"
           accessibilityState={{ disabled: blocked }}
           disabled={blocked}
@@ -508,12 +512,14 @@ function ElapsedCaption({
   variant: "replied" | "failed" | "finished";
   elapsedMs: number;
 }) {
-  const label =
-    variant === "replied"
-      ? `Replied in ${formatElapsedMs(elapsedMs)}`
-      : variant === "finished"
-        ? `Finished in ${formatElapsedMs(elapsedMs)}`
-        : `Failed after ${formatElapsedMs(elapsedMs)}`;
+  let label: string;
+  if (variant === "replied") {
+    label = `Replied in ${formatElapsedMs(elapsedMs)}`;
+  } else if (variant === "finished") {
+    label = `Finished in ${formatElapsedMs(elapsedMs)}`;
+  } else {
+    label = `Failed after ${formatElapsedMs(elapsedMs)}`;
+  }
   return (
     <Text className="text-xs text-muted-foreground/80 mt-1">{label}</Text>
   );

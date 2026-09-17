@@ -54,13 +54,11 @@ export function ChatQueue({
   // The two blocked states need different copy: "wait for the reply to start"
   // is actionable, "you cannot run this agent" is not — telling a user to wait
   // for something waiting cannot fix is the bug (MUL-6380).
-  const sendNowLabel = t(($) =>
-    canSendNow
-      ? $.queue.steer
-      : sendNowDisabled
-        ? $.queue.steer_no_permission
-        : $.queue.steer_unavailable,
-  );
+  const sendNowLabel = t(($) => {
+    if (canSendNow) return $.queue.steer;
+    if (sendNowDisabled) return $.queue.steer_no_permission;
+    return $.queue.steer_unavailable;
+  });
 
   if (tasks.length === 0) return null;
 

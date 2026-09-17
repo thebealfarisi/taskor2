@@ -83,9 +83,11 @@ function callTool(name, args) {
     case "query_timeseries": {
       const points = SERIES[args.metric] ?? [];
       const within = points.filter((point) => point.minutes_ago <= Number(args.window_minutes ?? 60));
-      return within.length === 0
-        ? `No datapoints for ${args.metric} in the last ${args.window_minutes} minutes.`
-        : `${args.metric}: ${within.map((p) => `${p.minutes_ago}m ago = ${p.value}`).join(", ")}`;
+      if (within.length === 0) {
+        return `No datapoints for ${args.metric} in the last ${args.window_minutes} minutes.`;
+      }
+      const summary = within.map((p) => `${p.minutes_ago}m ago = ${p.value}`).join(", ");
+      return `${args.metric}: ${summary}`;
     }
     case "list_alerts":
       return "ALERT checkout-api.error_rate crossed 0.05 (fired 4m ago, still firing).";

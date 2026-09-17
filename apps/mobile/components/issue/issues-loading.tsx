@@ -13,17 +13,23 @@
 import { View } from "react-native";
 import { Skeleton } from "@/components/ui/skeleton";
 
+const SECTION_KEYS = ["skeleton-section-a", "skeleton-section-b"];
+const ROW_KEYS = ["skeleton-row-a", "skeleton-row-b", "skeleton-row-c"];
+
 export function IssuesLoading() {
   return (
     <View className="pt-2">
-      {Array.from({ length: 2 }).map((_, sectionIdx) => (
-        <View key={sectionIdx} className="pb-2">
+      {SECTION_KEYS.map((sectionKey) => (
+        <View key={sectionKey} className="pb-2">
           <View className="px-4 py-2 flex-row items-center gap-2">
             <Skeleton className="size-3.5 rounded-full" />
             <Skeleton className="h-3 w-20" />
           </View>
-          {Array.from({ length: 3 }).map((_, rowIdx) => (
-            <View key={rowIdx} className="flex-row items-center gap-3 px-4 py-3">
+          {ROW_KEYS.map((rowKey) => (
+            <View
+              key={rowKey}
+              className="flex-row items-center gap-3 px-4 py-3"
+            >
               <Skeleton className="size-3.5 rounded-full" />
               <Skeleton className="h-3 w-14" />
               <Skeleton className="h-3.5 flex-1" />

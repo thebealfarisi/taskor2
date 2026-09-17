@@ -399,19 +399,25 @@ export function toolKindTotals(steps: TraceStep[]): ToolKindTotals {
   for (const step of steps) {
     if (step.kind !== "call" || step.durationMs === undefined) continue;
     const input = step.call?.input;
-    const kind: keyof ToolKindTotals =
-      typeof input?.command === "string"
-        ? "command"
-        : typeof input?.old_string === "string" ||
-            typeof input?.content === "string" ||
-            input?.changes !== undefined
-          ? "write"
-          : typeof input?.file_path === "string" ||
-              typeof input?.path === "string" ||
-              typeof input?.pattern === "string" ||
-              typeof input?.query === "string"
-            ? "read"
-            : "other";
+    let kind: keyof ToolKindTotals;
+    if (typeof input?.command === "string") {
+      kind = "command";
+    } else if (
+      typeof input?.old_string === "string" ||
+      typeof input?.content === "string" ||
+      input?.changes !== undefined
+    ) {
+      kind = "write";
+    } else if (
+      typeof input?.file_path === "string" ||
+      typeof input?.path === "string" ||
+      typeof input?.pattern === "string" ||
+      typeof input?.query === "string"
+    ) {
+      kind = "read";
+    } else {
+      kind = "other";
+    }
     totals[kind] += step.durationMs;
   }
   return totals;

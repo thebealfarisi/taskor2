@@ -404,38 +404,45 @@ function RecentWorkSection({
   const { t } = useT("agents");
   // While the first fetch is in flight we have no counts to summarise, so
   // the subtitle stays blank rather than claiming "nothing finished yet".
-  const subtitle = loading
-    ? ""
-    : tasks.length === 0
-      ? t(($) => $.tab_body.activity.subtitle_no_recent)
-      : totalCount > tasks.length
-        ? t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount })
-        : t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
+  let subtitle: string;
+  if (loading) {
+    subtitle = "";
+  } else if (tasks.length === 0) {
+    subtitle = t(($) => $.tab_body.activity.subtitle_no_recent);
+  } else if (totalCount > tasks.length) {
+    subtitle = t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount });
+  } else {
+    subtitle = t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
+  }
+  let sectionBody: ReactNode;
+  if (loading) {
+    sectionBody = <RecentWorkSkeleton />;
+  } else if (tasks.length === 0) {
+    sectionBody = <EmptyText>{t(($) => $.tab_body.activity.empty_recent)}</EmptyText>;
+  } else {
+    sectionBody = (
+      <>
+        <TaskList
+          tasks={tasks}
+          issueMap={issueMap}
+          timeMode="completed"
+          agent={agent}
+        />
+        {hasMore && (
+          <button
+            type="button"
+            onClick={onShowMore}
+            className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {t(($) => $.tab_body.activity.show_more)}
+          </button>
+        )}
+      </>
+    );
+  }
   return (
     <Section title={t(($) => $.tab_body.activity.section_recent)} subtitle={subtitle}>
-      {loading ? (
-        <RecentWorkSkeleton />
-      ) : tasks.length === 0 ? (
-        <EmptyText>{t(($) => $.tab_body.activity.empty_recent)}</EmptyText>
-      ) : (
-        <>
-          <TaskList
-            tasks={tasks}
-            issueMap={issueMap}
-            timeMode="completed"
-            agent={agent}
-          />
-          {hasMore && (
-            <button
-              type="button"
-              onClick={onShowMore}
-              className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {t(($) => $.tab_body.activity.show_more)}
-            </button>
-          )}
-        </>
-      )}
+      {sectionBody}
     </Section>
   );
 }
@@ -456,7 +463,7 @@ function RecentWorkSkeleton() {
       aria-hidden="true"
     >
       {Array.from({ length: RECENT_SKELETON_ROWS }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 px-3 py-3">
+        <div key={`skeleton-row-${i}`} className="flex items-center gap-3 px-3 py-3">
           <Skeleton className="h-4 w-4 shrink-0 rounded-full" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className={`h-3.5 ${titleWidths[i % titleWidths.length]}`} />
@@ -549,39 +556,57 @@ function TaskRow({
     task.status === "completed" ||
     task.status === "failed" ||
     task.status === "cancelled";
-  const sourceFallback = !hasIssue
-    ? task.kind === "quick_create"
-      ? isTerminalStatus
-        ? t(($) => $.tab_body.activity.source_quick_create)
-        : t(($) => $.tab_body.activity.source_creating_issue)
-      : task.chat_session_id
-        ? t(($) => $.tab_body.activity.source_chat_session)
-        : task.autopilot_run_id
-          ? t(($) => $.tab_body.activity.source_autopilot_run)
-          : t(($) => $.tab_body.activity.source_untracked)
-    : null;
+  let sourceFallback: string | null;
+  if (hasIssue) {
+    sourceFallback = null;
+  } else if (task.kind === "quick_create") {
+    sourceFallback = isTerminalStatus
+      ? t(($) => $.tab_body.activity.source_quick_create)
+      : t(($) => $.tab_body.activity.source_creating_issue);
+  } else if (task.chat_session_id) {
+    sourceFallback = t(($) => $.tab_body.activity.source_chat_session);
+  } else if (task.autopilot_run_id) {
+    sourceFallback = t(($) => $.tab_body.activity.source_autopilot_run);
+  } else {
+    sourceFallback = t(($) => $.tab_body.activity.source_untracked);
+  }
 
-  const SourceIcon = hasIssue
-    ? Hash
-    : task.chat_session_id
-      ? MessageSquare
-      : task.autopilot_run_id
-        ? Workflow
-        : CircleHelp;
-  const sourceLabel = hasIssue
-    ? t(($) => $.tab_body.activity.source_issue)
-    : task.chat_session_id
-      ? t(($) => $.tab_body.activity.source_chat)
-      : task.autopilot_run_id
-        ? t(($) => $.tab_body.activity.source_autopilot)
-        : t(($) => $.tab_body.activity.source_untracked);
+  let SourceIcon: typeof Hash;
+  if (hasIssue) {
+    SourceIcon = Hash;
+  } else if (task.chat_session_id) {
+    SourceIcon = MessageSquare;
+  } else if (task.autopilot_run_id) {
+    SourceIcon = Workflow;
+  } else {
+    SourceIcon = CircleHelp;
+  }
 
-  const timeText =
-    timeMode === "active"
-      ? activeTaskTimeText(task, t, timeAgo)
-      : task.completed_at
-        ? timeAgo(task.completed_at)
-        : "—";
+  let sourceLabel: string;
+  if (hasIssue) {
+    sourceLabel = t(($) => $.tab_body.activity.source_issue);
+  } else if (task.chat_session_id) {
+    sourceLabel = t(($) => $.tab_body.activity.source_chat);
+  } else if (task.autopilot_run_id) {
+    sourceLabel = t(($) => $.tab_body.activity.source_autopilot);
+  } else {
+    sourceLabel = t(($) => $.tab_body.activity.source_untracked);
+  }
+
+  let timeText: string;
+  if (timeMode === "active") {
+    timeText = activeTaskTimeText(task, t, timeAgo);
+  } else if (task.completed_at) {
+    timeText = timeAgo(task.completed_at);
+  } else {
+    timeText = "—";
+  }
+
+  const titleText =
+    issue?.title ??
+    (hasIssue
+      ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
+      : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)));
 
   // Failure reason. The back-end emits "" on non-failed tasks (omitempty
   // strips it on the wire) so the truthy guard is the right shape.
@@ -642,10 +667,7 @@ function TaskRow({
               <TooltipTrigger
                 render={
                   <span className="truncate text-body">
-                    {issue?.title ??
-                      (hasIssue
-                        ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
-                        : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
+                    {titleText}
                   </span>
                 }
               />
@@ -660,10 +682,7 @@ function TaskRow({
             </Tooltip>
           ) : (
             <span className="truncate text-body">
-              {issue?.title ??
-                (hasIssue
-                  ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
-                  : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
+              {titleText}
             </span>
           )}
         </div>

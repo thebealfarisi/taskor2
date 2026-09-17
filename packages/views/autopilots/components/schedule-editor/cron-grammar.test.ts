@@ -467,7 +467,7 @@ const EXCLUSIONS: Array<{ why: string; holds: (spec: Spec, fields: string[]) => 
       const m = f[0]!.replace(/^\?(?=\/|$)/, "*");
       if (m === "*") return false;
       if (/^\d{1,2}$/.test(m)) return false;
-      return !/^(\*|0)\/\d{1,2}$/.test(m);
+      return !/^[*0]\/\d{1,2}$/.test(m);
     },
   },
   {
@@ -489,7 +489,7 @@ const EXCLUSIONS: Array<{ why: string; holds: (spec: Spec, fields: string[]) => 
     why: "a minute step and an hour step at once — the model's interval has one step dimension",
     holds: (_s, f) => {
       const m = f[0]!.replace(/^\?(?=\/|$)/, "*");
-      const minuteStepped = m === "*" || /^(\*|0)\/\d{1,2}$/.test(m);
+      const minuteStepped = m === "*" || /^[*0]\/\d{1,2}$/.test(m);
       const hourStep = /\/(\d{1,2})$/.exec(f[1]!);
       return minuteStepped && hourStep !== null && parseInt(hourStep[1]!, 10) !== 1;
     },

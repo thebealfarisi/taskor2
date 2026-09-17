@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Bot, Users } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import {
@@ -40,6 +40,37 @@ function ActorAvatar({
     setImgError(false);
   }, [avatarUrl]);
 
+  let content: ReactNode;
+  if (emoji) {
+    content = (
+      <span
+        role="img"
+        aria-label={name}
+        className="select-none leading-none"
+        style={{ fontSize: px * 0.58 }}
+      >
+        {emoji}
+      </span>
+    );
+  } else if (avatarUrl && !imgError) {
+    content = (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="h-full w-full object-cover"
+        onError={() => setImgError(true)}
+      />
+    );
+  } else if (isSystem) {
+    content = <MulticaIcon noSpin style={{ width: px * 0.55, height: px * 0.55 }} />;
+  } else if (isAgent) {
+    content = <Bot style={{ width: px * 0.55, height: px * 0.55 }} />;
+  } else if (isSquad) {
+    content = <Users style={{ width: px * 0.55, height: px * 0.55 }} />;
+  } else {
+    content = initials;
+  }
+
   // Every actor — member, agent, squad, or system — renders as a circle. This
   // is the single source of truth for avatar shape; the upload editors mirror
   // it (packages/views/common/avatar-upload-control.tsx).
@@ -56,31 +87,7 @@ function ActorAvatar({
       )}
       style={{ width: px, height: px, fontSize: px * 0.45 }}
     >
-      {emoji ? (
-        <span
-          role="img"
-          aria-label={name}
-          className="select-none leading-none"
-          style={{ fontSize: px * 0.58 }}
-        >
-          {emoji}
-        </span>
-      ) : avatarUrl && !imgError ? (
-        <img
-          src={avatarUrl}
-          alt={name}
-          className="h-full w-full object-cover"
-          onError={() => setImgError(true)}
-        />
-      ) : isSystem ? (
-        <MulticaIcon noSpin style={{ width: px * 0.55, height: px * 0.55 }} />
-      ) : isAgent ? (
-        <Bot style={{ width: px * 0.55, height: px * 0.55 }} />
-      ) : isSquad ? (
-        <Users style={{ width: px * 0.55, height: px * 0.55 }} />
-      ) : (
-        initials
-      )}
+      {content}
     </div>
   );
 }

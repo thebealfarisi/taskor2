@@ -342,8 +342,14 @@ export function AgentTranscriptDialog({
       detachScrollerRef.current = null;
       if (!(el instanceof HTMLElement)) return;
       const onWheel = (e: WheelEvent) => {
-        const scale =
-          e.deltaMode === 1 ? LINE_SCROLL_PX : e.deltaMode === 2 ? el.clientHeight : 1;
+        let scale: number;
+        if (e.deltaMode === 1) {
+          scale = LINE_SCROLL_PX;
+        } else if (e.deltaMode === 2) {
+          scale = el.clientHeight;
+        } else {
+          scale = 1;
+        }
         followCtl.input(e.deltaY * scale);
       };
       let lastTouchY: number | null = null;
@@ -671,18 +677,23 @@ export function AgentTranscriptDialog({
     });
   }, []);
 
-  const duration =
-    task.started_at && task.completed_at
-      ? formatDuration(task.started_at, task.completed_at)
-      : isLive
-        ? elapsed
-        : null;
+  let duration: string | null;
+  if (task.started_at && task.completed_at) {
+    duration = formatDuration(task.started_at, task.completed_at);
+  } else if (isLive) {
+    duration = elapsed;
+  } else {
+    duration = null;
+  }
 
-  const copyTranscriptLabel = copied
-    ? t(($) => $.transcript.copied)
-    : activeFilterKeys.length > 0 || trimmedQuery.length > 0
-      ? t(($) => $.transcript.copy_filtered)
-      : t(($) => $.transcript.copy_all);
+  let copyTranscriptLabel: string;
+  if (copied) {
+    copyTranscriptLabel = t(($) => $.transcript.copied);
+  } else if (activeFilterKeys.length > 0 || trimmedQuery.length > 0) {
+    copyTranscriptLabel = t(($) => $.transcript.copy_filtered);
+  } else {
+    copyTranscriptLabel = t(($) => $.transcript.copy_all);
+  }
 
   // Status badge — full state machine, so queued/dispatched/cancelled render as
   // proper labels instead of raw enum text.
@@ -755,19 +766,22 @@ export function AgentTranscriptDialog({
 
   // Trigger source: one word answering "why does this run exist" — more useful
   // up front than the runtime/provider diagnostics, which live in the ⓘ popover.
-  const triggerLabel = task.parent_task_id
-    ? t(($) => $.transcript.trigger_retry)
-    : task.kind === "comment" || task.trigger_comment_id
-      ? t(($) => $.transcript.trigger_comment)
-      : task.kind === "autopilot" || task.autopilot_run_id
-        ? t(($) => $.transcript.trigger_autopilot)
-        : task.kind === "chat" || task.chat_session_id
-          ? t(($) => $.transcript.trigger_chat)
-          : task.kind === "quick_create"
-            ? t(($) => $.transcript.trigger_quick_create)
-            : task.kind === "direct" || task.handoff_note
-              ? t(($) => $.transcript.trigger_direct)
-              : t(($) => $.transcript.trigger_initial);
+  let triggerLabel: string;
+  if (task.parent_task_id) {
+    triggerLabel = t(($) => $.transcript.trigger_retry);
+  } else if (task.kind === "comment" || task.trigger_comment_id) {
+    triggerLabel = t(($) => $.transcript.trigger_comment);
+  } else if (task.kind === "autopilot" || task.autopilot_run_id) {
+    triggerLabel = t(($) => $.transcript.trigger_autopilot);
+  } else if (task.kind === "chat" || task.chat_session_id) {
+    triggerLabel = t(($) => $.transcript.trigger_chat);
+  } else if (task.kind === "quick_create") {
+    triggerLabel = t(($) => $.transcript.trigger_quick_create);
+  } else if (task.kind === "direct" || task.handoff_note) {
+    triggerLabel = t(($) => $.transcript.trigger_direct);
+  } else {
+    triggerLabel = t(($) => $.transcript.trigger_initial);
+  }
 
   // Diagnostic detail for the ⓘ popover: everything a reader needs only when
   // debugging this specific run, kept off the always-visible surface.
@@ -794,6 +808,21 @@ export function AgentTranscriptDialog({
     !!startedLabel ||
     !!completedLabel ||
     !!usage;
+
+  const renderTranscriptRow = useCallback(
+    (_: number, row: TraceRow) => (
+      <TranscriptRow
+        row={row}
+        runStartMs={runStartMs}
+        isLive={isLive}
+        selectedSeq={selectedSeq}
+        expanded={row.kind === "group" && expandedGroups.has(row.seq)}
+        onToggleGroup={handleToggleGroup}
+        onSelect={setSelectedSeq}
+      />
+    ),
+    [runStartMs, isLive, selectedSeq, expandedGroups, handleToggleGroup],
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1134,21 +1163,28 @@ export function AgentTranscriptDialog({
           <div className="flex min-w-0 flex-1 flex-col">
             {displayRows.length === 0 ? (
               <div className="flex h-full items-center justify-center text-body text-muted-foreground">
-                {isAntigravityLiveEmpty ? (
-                  <div className="flex max-w-md items-center gap-2 px-4 text-center">
-                    <Clock className="h-4 w-4 shrink-0" />
-                    {t(($) => $.transcript.antigravity_live_unavailable)}
-                  </div>
-                ) : isLive && steps.length === 0 ? (
-                  <div className="flex items-center gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t(($) => $.transcript.waiting_events)}
-                  </div>
-                ) : steps.length === 0 ? (
-                  t(($) => $.transcript.no_data)
-                ) : (
-                  t(($) => $.transcript.no_matches)
-                )}
+                {(() => {
+                  if (isAntigravityLiveEmpty) {
+                    return (
+                      <div className="flex max-w-md items-center gap-2 px-4 text-center">
+                        <Clock className="h-4 w-4 shrink-0" />
+                        {t(($) => $.transcript.antigravity_live_unavailable)}
+                      </div>
+                    );
+                  }
+                  if (isLive && steps.length === 0) {
+                    return (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t(($) => $.transcript.waiting_events)}
+                      </div>
+                    );
+                  }
+                  if (steps.length === 0) {
+                    return t(($) => $.transcript.no_data);
+                  }
+                  return t(($) => $.transcript.no_matches);
+                })()}
               </div>
             ) : (
               // Virtualized so a multi-thousand-step run mounts a bounded
@@ -1176,17 +1212,7 @@ export function AgentTranscriptDialog({
                 scrollerRef={handleScrollerRef}
                 computeItemKey={(_, row) => row.seq}
                 components={LIST_COMPONENTS}
-                itemContent={(_, row) => (
-                  <TranscriptRow
-                    row={row}
-                    runStartMs={runStartMs}
-                    isLive={isLive}
-                    selectedSeq={selectedSeq}
-                    expanded={row.kind === "group" && expandedGroups.has(row.seq)}
-                    onToggleGroup={handleToggleGroup}
-                    onSelect={setSelectedSeq}
-                  />
-                )}
+                itemContent={renderTranscriptRow}
               />
             )}
           </div>
@@ -1393,16 +1419,27 @@ function StepRow({
   );
 
   const call = isCallStep(row) ? row : null;
-  const label = call
-    ? call.tool || t(($) => $.transcript.kind_tool)
-    : row.kind === "thinking"
-      ? t(($) => $.transcript.kind_thinking)
-      : t(($) => $.transcript.kind_error);
+  let label: string;
+  if (call) {
+    label = call.tool || t(($) => $.transcript.kind_tool);
+  } else if (row.kind === "thinking") {
+    label = t(($) => $.transcript.kind_thinking);
+  } else {
+    label = t(($) => $.transcript.kind_error);
+  }
   const summary = call
     ? callSummary(call, summaryLabels)
     : firstLineOf((row as TraceMessageStep).item.content);
   const pending = call !== null && isLive && !call.result;
   const selected = selectedSeq === row.seq;
+  let stripeClass: string;
+  if (selected) {
+    stripeClass = "bg-brand";
+  } else if (row.kind === "error") {
+    stripeClass = "bg-destructive";
+  } else {
+    stripeClass = "bg-border";
+  }
 
   return (
     <button
@@ -1416,13 +1453,7 @@ function StepRow({
       )}
     >
       <OffsetCell startedAt={row.startedAt} runStartMs={runStartMs} />
-      <span
-        aria-hidden
-        className={cn(
-          "mt-0.5 w-0.5 self-stretch rounded-full",
-          selected ? "bg-brand" : row.kind === "error" ? "bg-destructive" : "bg-border",
-        )}
-      />
+      <span aria-hidden className={cn("mt-0.5 w-0.5 self-stretch rounded-full", stripeClass)} />
       <StepIcon
         step={row}
         className={cn(
@@ -1588,12 +1619,14 @@ function StepInspector({
     });
   }, [call, message, showCopied]);
 
-  const title =
-    call
-      ? call.tool || t(($) => $.transcript.kind_tool)
-      : step.kind === "thinking"
-        ? t(($) => $.transcript.kind_thinking)
-        : t(($) => $.transcript.kind_error);
+  let title: string;
+  if (call) {
+    title = call.tool || t(($) => $.transcript.kind_tool);
+  } else if (step.kind === "thinking") {
+    title = t(($) => $.transcript.kind_thinking);
+  } else {
+    title = t(($) => $.transcript.kind_error);
+  }
 
   return (
     <aside className="flex w-[26rem] shrink-0 flex-col border-l bg-muted/25">

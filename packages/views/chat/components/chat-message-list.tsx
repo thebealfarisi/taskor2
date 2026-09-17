@@ -263,6 +263,34 @@ export function ChatMessageList({
 
   const firstIndex = renderItems.length > 0 ? firstItemIndex : 0;
 
+  const renderItemContent = useCallback(
+    (_: number, item: ChatRenderItem) => (
+      <div className={cn(CHAT_COLUMN, "py-2")}>
+        <MessageBubble
+          item={item}
+          isPending={!!pendingTaskId && item.taskId === pendingTaskId}
+          transformContent={transformContent}
+          onQuickAction={onQuickAction}
+          quickActionsDisabled={quickActionsDisabled}
+          onRegenerateQuickActions={onRegenerateQuickActions}
+          latestAssistantMessageId={latestAssistantMessageId}
+          quickActionsPendingMessageId={quickActionsPendingMessageId}
+          starterCardsMessageId={starterCardsMessageId}
+        />
+      </div>
+    ),
+    [
+      pendingTaskId,
+      transformContent,
+      onQuickAction,
+      quickActionsDisabled,
+      onRegenerateQuickActions,
+      latestAssistantMessageId,
+      quickActionsPendingMessageId,
+      starterCardsMessageId,
+    ],
+  );
+
   const listContext: ChatListContext = {
     isFetchingOlderMessages,
     showStatusPill,
@@ -339,21 +367,7 @@ export function ChatMessageList({
         computeItemKey={(_, item) => item.key}
         context={listContext}
         components={LIST_COMPONENTS}
-        itemContent={(_, item) => (
-          <div className={cn(CHAT_COLUMN, "py-2")}>
-            <MessageBubble
-              item={item}
-              isPending={!!pendingTaskId && item.taskId === pendingTaskId}
-              transformContent={transformContent}
-              onQuickAction={onQuickAction}
-              quickActionsDisabled={quickActionsDisabled}
-              onRegenerateQuickActions={onRegenerateQuickActions}
-              latestAssistantMessageId={latestAssistantMessageId}
-              quickActionsPendingMessageId={quickActionsPendingMessageId}
-              starterCardsMessageId={starterCardsMessageId}
-            />
-          </div>
-        )}
+        itemContent={renderItemContent}
       />
       </RichContentScrollRootProvider>
       )}
@@ -578,17 +592,21 @@ function AssistantMessage({
           isStreaming={!message}
         />
       )}
-      {isNoResponse ? (
-        <NoResponseNotice />
-      ) : message && timeline.length === 0 ? (
-        <RichContent
-          content={message.content}
-          attachments={message.attachments}
-          density="compact"
-          phase="settled"
-          className="leading-relaxed"
-        />
-      ) : null}
+      {(() => {
+        if (isNoResponse) return <NoResponseNotice />;
+        if (message && timeline.length === 0) {
+          return (
+            <RichContent
+              content={message.content}
+              attachments={message.attachments}
+              density="compact"
+              phase="settled"
+              className="leading-relaxed"
+            />
+          );
+        }
+        return null;
+      })()}
       {message && (
         <>
           <AttachmentList
@@ -600,28 +618,36 @@ function AssistantMessage({
             timeline={timeline}
             isPending={isPending}
           />
-          {onQuickAction && showStarterCards ? (
-            // The opening's starter cards own this turn's suggestion strip
-            // (MUL-5765); the server skips chip generation for it.
-            <OnboardingStarterCards
-              onPick={onQuickAction}
-              disabled={quickActionsDisabled || isPending}
-            />
-          ) : onQuickAction && (message.quick_actions?.length ?? 0) > 0 ? (
-            <QuickActions
-              actions={message.quick_actions ?? []}
-              disabled={quickActionsDisabled || isPending}
-              onSelect={onQuickAction}
-              onRegenerate={
-                onRegenerateQuickActions && canRegenerateQuickActions
-                  ? () => onRegenerateQuickActions(message)
-                  : undefined
-              }
-              pending={quickActionsPending}
-            />
-          ) : onQuickAction && quickActionsPending ? (
-            <QuickActionsSkeleton />
-          ) : null}
+          {(() => {
+            if (!onQuickAction) return null;
+            if (showStarterCards) {
+              // The opening's starter cards own this turn's suggestion strip
+              // (MUL-5765); the server skips chip generation for it.
+              return (
+                <OnboardingStarterCards
+                  onPick={onQuickAction}
+                  disabled={quickActionsDisabled || isPending}
+                />
+              );
+            }
+            if ((message.quick_actions?.length ?? 0) > 0) {
+              return (
+                <QuickActions
+                  actions={message.quick_actions ?? []}
+                  disabled={quickActionsDisabled || isPending}
+                  onSelect={onQuickAction}
+                  onRegenerate={
+                    onRegenerateQuickActions && canRegenerateQuickActions
+                      ? () => onRegenerateQuickActions(message)
+                      : undefined
+                  }
+                  pending={quickActionsPending}
+                />
+              );
+            }
+            if (quickActionsPending) return <QuickActionsSkeleton />;
+            return null;
+          })()}
         </>
       )}
     </div>
@@ -894,12 +920,14 @@ function ElapsedCaption({
 }) {
   const { t } = useT("chat");
   const elapsed = formatElapsedMs(elapsedMs);
-  const text =
-    variant === "replied"
-      ? t(($) => $.message_list.replied_in, { elapsed })
-      : variant === "finished"
-        ? t(($) => $.message_list.finished_in, { elapsed })
-        : t(($) => $.message_list.failed_after, { elapsed });
+  let text: string;
+  if (variant === "replied") {
+    text = t(($) => $.message_list.replied_in, { elapsed });
+  } else if (variant === "finished") {
+    text = t(($) => $.message_list.finished_in, { elapsed });
+  } else {
+    text = t(($) => $.message_list.failed_after, { elapsed });
+  }
   return (
     <div className={cn("text-caption text-muted-foreground", className)}>
       {text}

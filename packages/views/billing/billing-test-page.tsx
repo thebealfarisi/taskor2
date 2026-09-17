@@ -151,20 +151,20 @@ function CheckoutSessionStatusBanner({
           {t(($) => $.checkout.session_label, { prefix: sessionId.slice(0, 16) })}
         </CardTitle>
         <CardDescription className="text-caption">
-          {isLoading
-            ? t(($) => $.checkout.loading)
-            : isError
-              ? t(($) => $.checkout.fetch_failed, {
-                  error:
-                    error instanceof Error
-                      ? error.message
-                      : t(($) => $.checkout.fetch_failed_unknown),
-                })
-              : terminal
-                ? t(($) => $.checkout.final_status, { status })
-                : t(($) => $.checkout.polling_status, {
-                    status: status || t(($) => $.checkout.status_unknown),
-                  })}
+          {(() => {
+            if (isLoading) return t(($) => $.checkout.loading);
+            if (isError) {
+              const errorMessage =
+                error instanceof Error
+                  ? error.message
+                  : t(($) => $.checkout.fetch_failed_unknown);
+              return t(($) => $.checkout.fetch_failed, { error: errorMessage });
+            }
+            if (terminal) return t(($) => $.checkout.final_status, { status });
+            return t(($) => $.checkout.polling_status, {
+              status: status || t(($) => $.checkout.status_unknown),
+            });
+          })()}
         </CardDescription>
       </CardHeader>
       {data && (
@@ -225,27 +225,27 @@ function BalanceCard() {
         />
       </CardHeader>
       <CardContent>
-        {balance.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : balance.isError ? (
-          <ErrorText error={balance.error} />
-        ) : (
-          <div className="space-y-1 text-body">
-            <div className="text-display-sm font-semibold tabular-nums">
-              {balance.data?.balance_credit.toLocaleString() ?? 0}
-              <span className="ml-1 text-body font-normal text-muted-foreground">
-                {t(($) => $.balance.credits_suffix)}
-              </span>
+        {(() => {
+          if (balance.isLoading) return <Loader2 className="h-4 w-4 animate-spin" />;
+          if (balance.isError) return <ErrorText error={balance.error} />;
+          return (
+            <div className="space-y-1 text-body">
+              <div className="text-display-sm font-semibold tabular-nums">
+                {balance.data?.balance_credit.toLocaleString() ?? 0}
+                <span className="ml-1 text-body font-normal text-muted-foreground">
+                  {t(($) => $.balance.credits_suffix)}
+                </span>
+              </div>
+              <div className="text-caption text-muted-foreground">
+                {t(($) => $.balance.meta, {
+                  micro: balance.data?.balance_micro.toLocaleString() ?? 0,
+                  owner: balance.data?.owner_id.slice(0, 8) ?? "",
+                  updated: formatDate(balance.data?.updated_at, t),
+                })}
+              </div>
             </div>
-            <div className="text-caption text-muted-foreground">
-              {t(($) => $.balance.meta, {
-                micro: balance.data?.balance_micro.toLocaleString() ?? 0,
-                owner: balance.data?.owner_id.slice(0, 8) ?? "",
-                updated: formatDate(balance.data?.updated_at, t),
-              })}
-            </div>
-          </div>
-        )}
+          );
+        })()}
       </CardContent>
     </Card>
   );
@@ -312,25 +312,26 @@ function BuyAndPortalSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {tiers.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : tiers.isError ? (
-          <ErrorText error={tiers.error} />
-        ) : tiers.data?.length ? (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {tiers.data.map((tier) => (
-              <TierButton
-                key={tier.id}
-                tier={tier}
-                busy={busyTier === tier.id}
-                disabled={busyTier !== null}
-                onClick={() => void handleBuy(tier)}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-caption text-muted-foreground">{t(($) => $.buy.no_tiers)}</p>
-        )}
+        {(() => {
+          if (tiers.isLoading) return <Loader2 className="h-4 w-4 animate-spin" />;
+          if (tiers.isError) return <ErrorText error={tiers.error} />;
+          if (tiers.data?.length) {
+            return (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {tiers.data.map((tier) => (
+                  <TierButton
+                    key={tier.id}
+                    tier={tier}
+                    busy={busyTier === tier.id}
+                    disabled={busyTier !== null}
+                    onClick={() => void handleBuy(tier)}
+                  />
+                ))}
+              </div>
+            );
+          }
+          return <p className="text-caption text-muted-foreground">{t(($) => $.buy.no_tiers)}</p>;
+        })()}
 
         <div className="border-t pt-4">
           <Button
@@ -373,16 +374,19 @@ function TierButton({
     money: formatMoney(tier.amount_cents, "usd"),
     credits: tier.credits.toLocaleString(),
   });
-  const bonusLine = tier.bonus_credits
-    ? tier.bonus_expires_in
-      ? t(($) => $.buy.tier_bonus_with_expiry, {
-          credits: tier.bonus_credits.toLocaleString(),
-          expiry: tier.bonus_expires_in,
-        })
-      : t(($) => $.buy.tier_bonus, {
-          credits: tier.bonus_credits.toLocaleString(),
-        })
-    : "";
+  let bonusLine = "";
+  if (tier.bonus_credits) {
+    if (tier.bonus_expires_in) {
+      bonusLine = t(($) => $.buy.tier_bonus_with_expiry, {
+        credits: tier.bonus_credits.toLocaleString(),
+        expiry: tier.bonus_expires_in,
+      });
+    } else {
+      bonusLine = t(($) => $.buy.tier_bonus, {
+        credits: tier.bonus_credits.toLocaleString(),
+      });
+    }
+  }
   return (
     <button
       type="button"
@@ -425,19 +429,20 @@ function TransactionsCard() {
         />
       </CardHeader>
       <CardContent>
-        {txs.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : txs.isError ? (
-          <ErrorText error={txs.error} />
-        ) : txs.data?.items.length ? (
-          <ul className="space-y-2 text-caption">
-            {txs.data.items.map((row) => (
-              <TransactionRow key={row.id} row={row} />
-            ))}
-          </ul>
-        ) : (
-          <EmptyText>{t(($) => $.transactions.empty)}</EmptyText>
-        )}
+        {(() => {
+          if (txs.isLoading) return <Loader2 className="h-4 w-4 animate-spin" />;
+          if (txs.isError) return <ErrorText error={txs.error} />;
+          if (txs.data?.items.length) {
+            return (
+              <ul className="space-y-2 text-caption">
+                {txs.data.items.map((row) => (
+                  <TransactionRow key={row.id} row={row} />
+                ))}
+              </ul>
+            );
+          }
+          return <EmptyText>{t(($) => $.transactions.empty)}</EmptyText>;
+        })()}
         <PagingFooter
           page={txs.data?.page ?? 1}
           pageSize={txs.data?.page_size ?? 20}
@@ -504,19 +509,20 @@ function BatchesCard() {
         />
       </CardHeader>
       <CardContent>
-        {batches.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : batches.isError ? (
-          <ErrorText error={batches.error} />
-        ) : batches.data?.items.length ? (
-          <ul className="space-y-2 text-caption">
-            {batches.data.items.map((row) => (
-              <BatchRow key={row.id} row={row} />
-            ))}
-          </ul>
-        ) : (
-          <EmptyText>{t(($) => $.batches.empty)}</EmptyText>
-        )}
+        {(() => {
+          if (batches.isLoading) return <Loader2 className="h-4 w-4 animate-spin" />;
+          if (batches.isError) return <ErrorText error={batches.error} />;
+          if (batches.data?.items.length) {
+            return (
+              <ul className="space-y-2 text-caption">
+                {batches.data.items.map((row) => (
+                  <BatchRow key={row.id} row={row} />
+                ))}
+              </ul>
+            );
+          }
+          return <EmptyText>{t(($) => $.batches.empty)}</EmptyText>;
+        })()}
         <PagingFooter
           page={batches.data?.page ?? 1}
           pageSize={batches.data?.page_size ?? 20}
@@ -576,19 +582,20 @@ function TopupsCard() {
         />
       </CardHeader>
       <CardContent>
-        {topups.isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : topups.isError ? (
-          <ErrorText error={topups.error} />
-        ) : topups.data?.items.length ? (
-          <ul className="space-y-2 text-caption">
-            {topups.data.items.map((row) => (
-              <TopupRow key={row.id} row={row} />
-            ))}
-          </ul>
-        ) : (
-          <EmptyText>{t(($) => $.topups.empty)}</EmptyText>
-        )}
+        {(() => {
+          if (topups.isLoading) return <Loader2 className="h-4 w-4 animate-spin" />;
+          if (topups.isError) return <ErrorText error={topups.error} />;
+          if (topups.data?.items.length) {
+            return (
+              <ul className="space-y-2 text-caption">
+                {topups.data.items.map((row) => (
+                  <TopupRow key={row.id} row={row} />
+                ))}
+              </ul>
+            );
+          }
+          return <EmptyText>{t(($) => $.topups.empty)}</EmptyText>;
+        })()}
         <PagingFooter
           page={topups.data?.page ?? 1}
           pageSize={topups.data?.page_size ?? 20}
@@ -601,19 +608,21 @@ function TopupsCard() {
 
 function TopupRow({ row }: { row: BillingTopup }) {
   const { t } = useT("billing");
+  let statusClass: string;
+  if (row.status === "credited") {
+    statusClass = "bg-green-500/10 text-green-700 dark:text-green-400";
+  } else if (row.status === "failed" || row.status === "canceled") {
+    statusClass = "bg-red-500/10 text-red-700 dark:text-red-400";
+  } else {
+    statusClass = "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+  }
   return (
     <li className="rounded-md border bg-background p-2.5">
       <div className="flex items-center justify-between gap-2">
         <span className="text-caption font-medium">
           {row.tier_id || row.id.slice(0, 8)}
           <span
-            className={`ml-1.5 rounded px-1.5 py-0.5 font-mono text-micro ${
-              row.status === "credited"
-                ? "bg-green-500/10 text-green-700 dark:text-green-400"
-                : row.status === "failed" || row.status === "canceled"
-                  ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                  : "bg-amber-500/10 text-amber-700 dark:text-amber-400"
-            }`}
+            className={`ml-1.5 rounded px-1.5 py-0.5 font-mono text-micro ${statusClass}`}
           >
             {row.status}
           </span>

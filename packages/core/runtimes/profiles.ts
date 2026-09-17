@@ -89,12 +89,14 @@ export function parseRuntimeProfileBoundConflict(
   const fallback = err.message;
   if (body && typeof body === "object") {
     const record = body as Record<string, unknown>;
-    const message =
-      typeof record.message === "string" && record.message.trim()
-        ? record.message
-        : typeof record.error === "string" && record.error.trim()
-          ? record.error
-          : fallback;
+    let message: string;
+    if (typeof record.message === "string" && record.message.trim()) {
+      message = record.message;
+    } else if (typeof record.error === "string" && record.error.trim()) {
+      message = record.error;
+    } else {
+      message = fallback;
+    }
     return { message };
   }
   return { message: fallback };

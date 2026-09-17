@@ -12,6 +12,7 @@
  * bar gives no information and creates a divide-by-zero hazard.
  */
 import { Pressable, View } from "react-native";
+import type { ReactNode } from "react";
 import type { Project } from "@multica/core/types";
 import { Text } from "@/components/ui/text";
 import { ProjectIcon } from "@/components/ui/project-icon";
@@ -22,6 +23,21 @@ interface Props {
 }
 
 export function ProjectHeaderCard({ project, onEdit }: Props) {
+  let descriptionNode: ReactNode = null;
+  if (project.description) {
+    descriptionNode = (
+      <Text className="text-sm text-muted-foreground" selectable>
+        {project.description}
+      </Text>
+    );
+  } else if (onEdit) {
+    descriptionNode = (
+      <Text className="text-sm text-muted-foreground/60 italic">
+        Add a description
+      </Text>
+    );
+  }
+
   return (
     <Pressable
       onPress={onEdit}
@@ -36,18 +52,7 @@ export function ProjectHeaderCard({ project, onEdit }: Props) {
         >
           {project.title}
         </Text>
-        {project.description ? (
-          <Text
-            className="text-sm text-muted-foreground"
-            selectable
-          >
-            {project.description}
-          </Text>
-        ) : onEdit ? (
-          <Text className="text-sm text-muted-foreground/60 italic">
-            Add a description
-          </Text>
-        ) : null}
+        {descriptionNode}
         {project.issue_count > 0 ? (
           <ProgressSection
             done={project.done_count}

@@ -173,16 +173,22 @@ function RuntimeRow({
 }) {
   const { t } = useT("agents");
   const isCloud = agent.runtime_mode === "cloud";
-  const health: RuntimeHealth = isCloud
-    ? "online"
-    : runtime
-      ? deriveRuntimeHealth(runtime, Date.now())
-      : "offline";
-  const label = runtime
-    ? runtimeDisplayLabel(runtime)
-    : isCloud
-      ? t(($) => $.row.fallback_runtime_cloud)
-      : t(($) => $.profile_card.unknown_runtime);
+  let health: RuntimeHealth;
+  if (isCloud) {
+    health = "online";
+  } else if (runtime) {
+    health = deriveRuntimeHealth(runtime, Date.now());
+  } else {
+    health = "offline";
+  }
+  let label: string;
+  if (runtime) {
+    label = runtimeDisplayLabel(runtime);
+  } else if (isCloud) {
+    label = t(($) => $.row.fallback_runtime_cloud);
+  } else {
+    label = t(($) => $.profile_card.unknown_runtime);
+  }
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-12 shrink-0 text-muted-foreground">{t(($) => $.profile_card.runtime_label)}</span>

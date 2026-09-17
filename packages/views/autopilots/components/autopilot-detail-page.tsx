@@ -115,26 +115,33 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
 
   // For runs with a task_id (run_only mode), build a minimal AgentTask so
   // TranscriptButton can lazy-load the execution transcript.
-  const syntheticTask: AgentTask | null = run.task_id
-    ? {
-        id: run.task_id,
-        agent_id: agentId,
-        runtime_id: "",
-        issue_id: "",
-        status:
-          run.status === "running" ? "running" :
-          run.status === "completed" ? "completed" :
-          run.status === "failed" ? "failed" :
-          "queued",
-        priority: 0,
-        dispatched_at: null,
-        started_at: run.triggered_at || null,
-        completed_at: run.completed_at || null,
-        result: null,
-        error: run.failure_reason || null,
-        created_at: run.created_at,
-      }
-    : null;
+  let syntheticTask: AgentTask | null = null;
+  if (run.task_id) {
+    let syntheticStatus: AgentTask["status"];
+    if (run.status === "running") {
+      syntheticStatus = "running";
+    } else if (run.status === "completed") {
+      syntheticStatus = "completed";
+    } else if (run.status === "failed") {
+      syntheticStatus = "failed";
+    } else {
+      syntheticStatus = "queued";
+    }
+    syntheticTask = {
+      id: run.task_id,
+      agent_id: agentId,
+      runtime_id: "",
+      issue_id: "",
+      status: syntheticStatus,
+      priority: 0,
+      dispatched_at: null,
+      started_at: run.triggered_at || null,
+      completed_at: run.completed_at || null,
+      result: null,
+      error: run.failure_reason || null,
+      created_at: run.created_at,
+    };
+  }
 
   const content = (
     <>
@@ -146,11 +153,13 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
         {t(($) => $.run_source[run.source as "schedule" | "manual" | "webhook" | "api"]) ?? run.source}
       </span>
       <span className="flex-1 min-w-0 text-caption text-muted-foreground truncate">
-        {run.issue_id ? (
-          t(($) => $.run.issue_linked)
-        ) : run.failure_reason ? (
-          <span className="text-destructive">{run.failure_reason}</span>
-        ) : null}
+        {(() => {
+          if (run.issue_id) return t(($) => $.run.issue_linked);
+          if (run.failure_reason) {
+            return <span className="text-destructive">{run.failure_reason}</span>;
+          }
+          return null;
+        })()}
       </span>
       <span className="w-32 shrink-0 text-right text-caption text-muted-foreground tabular-nums">
         {formatInTimeZone(run.triggered_at || run.created_at, undefined, i18n.language)}
@@ -308,7 +317,14 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
     }
   };
 
-  const Icon = isWebhook ? Webhook : isApi ? Zap : Clock;
+  let Icon: typeof Webhook;
+  if (isWebhook) {
+    Icon = Webhook;
+  } else if (isApi) {
+    Icon = Zap;
+  } else {
+    Icon = Clock;
+  }
   const showWebhookUrlRow = isWebhook && webhookUrl;
   // null when the expression is beyond the structured model — those rows keep
   // showing the raw cron on its own.
@@ -773,6 +789,15 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
     updateAutopilot.mutate({ id: autopilotId, status: checked ? "active" : "paused" });
   };
 
+  let statusColorClass: string;
+  if (autopilot.status === "active") {
+    statusColorClass = "text-emerald-500";
+  } else if (autopilot.status === "paused") {
+    statusColorClass = "text-amber-500";
+  } else {
+    statusColorClass = "text-muted-foreground";
+  }
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -795,9 +820,7 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
               />
               <span className={cn(
                 "text-caption font-medium hidden sm:inline",
-                autopilot.status === "active" ? "text-emerald-500" :
-                autopilot.status === "paused" ? "text-amber-500" :
-                "text-muted-foreground",
+                statusColorClass,
               )}>
                 {t(($) => $.status[autopilot.status])}
               </span>
@@ -902,21 +925,26 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
                 <div>
                   <label className="text-caption text-muted-foreground">{t(($) => $.detail.field_project)}</label>
                   <div className="mt-1 min-w-0">
-                    {!autopilot.project_id ? (
-                      <span className="text-muted-foreground">{t(($) => $.detail.no_project)}</span>
-                    ) : projectLoading ? (
-                      <Skeleton className="h-5 w-32" />
-                    ) : project ? (
-                      <AppLink
-                        href={wsPaths.projectDetail(project.id)}
-                        className="inline-flex max-w-full items-center gap-1.5 text-foreground hover:underline"
-                      >
-                        <ProjectIcon project={project} size="md" />
-                        <span className="truncate">{project.title}</span>
-                      </AppLink>
-                    ) : (
-                      <span className="text-muted-foreground">{t(($) => $.detail.project_unavailable)}</span>
-                    )}
+                    {(() => {
+                      if (!autopilot.project_id) {
+                        return <span className="text-muted-foreground">{t(($) => $.detail.no_project)}</span>;
+                      }
+                      if (projectLoading) {
+                        return <Skeleton className="h-5 w-32" />;
+                      }
+                      if (project) {
+                        return (
+                          <AppLink
+                            href={wsPaths.projectDetail(project.id)}
+                            className="inline-flex max-w-full items-center gap-1.5 text-foreground hover:underline"
+                          >
+                            <ProjectIcon project={project} size="md" />
+                            <span className="truncate">{project.title}</span>
+                          </AppLink>
+                        );
+                      }
+                      return <span className="text-muted-foreground">{t(($) => $.detail.project_unavailable)}</span>;
+                    })()}
                   </div>
                 </div>
               )}
@@ -980,23 +1008,31 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             <h2 className="text-body font-medium text-muted-foreground uppercase tracking-wider">
               {t(($) => $.detail.section_run_history)}
             </h2>
-            {runsLoading ? (
-              <div className="space-y-1">
-                {Array.from({ length: 3 }).map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
-                ))}
-              </div>
-            ) : runs.length === 0 ? (
-              <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
-                {t(($) => $.detail.no_runs)}
-              </div>
-            ) : (
-              <RunHistoryList
-                runs={runs}
-                agentId={autopilot.assignee_id}
-                agentName={getActorName(autopilot.assignee_type, autopilot.assignee_id)}
-              />
-            )}
+            {(() => {
+              if (runsLoading) {
+                return (
+                  <div className="space-y-1">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={`run-skeleton-${i}`} className="h-10 w-full" />
+                    ))}
+                  </div>
+                );
+              }
+              if (runs.length === 0) {
+                return (
+                  <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
+                    {t(($) => $.detail.no_runs)}
+                  </div>
+                );
+              }
+              return (
+                <RunHistoryList
+                  runs={runs}
+                  agentId={autopilot.assignee_id}
+                  agentName={getActorName(autopilot.assignee_type, autopilot.assignee_id)}
+                />
+              );
+            })()}
           </section>
 
           {/* Danger zone */}

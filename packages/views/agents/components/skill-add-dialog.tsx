@@ -127,11 +127,11 @@ export function SkillAddDialog({
             onClick={handleConfirm}
             disabled={count === 0 || saving}
           >
-            {saving
-              ? t(($) => $.tab_body.skills.add_dialog_saving)
-              : count > 0
-                ? t(($) => $.tab_body.skills.add_dialog_confirm, { count })
-                : t(($) => $.tab_body.skills.add_dialog_confirm_default)}
+            {(() => {
+              if (saving) return t(($) => $.tab_body.skills.add_dialog_saving);
+              if (count > 0) return t(($) => $.tab_body.skills.add_dialog_confirm, { count });
+              return t(($) => $.tab_body.skills.add_dialog_confirm_default);
+            })()}
           </Button>
         </DialogFooter>
       </DialogContent>

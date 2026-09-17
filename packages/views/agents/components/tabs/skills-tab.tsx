@@ -253,29 +253,36 @@ export function SkillsTab({
           ) : null
         }
       >
-        {!runtime ? (
-          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_missing)} />
-        ) : runtime.status !== "online" ? (
-          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_offline)} />
-        ) : runtimeQuery.isLoading ? (
-          <RuntimeNotice
-            loading
-            text={t(($) => $.tab_body.skills.runtime_discovering)}
-          />
-        ) : runtimeQuery.isError ? (
-          <RuntimeNotice
-            text={
+        {(() => {
+          if (!runtime) {
+            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_missing)} />;
+          }
+          if (runtime.status !== "online") {
+            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_offline)} />;
+          }
+          if (runtimeQuery.isLoading) {
+            return (
+              <RuntimeNotice
+                loading
+                text={t(($) => $.tab_body.skills.runtime_discovering)}
+              />
+            );
+          }
+          if (runtimeQuery.isError) {
+            const runtimeErrorText =
               runtimeQuery.error instanceof ApiError &&
               runtimeQuery.error.status === 403
                 ? t(($) => $.tab_body.skills.runtime_forbidden)
-                : t(($) => $.tab_body.skills.runtime_failed)
-            }
-          />
-        ) : runtimeQuery.data?.supported !== true ? (
-          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_unsupported)} />
-        ) : runtimeSkills.length === 0 ? (
-          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_empty)} />
-        ) : (
+                : t(($) => $.tab_body.skills.runtime_failed);
+            return <RuntimeNotice text={runtimeErrorText} />;
+          }
+          if (runtimeQuery.data?.supported !== true) {
+            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_unsupported)} />;
+          }
+          if (runtimeSkills.length === 0) {
+            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_empty)} />;
+          }
+          return (
           <ul className="divide-y rounded-lg border bg-surface-raised/40">
             {runtimeSkills.map((skill) => {
               const disabled = isRuntimeSkillDisabled(
@@ -338,7 +345,8 @@ export function SkillsTab({
               );
             })}
           </ul>
-        )}
+          );
+        })()}
       </CapabilitySection>
 
       <SkillAddDialog agent={agent} open={showAdd} onOpenChange={setShowAdd} />
@@ -450,45 +458,56 @@ function SkillDetailDialog({
           </div>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
-        {loading ? (
-          <div className="flex items-center gap-2 py-8 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-            {t(($) => $.tab_body.skills.detail_loading)}
-          </div>
-        ) : runtimeSkill ? (
-          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
-            <dd className="break-all">{runtimeSkill.source_path}</dd>
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
-            <dd>{runtimeSkill.provider}</dd>
-            {runtimeSkill.plugin && (
-              <>
-                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
-                <dd>{runtimeSkill.plugin}</dd>
-              </>
-            )}
-            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
-            <dd>{runtimeSkill.file_count}</dd>
-          </dl>
-        ) : workspaceSkill ? (
-          <div className="space-y-4">
-            <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
-              <pre className="whitespace-pre-wrap break-words font-mono text-caption leading-5">
-                {workspaceSkill.content}
-              </pre>
-            </div>
-            {(workspaceSkill.files ?? []).length > 0 && (
-              <div>
-                <h4 className="text-caption font-medium">{t(($) => $.tab_body.skills.detail_supporting_files)}</h4>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {(workspaceSkill.files ?? []).map((file) => (
-                    <Badge key={file.id} variant="outline">{file.path}</Badge>
-                  ))}
-                </div>
+        {(() => {
+          if (loading) {
+            return (
+              <div className="flex items-center gap-2 py-8 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+                {t(($) => $.tab_body.skills.detail_loading)}
               </div>
-            )}
-          </div>
-        ) : null}
+            );
+          }
+          if (runtimeSkill) {
+            return (
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
+                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
+                <dd className="break-all">{runtimeSkill.source_path}</dd>
+                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
+                <dd>{runtimeSkill.provider}</dd>
+                {runtimeSkill.plugin && (
+                  <>
+                    <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
+                    <dd>{runtimeSkill.plugin}</dd>
+                  </>
+                )}
+                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
+                <dd>{runtimeSkill.file_count}</dd>
+              </dl>
+            );
+          }
+          if (workspaceSkill) {
+            return (
+              <div className="space-y-4">
+                <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
+                  <pre className="whitespace-pre-wrap break-words font-mono text-caption leading-5">
+                    {workspaceSkill.content}
+                  </pre>
+                </div>
+                {(workspaceSkill.files ?? []).length > 0 && (
+                  <div>
+                    <h4 className="text-caption font-medium">{t(($) => $.tab_body.skills.detail_supporting_files)}</h4>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(workspaceSkill.files ?? []).map((file) => (
+                        <Badge key={file.id} variant="outline">{file.path}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return null;
+        })()}
       </DialogContent>
     </Dialog>
   );

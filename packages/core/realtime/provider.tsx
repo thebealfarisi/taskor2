@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
   useCallback,
+  useMemo,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
@@ -136,8 +137,13 @@ export function WSProvider({
     [wsClient],
   );
 
+  const contextValue = useMemo(
+    () => ({ subscribe, onReconnect: onReconnectCb }),
+    [subscribe, onReconnectCb],
+  );
+
   return (
-    <WSContext.Provider value={{ subscribe, onReconnect: onReconnectCb }}>
+    <WSContext.Provider value={contextValue}>
       {children}
     </WSContext.Provider>
   );

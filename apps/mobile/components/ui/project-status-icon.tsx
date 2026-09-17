@@ -99,32 +99,44 @@ export function ProjectStatusIcon({
   size?: number;
 }) {
   const color = projectStatusColor(status);
+
+  let glyph: React.ReactNode;
+  if (status === "planned") {
+    glyph = <Ring color={color} />;
+  } else if (status === "in_progress") {
+    glyph = (
+      <Ring color={color}>
+        <Path d={piePath(0.5)} fill={color} />
+      </Ring>
+    );
+  } else if (status === "paused") {
+    glyph = (
+      <Ring color={color}>
+        <PauseBars color={color} />
+      </Ring>
+    );
+  } else if (status === "completed") {
+    glyph = (
+      <>
+        <Circle cx={CX} cy={CY} r={OUTER_R} fill={color} />
+        <DoneCheck />
+      </>
+    );
+  } else if (status === "cancelled") {
+    glyph = (
+      <Ring color={color}>
+        <CancelX color={color} />
+      </Ring>
+    );
+  } else {
+    // Unknown server enum value — render the planned ring so the row
+    // still reads as "a project" rather than crashing or going blank.
+    glyph = <Ring color={color} />;
+  }
+
   return (
     <Svg width={size} height={size} viewBox="0 0 14 14">
-      {status === "planned" ? (
-        <Ring color={color} />
-      ) : status === "in_progress" ? (
-        <Ring color={color}>
-          <Path d={piePath(0.5)} fill={color} />
-        </Ring>
-      ) : status === "paused" ? (
-        <Ring color={color}>
-          <PauseBars color={color} />
-        </Ring>
-      ) : status === "completed" ? (
-        <>
-          <Circle cx={CX} cy={CY} r={OUTER_R} fill={color} />
-          <DoneCheck />
-        </>
-      ) : status === "cancelled" ? (
-        <Ring color={color}>
-          <CancelX color={color} />
-        </Ring>
-      ) : (
-        // Unknown server enum value — render the planned ring so the row
-        // still reads as "a project" rather than crashing or going blank.
-        <Ring color={color} />
-      )}
+      {glyph}
     </Svg>
   );
 }

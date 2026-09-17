@@ -253,7 +253,8 @@ export function AgentOverviewPane({
       if (next === "overview") params.delete("view");
       else params.set("view", next);
       const query = params.toString();
-      navigation.replace(`${navigation.pathname}${query ? `?${query}` : ""}`);
+      const queryString = query ? `?${query}` : "";
+      navigation.replace(`${navigation.pathname}${queryString}`);
     },
     [navigation],
   );
@@ -313,12 +314,14 @@ export function AgentOverviewPane({
     onNavIntentHandled?.();
   }, [navIntent, onNavIntentHandled, requestView, visibleViews]);
 
-  const secondaryTabs =
-    activeSection === "capabilities"
-      ? visibleCapabilityTabs
-      : activeSection === "settings"
-        ? visibleSettingsTabs
-        : [];
+  let secondaryTabs;
+  if (activeSection === "capabilities") {
+    secondaryTabs = visibleCapabilityTabs;
+  } else if (activeSection === "settings") {
+    secondaryTabs = visibleSettingsTabs;
+  } else {
+    secondaryTabs = [];
+  }
   const activeSecondaryTab = secondaryTabs.find(
     (tab) => tab.id === effectiveView,
   );

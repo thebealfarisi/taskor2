@@ -86,15 +86,14 @@ vi.mock("@multica/core/workspace/queries", () => ({
     options: { insertIntoList?: boolean } = {},
   ) => {
     queryClient.setQueryData(["agents", wsId, "detail", agent.id], agent);
-    queryClient.setQueryData<Agent[]>(["agents", wsId], (current) =>
-      current?.some((item) => item.id === agent.id)
-        ? current.map((item) => (item.id === agent.id ? agent : item))
-        : current
-          ? options.insertIntoList === false
-            ? current
-            : [...current, agent]
-          : current,
-    );
+    queryClient.setQueryData<Agent[]>(["agents", wsId], (current) => {
+      if (current?.some((item) => item.id === agent.id)) {
+        return current.map((item) => (item.id === agent.id ? agent : item));
+      }
+      if (!current) return current;
+      if (options.insertIntoList === false) return current;
+      return [...current, agent];
+    });
   },
   memberListOptions: (wsId: string) => ({
     queryKey: ["members", wsId],

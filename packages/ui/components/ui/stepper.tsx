@@ -185,19 +185,24 @@ function StepperItem({
 }: StepperItemProps) {
   const { activeStep } = useStepper()
 
-  const state: StepState =
-    completed || step < activeStep
-      ? "completed"
-      : activeStep === step
-        ? "active"
-        : "inactive"
+  let state: StepState
+  if (completed || step < activeStep) {
+    state = "completed"
+  } else if (activeStep === step) {
+    state = "active"
+  } else {
+    state = "inactive"
+  }
 
   const isLoading = loading && step === activeStep
 
+  const stepItemContextValue = useMemo(
+    () => ({ step, state, isDisabled: disabled, isLoading }),
+    [step, state, disabled, isLoading]
+  )
+
   return (
-    <StepItemContext.Provider
-      value={{ step, state, isDisabled: disabled, isLoading }}
-    >
+    <StepItemContext.Provider value={stepItemContextValue}>
       <div
         data-slot="stepper-item"
         className={cn(
@@ -283,12 +288,21 @@ function StepperTrigger({
     }
   }
 
+  let resolvedTabIndex: number
+  if (typeof tabIndex === "number") {
+    resolvedTabIndex = tabIndex
+  } else if (isSelected) {
+    resolvedTabIndex = 0
+  } else {
+    resolvedTabIndex = -1
+  }
+
   const defaultProps = {
     role: "tab",
     id,
     "aria-selected": isSelected,
     "aria-controls": panelId,
-    tabIndex: typeof tabIndex === "number" ? tabIndex : isSelected ? 0 : -1,
+    tabIndex: resolvedTabIndex,
     "data-slot": "stepper-trigger",
     "data-state": state,
     "data-loading": isLoading,

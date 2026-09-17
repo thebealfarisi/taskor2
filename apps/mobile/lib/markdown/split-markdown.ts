@@ -58,7 +58,7 @@ export function splitMarkdown(input: string): MarkdownSegment[] {
   let proseBuffer = "";
 
   const flushProse = () => {
-    const trimmed = proseBuffer.replace(/^\s+|\s+$/g, "");
+    const trimmed = proseBuffer.replace(/(?:^\s+)|(?:\s+$)/g, "");
     if (trimmed.length > 0) {
       out.push({ type: "prose", content: trimmed });
     }

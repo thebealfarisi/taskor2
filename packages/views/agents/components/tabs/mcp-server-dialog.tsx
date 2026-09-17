@@ -229,13 +229,15 @@ export function McpServerDialog({
     // write-only) passes an empty config with the transport from the safe
     // summary. Seeding from `formFromConfig({})` there would open an http form
     // for a known stdio server, so take the transport from the summary.
-    setForm(
-      !server
-        ? emptyForm()
-        : Object.keys(config).length > 0
-          ? formFromConfig(config)
-          : { ...emptyForm(), transport: server.transport === "stdio" ? "stdio" : "http" },
-    );
+    let nextForm: ReturnType<typeof emptyForm>;
+    if (!server) {
+      nextForm = emptyForm();
+    } else if (Object.keys(config).length > 0) {
+      nextForm = formFromConfig(config);
+    } else {
+      nextForm = { ...emptyForm(), transport: server.transport === "stdio" ? "stdio" : "http" };
+    }
+    setForm(nextForm);
     setJsonText(JSON.stringify(config, null, 2));
     setMode(server && !formSupportsServer(server) ? "json" : "form");
   }, [open, server]);
@@ -246,47 +248,51 @@ export function McpServerDialog({
 
   const jsonResult = useMemo(() => parseServerJson(jsonText), [jsonText]);
   const trimmedName = name.trim();
-  const nameError =
-    trimmedName === ""
-      ? "required"
-      : !/^[A-Za-z0-9_-]+$/.test(trimmedName)
-        ? "format"
-        : existingNames.has(trimmedName) && trimmedName !== server?.name
-          ? "duplicate"
-          : null;
-  const formError =
-    form.transport === "stdio"
-      ? form.command.trim() === ""
-        ? "command"
-        : null
-      : form.url.trim() === ""
-        ? "url"
-        : null;
+  let nameError: "required" | "format" | "duplicate" | null;
+  if (trimmedName === "") {
+    nameError = "required";
+  } else if (!/^[A-Za-z0-9_-]+$/.test(trimmedName)) {
+    nameError = "format";
+  } else if (existingNames.has(trimmedName) && trimmedName !== server?.name) {
+    nameError = "duplicate";
+  } else {
+    nameError = null;
+  }
+
+  let formError: "command" | "url" | null;
+  if (form.transport === "stdio") {
+    formError = form.command.trim() === "" ? "command" : null;
+  } else {
+    formError = form.url.trim() === "" ? "url" : null;
+  }
+
   const canSave =
     !saving &&
     nameError === null &&
     (mode === "form" ? formError === null : jsonResult.ok);
 
-  const errorMessage =
-    nameError === "required"
-      ? t(($) => $.tab_body.mcp_config.dialog_name_required)
-      : nameError === "format"
-        ? t(($) => $.tab_body.mcp_config.dialog_name_invalid)
-        : nameError === "duplicate"
-          ? t(($) => $.tab_body.mcp_config.dialog_name_duplicate)
-          : mode === "form" && formError === "command"
-            ? t(($) => $.tab_body.mcp_config.dialog_command_required)
-            : mode === "form" && formError === "url"
-              ? t(($) => $.tab_body.mcp_config.dialog_url_required)
-              : mode === "json" && !jsonResult.ok && jsonResult.error === "not_object"
-                ? t(($) => $.tab_body.mcp_config.dialog_json_object)
-                : mode === "json" && !jsonResult.ok && jsonResult.error === "missing_target"
-                  ? t(($) => $.tab_body.mcp_config.dialog_json_target)
-                  : mode === "json" && !jsonResult.ok
-                    ? t(($) => $.tab_body.mcp_config.invalid_json, {
-                        error: jsonResult.error,
-                      })
-                    : "";
+  let errorMessage: string;
+  if (nameError === "required") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_name_required);
+  } else if (nameError === "format") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_name_invalid);
+  } else if (nameError === "duplicate") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_name_duplicate);
+  } else if (mode === "form" && formError === "command") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_command_required);
+  } else if (mode === "form" && formError === "url") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_url_required);
+  } else if (mode === "json" && !jsonResult.ok && jsonResult.error === "not_object") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_json_object);
+  } else if (mode === "json" && !jsonResult.ok && jsonResult.error === "missing_target") {
+    errorMessage = t(($) => $.tab_body.mcp_config.dialog_json_target);
+  } else if (mode === "json" && !jsonResult.ok) {
+    errorMessage = t(($) => $.tab_body.mcp_config.invalid_json, {
+      error: jsonResult.error,
+    });
+  } else {
+    errorMessage = "";
+  }
 
   const handleModeChange = (next: string | number | null) => {
     if (next !== "form" && next !== "json") return;
@@ -519,7 +525,7 @@ function StringListEditor({
     <fieldset className="space-y-2">
       <legend className="text-body font-medium">{label}</legend>
       {values.map((value, index) => (
-        <div key={index} className="flex gap-2">
+        <div key={`arg-${index}`} className="flex gap-2">
           <Input
             aria-label={`${label} ${index + 1}`}
             name={`mcp-argument-${index}`}
@@ -568,7 +574,7 @@ function KeyValueEditor({
     <fieldset className="space-y-2">
       <legend className="text-body font-medium">{label}</legend>
       {rows.map((row, index) => (
-        <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+        <div key={`pair-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
           <Input
             aria-label={`${label} key ${index + 1}`}
             name={`mcp-pair-key-${index}`}

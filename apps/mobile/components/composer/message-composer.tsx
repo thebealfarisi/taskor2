@@ -143,12 +143,14 @@ function makeLocalId(): string {
 function serializeMentions(chips: MentionChip[]): string {
   return chips
     .map((m) => {
-      const label =
-        m.type === "issue"
-          ? m.name
-          : m.type === "all"
-            ? "@all"
-            : `@${m.name}`;
+      let label: string;
+      if (m.type === "issue") {
+        label = m.name;
+      } else if (m.type === "all") {
+        label = "@all";
+      } else {
+        label = `@${m.name}`;
+      }
       return `[${label}](mention://${m.type}/${m.id})`;
     })
     .join(" ");
@@ -250,11 +252,14 @@ export function MessageComposer({
 
     const mentionMd = serializeMentions(mentionsSnap);
     const trimmed = textSnap.trim();
-    const content = mentionMd
-      ? trimmed
-        ? `${mentionMd} ${trimmed}`
-        : mentionMd
-      : trimmed;
+    let content: string;
+    if (mentionMd && trimmed) {
+      content = `${mentionMd} ${trimmed}`;
+    } else if (mentionMd) {
+      content = mentionMd;
+    } else {
+      content = trimmed;
+    }
 
     const activeIds = attachmentsSnap
       .filter((a) => a.status === "completed")

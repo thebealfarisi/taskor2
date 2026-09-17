@@ -60,10 +60,11 @@ export function AgentPresenceIndicator({
     detail.availability === "online" ? "text-muted-foreground" : wl.textClass;
 
   if (compact) {
+    const workloadSuffix = detail.workload !== "idle" ? ` · ${workloadLabel}` : "";
     return (
       <span
         className="inline-flex items-center"
-        title={`${availabilityLabel}${detail.workload !== "idle" ? ` · ${workloadLabel}` : ""}`}
+        title={`${availabilityLabel}${workloadSuffix}`}
       >
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${av.dotClass}`} />
       </span>

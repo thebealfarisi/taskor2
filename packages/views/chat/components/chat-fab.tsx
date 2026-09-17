@@ -53,11 +53,14 @@ export function ChatFab() {
 
   // Tooltip text carries the running/unread state on hover; the FAB itself no
   // longer shows an unread-count badge (it duplicated the chat tab's, MUL-4374).
-  const tooltip = isRunning
-    ? t(($) => $.fab.running)
-    : unreadSessionCount > 0
-      ? t(($) => $.fab.unread, { count: unreadSessionCount })
-      : t(($) => $.fab.default);
+  let tooltip: string;
+  if (isRunning) {
+    tooltip = t(($) => $.fab.running);
+  } else if (unreadSessionCount > 0) {
+    tooltip = t(($) => $.fab.unread, { count: unreadSessionCount });
+  } else {
+    tooltip = t(($) => $.fab.default);
+  }
 
   return (
     <Tooltip>

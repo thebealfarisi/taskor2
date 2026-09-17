@@ -6,6 +6,17 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function stubJsonResponse(body: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("ApiClient edit guards", () => {
   it("serializes field baselines for issue and comment writes", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(
@@ -1827,16 +1838,7 @@ describe("ApiClient", () => {
 // before ?workspace_id, so the header — not the param — is what has to carry
 // the target workspace.
 describe("ApiClient explicit workspace targeting", () => {
-  function stubOk(body: unknown) {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    return fetchMock;
-  }
+  const stubOk = stubJsonResponse;
 
   function slugHeaderOf(fetchMock: ReturnType<typeof vi.fn>): unknown {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
@@ -2166,16 +2168,7 @@ describe("ApiClient refreshSkill response schema", () => {
 });
 
 describe("ApiClient workspace MCP servers", () => {
-  function stubJSON(body: unknown) {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    return fetchMock;
-  }
+  const stubJSON = stubJsonResponse;
 
   const server = {
     id: "srv-1",

@@ -360,8 +360,14 @@ function buildWeekShells(tz: string, weekCount: number): WeekShell[] {
     const partial = today < weekEnd;
     // Inclusive count of how many days of this week have actually elapsed.
     // Closed weeks sit at 7; the current week reports 1..6.
-    const clampedToday =
-      today < weekStart ? weekStart : today < weekEnd ? today : weekEnd;
+    let clampedToday: string;
+    if (today < weekStart) {
+      clampedToday = weekStart;
+    } else if (today < weekEnd) {
+      clampedToday = today;
+    } else {
+      clampedToday = weekEnd;
+    }
     const elapsed = Math.min(7, Math.max(1, diffDaysIso(weekStart, clampedToday) + 1));
     shells.push({
       weekStart,

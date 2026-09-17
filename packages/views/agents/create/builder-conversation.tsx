@@ -194,41 +194,47 @@ export function BuilderConversation({
         </div>
       </header>
 
-      {loading ? (
-        <ChatMessageSkeleton />
-      ) : messages.length > 0 || pending ? (
-        <ChatMessageList
-          messages={messages}
-          pendingTask={pendingTask}
-          availability={runtimeOnline ? "online" : "offline"}
-          // Applies to the live stream as well as history, which is what keeps
-          // the half-written JSON block off the screen mid-reply.
-          transformContent={stripBuilderDraft}
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-8">
-          <div className="w-full max-w-xl text-center">
-            <h3 className="text-balance text-title font-semibold">
-              {t(($) => $.creation_studio.builder.empty_title)}
-            </h3>
-            <p className="mx-auto mt-2 max-w-md text-pretty text-body leading-6 text-muted-foreground">
-              {t(($) => $.creation_studio.builder.empty_description)}
-            </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {prompts.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => void onSend(prompt)}
-                  className="rounded-full border bg-background px-3 py-1.5 text-caption transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {prompt}
-                </button>
-              ))}
+      {(() => {
+        if (loading) {
+          return <ChatMessageSkeleton />;
+        }
+        if (messages.length > 0 || pending) {
+          return (
+            <ChatMessageList
+              messages={messages}
+              pendingTask={pendingTask}
+              availability={runtimeOnline ? "online" : "offline"}
+              // Applies to the live stream as well as history, which is what keeps
+              // the half-written JSON block off the screen mid-reply.
+              transformContent={stripBuilderDraft}
+            />
+          );
+        }
+        return (
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-8">
+            <div className="w-full max-w-xl text-center">
+              <h3 className="text-balance text-title font-semibold">
+                {t(($) => $.creation_studio.builder.empty_title)}
+              </h3>
+              <p className="mx-auto mt-2 max-w-md text-pretty text-body leading-6 text-muted-foreground">
+                {t(($) => $.creation_studio.builder.empty_description)}
+              </p>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                {prompts.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => void onSend(prompt)}
+                    className="rounded-full border bg-background px-3 py-1.5 text-caption transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {error ? (
         <div

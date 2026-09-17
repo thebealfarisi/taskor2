@@ -64,6 +64,15 @@ function makeIssue(idx: number, overrides: Partial<Issue> = {}): Issue {
   };
 }
 
+function makeBucketed(): ListIssuesCache {
+  return {
+    byStatus: {
+      todo: { issues: [makeIssue(1)], total: 1 },
+      in_progress: { issues: [], total: 0 },
+    },
+  };
+}
+
 function makeInboxItem(
   id: string,
   issueId: string,
@@ -112,15 +121,6 @@ describe("useUpdateIssue — optimistic move keeps every bucketed board in sync"
   let qc: QueryClient;
   let updateIssue: ReturnType<typeof vi.fn<(id: string, data: unknown) => Promise<Issue>>>;
   let moveIssue: ReturnType<typeof vi.fn<(id: string, data: unknown) => Promise<Issue>>>;
-
-  function makeBucketed(): ListIssuesCache {
-    return {
-      byStatus: {
-        todo: { issues: [makeIssue(1)], total: 1 },
-        in_progress: { issues: [], total: 0 },
-      },
-    };
-  }
 
   function bucketIds(
     key: readonly unknown[],
@@ -583,15 +583,6 @@ describe("useBatchUpdateIssues — optimistic patch covers filtered boards too",
   let batchUpdateIssues: ReturnType<
     typeof vi.fn<(ids: string[], updates: unknown) => Promise<{ updated: number }>>
   >;
-
-  function makeBucketed(): ListIssuesCache {
-    return {
-      byStatus: {
-        todo: { issues: [makeIssue(1)], total: 1 },
-        in_progress: { issues: [], total: 0 },
-      },
-    };
-  }
 
   function bucketIds(key: readonly unknown[], status: "todo" | "in_progress"): string[] {
     const c = qc.getQueryData<ListIssuesCache>(key);

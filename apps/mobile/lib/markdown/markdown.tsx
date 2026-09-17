@@ -188,7 +188,7 @@ export function Markdown({
           case "prose":
             return (
               <EnrichedMarkdownText
-                key={i}
+                key={`prose-${i}`}
                 flavor="github"
                 markdown={seg.content}
                 markdownStyle={markdownStyle}
@@ -199,7 +199,7 @@ export function Markdown({
           case "code":
             return (
               <CodeBlock
-                key={i}
+                key={`code-${i}`}
                 code={seg.code}
                 lang={seg.lang}
                 selectable={selectable}
@@ -208,7 +208,7 @@ export function Markdown({
           case "image":
             return (
               <MarkdownImage
-                key={i}
+                key={`image-${i}`}
                 uri={seg.uri}
                 alt={seg.alt}
                 attachments={attachments}

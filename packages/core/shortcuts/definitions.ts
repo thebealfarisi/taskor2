@@ -258,10 +258,15 @@ export function formatShortcut(
     ].join("");
   }
 
+  let metaLabel: string | null = null;
+  if (modifiers.meta) {
+    metaLabel = platform === "windows" ? "Win" : "Super";
+  }
+
   return [
     modifiers.primary ? "Ctrl" : null,
     modifiers.control ? "Control" : null,
-    modifiers.meta ? (platform === "windows" ? "Win" : "Super") : null,
+    metaLabel,
     modifiers.alt ? "Alt" : null,
     modifiers.shift ? "Shift" : null,
     key,

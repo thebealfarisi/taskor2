@@ -203,11 +203,21 @@ function NumberField({
         // first and then stepping would step off that bound instead, so the
         // bound itself could never be reached: in a 1-31 field, an arrow on a
         // typed "0" gave 2, and one on "40" gave 30.
-        const stepped =
-          Number.isNaN(typed) || typed >= min && typed <= max
-            ? (Number.isNaN(typed) ? value : typed) + (e.key === "ArrowUp" ? 1 : -1)
-            : Math.min(max, Math.max(min, typed));
-        const wrapped = stepped > max ? min : stepped < min ? max : stepped;
+        let stepped: number;
+        if (Number.isNaN(typed) || (typed >= min && typed <= max)) {
+          const base = Number.isNaN(typed) ? value : typed;
+          stepped = base + (e.key === "ArrowUp" ? 1 : -1);
+        } else {
+          stepped = Math.min(max, Math.max(min, typed));
+        }
+        let wrapped: number;
+        if (stepped > max) {
+          wrapped = min;
+        } else if (stepped < min) {
+          wrapped = max;
+        } else {
+          wrapped = stepped;
+        }
         setText(String(wrapped));
         if (wrapped !== lastValueRef.current) onCommit(wrapped);
       }}
@@ -777,34 +787,43 @@ export function ScheduleEditor({
           {/* One note under the expression, never a stack of them: a rejection is
               what the user must act on, the advanced notice explains why the
               controls are off, and the syntax hint is the fallback. */}
-          {cronErrorDetail !== null ? (
-            // The rejection names the field it belongs to (aria-describedby) and
-            // announces itself: without it, the only feedback a screen-reader
-            // user gets for a bad expression is a Save button that went quiet.
-            <div id={cronErrorId} role="alert" className="space-y-0.5">
-              <p className="text-destructive">
-                {scheduleRejection?.code === "invalid_timezone"
-                  ? t(($) => $.schedule_editor.timezone_invalid)
-                  : t(($) => $.schedule_editor.cron_invalid)}
-              </p>
-              {/* The parser's own words, verbatim — untranslated, but it is the
-                  only text that says which field is wrong. */}
-              <p className="font-mono text-micro text-destructive">{cronErrorDetail}</p>
-            </div>
-          ) : advanced ? (
-            // Three different things are being said here, and only the first is
-            // a statement about the expression: the server took it and the
-            // controls cannot show it; we could not ask; we have not asked yet.
-            <p>
-              {serverAccepted
-                ? t(($) => $.schedule_editor.advanced_hint)
-                : previewUnavailable
-                  ? t(($) => $.schedule_editor.advanced_unverified)
-                  : t(($) => $.schedule_editor.advanced_checking)}
-            </p>
-          ) : cronOpen ? (
-            <p>{t(($) => $.schedule_editor.cron_hint)}</p>
-          ) : null}
+          {(() => {
+            if (cronErrorDetail !== null) {
+              // The rejection names the field it belongs to (aria-describedby) and
+              // announces itself: without it, the only feedback a screen-reader
+              // user gets for a bad expression is a Save button that went quiet.
+              return (
+                <div id={cronErrorId} role="alert" className="space-y-0.5">
+                  <p className="text-destructive">
+                    {scheduleRejection?.code === "invalid_timezone"
+                      ? t(($) => $.schedule_editor.timezone_invalid)
+                      : t(($) => $.schedule_editor.cron_invalid)}
+                  </p>
+                  {/* The parser's own words, verbatim — untranslated, but it is the
+                      only text that says which field is wrong. */}
+                  <p className="font-mono text-micro text-destructive">{cronErrorDetail}</p>
+                </div>
+              );
+            }
+            if (advanced) {
+              // Three different things are being said here, and only the first is
+              // a statement about the expression: the server took it and the
+              // controls cannot show it; we could not ask; we have not asked yet.
+              let advancedNotice: string;
+              if (serverAccepted) {
+                advancedNotice = t(($) => $.schedule_editor.advanced_hint);
+              } else if (previewUnavailable) {
+                advancedNotice = t(($) => $.schedule_editor.advanced_unverified);
+              } else {
+                advancedNotice = t(($) => $.schedule_editor.advanced_checking);
+              }
+              return <p>{advancedNotice}</p>;
+            }
+            if (cronOpen) {
+              return <p>{t(($) => $.schedule_editor.cron_hint)}</p>;
+            }
+            return null;
+          })()}
         </div>
 
         {/* A rejected expression has nothing to preview: the whole section goes,
@@ -828,37 +847,44 @@ export function ScheduleEditor({
           <p className="mb-1.5 font-medium text-foreground">
             {t(($) => $.schedule_editor.next_runs_label)}
           </p>
-          {previewUnavailable ? (
-            <p>{t(($) => $.schedule_editor.preview_unavailable)}</p>
-          ) : shownPreview !== null && shownPreview.runs.length > 0 ? (
-            // A grid, not per-row flex: the localized dates are not fixed-width,
-            // so only a shared column can line the countdowns up with each
-            // other. max-content sizes that column to the widest date.
-            <ul className="grid grid-cols-[max-content_max-content] gap-x-5 gap-y-1">
-              {shownRuns.map(({ iso, label, at }) => (
-                // contents: the row's two cells belong to the grid above,
-                // not to a box of their own.
-                <li key={iso} className="contents">
-                  {/* Dark date, dim countdown: the icon column is gone — the
-                      grid already lines the rows up, and the describe line's
-                      clock stays the panel's only icon. */}
-                  <span className="text-foreground tabular-nums">{label}</span>
-                  {/* Each run carries its own countdown, next to the time
-                      it counts down to. */}
-                  <span className="whitespace-nowrap tabular-nums opacity-70">
-                    {Number.isNaN(at)
-                      ? ""
-                      : t(($) => $.schedule_editor.next_in, {
-                          countdown: formatCountdown(new Date(at), now),
-                        })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : previewIsSettled ? (
-            // An empty list from a readable response: valid syntax, never fires.
-            <p>{t(($) => $.schedule_editor.no_upcoming_runs)}</p>
-          ) : null}
+          {(() => {
+            if (previewUnavailable) {
+              return <p>{t(($) => $.schedule_editor.preview_unavailable)}</p>;
+            }
+            if (shownPreview !== null && shownPreview.runs.length > 0) {
+              // A grid, not per-row flex: the localized dates are not fixed-width,
+              // so only a shared column can line the countdowns up with each
+              // other. max-content sizes that column to the widest date.
+              return (
+                <ul className="grid grid-cols-[max-content_max-content] gap-x-5 gap-y-1">
+                  {shownRuns.map(({ iso, label, at }) => (
+                    // contents: the row's two cells belong to the grid above,
+                    // not to a box of their own.
+                    <li key={iso} className="contents">
+                      {/* Dark date, dim countdown: the icon column is gone — the
+                          grid already lines the rows up, and the describe line's
+                          clock stays the panel's only icon. */}
+                      <span className="text-foreground tabular-nums">{label}</span>
+                      {/* Each run carries its own countdown, next to the time
+                          it counts down to. */}
+                      <span className="whitespace-nowrap tabular-nums opacity-70">
+                        {Number.isNaN(at)
+                          ? ""
+                          : t(($) => $.schedule_editor.next_in, {
+                              countdown: formatCountdown(new Date(at), now),
+                            })}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              );
+            }
+            if (previewIsSettled) {
+              // An empty list from a readable response: valid syntax, never fires.
+              return <p>{t(($) => $.schedule_editor.no_upcoming_runs)}</p>;
+            }
+            return null;
+          })()}
         </div>
         )}
       </div>

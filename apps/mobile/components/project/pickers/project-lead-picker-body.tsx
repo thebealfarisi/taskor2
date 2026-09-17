@@ -10,7 +10,7 @@
  * row count (~10–30) inline tag beats SectionList headers (which would
  * eat ~8% of the sheet height).
  */
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -105,12 +105,10 @@ export function ProjectLeadPickerBody({ value, query, onChange }: Props) {
         if (row.kind === "member") return `m:${row.member.user_id}`;
         return `a:${row.agent.id}`;
       }}
-      renderItem={({ item }) => (
-        <Pressable
-          onPress={() => select(item)}
-          className="flex-row items-center gap-3 px-4 py-3 active:bg-secondary"
-        >
-          {item.kind === "unassigned" ? (
+      renderItem={({ item }) => {
+        let avatarNode: ReactNode;
+        if (item.kind === "unassigned") {
+          avatarNode = (
             <View
               className="rounded-full border border-dashed border-muted-foreground/40 items-center justify-center"
               style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
@@ -121,40 +119,58 @@ export function ProjectLeadPickerBody({ value, query, onChange }: Props) {
                 color={MOBILE_PLACEHOLDER_COLOR}
               />
             </View>
-          ) : item.kind === "member" ? (
+          );
+        } else if (item.kind === "member") {
+          avatarNode = (
             <ActorAvatar
               type="member"
               id={item.member.user_id}
               size={AVATAR_SIZE}
               showPresence
             />
-          ) : (
+          );
+        } else {
+          avatarNode = (
             <ActorAvatar
               type="agent"
               id={item.agent.id}
               size={AVATAR_SIZE}
               showPresence
             />
-          )}
-          <Text
-            className="flex-1 text-base text-foreground"
-            numberOfLines={1}
+          );
+        }
+
+        let rowLabel: string;
+        if (item.kind === "unassigned") {
+          rowLabel = "Unassigned";
+        } else if (item.kind === "member") {
+          rowLabel = item.member.name;
+        } else {
+          rowLabel = item.agent.name;
+        }
+
+        return (
+          <Pressable
+            onPress={() => select(item)}
+            className="flex-row items-center gap-3 px-4 py-3 active:bg-secondary"
           >
-            {item.kind === "unassigned"
-              ? "Unassigned"
-              : item.kind === "member"
-                ? item.member.name
-                : item.agent.name}
-          </Text>
-          {/* Inline type tag — Apple UITableViewCellStyleValue1. */}
-          {item.kind === "agent" ? (
-            <Text className="text-sm text-muted-foreground">Agent</Text>
-          ) : null}
-          {isRowSelected(value, item) ? (
-            <Ionicons name="checkmark" size={20} color={checkColor} />
-          ) : null}
-        </Pressable>
-      )}
+            {avatarNode}
+            <Text
+              className="flex-1 text-base text-foreground"
+              numberOfLines={1}
+            >
+              {rowLabel}
+            </Text>
+            {/* Inline type tag — Apple UITableViewCellStyleValue1. */}
+            {item.kind === "agent" ? (
+              <Text className="text-sm text-muted-foreground">Agent</Text>
+            ) : null}
+            {isRowSelected(value, item) ? (
+              <Ionicons name="checkmark" size={20} color={checkColor} />
+            ) : null}
+          </Pressable>
+        );
+      }}
       ListEmptyComponent={
         <View className="px-3 py-8 items-center">
           <Text className="text-sm text-muted-foreground text-center">

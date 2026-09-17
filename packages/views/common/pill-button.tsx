@@ -70,7 +70,7 @@ export function ClearablePillButton({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   /** Omit to render a plain pill — the × appears only when there is a value
    *  to drop. */
-  onClear?: (() => void) | undefined;
+  onClear?: () => void;
   /** Accessible name for the × ("Clear project"). Required whenever
    *  `onClear` is set: the button has no text. */
   clearLabel?: string;

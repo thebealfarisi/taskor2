@@ -8,6 +8,7 @@
  * via `getRepoUrl()` only when the dispatch knows the type, so a future
  * resource_type renders as a generic row with the label instead of crashing.
  */
+import type { ReactNode } from "react";
 import { ActivityIndicator, Alert, Linking, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -58,6 +59,32 @@ export function ProjectResourcesSection({ projectId, onAdd }: Props) {
     );
   };
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <View className="px-4 py-4 items-center">
+        <ActivityIndicator size="small" />
+      </View>
+    );
+  } else if (!resources || resources.length === 0) {
+    body = (
+      <View className="px-4 py-3">
+        <Text className="text-sm text-muted-foreground/70">
+          No resources attached.
+        </Text>
+      </View>
+    );
+  } else {
+    body = resources.map((resource) => (
+      <ResourceRow
+        key={resource.id}
+        resource={resource}
+        onPress={() => onOpen(resource)}
+        onLongPress={() => onLongPress(resource)}
+      />
+    ));
+  }
+
   return (
     <View>
       <View className="flex-row items-center justify-between px-4 py-2 bg-background">
@@ -68,26 +95,7 @@ export function ProjectResourcesSection({ projectId, onAdd }: Props) {
           <Text className="text-xs text-brand">Add</Text>
         </Pressable>
       </View>
-      {isLoading ? (
-        <View className="px-4 py-4 items-center">
-          <ActivityIndicator size="small" />
-        </View>
-      ) : !resources || resources.length === 0 ? (
-        <View className="px-4 py-3">
-          <Text className="text-sm text-muted-foreground/70">
-            No resources attached.
-          </Text>
-        </View>
-      ) : (
-        resources.map((resource) => (
-          <ResourceRow
-            key={resource.id}
-            resource={resource}
-            onPress={() => onOpen(resource)}
-            onLongPress={() => onLongPress(resource)}
-          />
-        ))
-      )}
+      {body}
     </View>
   );
 }

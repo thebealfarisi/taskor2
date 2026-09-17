@@ -540,19 +540,24 @@ export function ChatInput({
     },
   });
 
-  const placeholder = agentAccessRevoked
-    ? t(($) => $.input.placeholder_access_revoked)
-    : noAgent
-    ? t(($) => $.input.placeholder_no_agent)
-    : disabled
-      ? agentArchived
-        ? t(($) => $.input.placeholder_archived_agent)
-        : agentRuntimeRequired
-          ? t(($) => $.input.placeholder_runtime_required)
-        : t(($) => $.input.placeholder_archived)
-      : agentName
-        ? t(($) => $.input.placeholder_named, { name: agentName })
-        : t(($) => $.input.placeholder_default);
+  let placeholder: string;
+  if (agentAccessRevoked) {
+    placeholder = t(($) => $.input.placeholder_access_revoked);
+  } else if (noAgent) {
+    placeholder = t(($) => $.input.placeholder_no_agent);
+  } else if (disabled) {
+    if (agentArchived) {
+      placeholder = t(($) => $.input.placeholder_archived_agent);
+    } else if (agentRuntimeRequired) {
+      placeholder = t(($) => $.input.placeholder_runtime_required);
+    } else {
+      placeholder = t(($) => $.input.placeholder_archived);
+    }
+  } else if (agentName) {
+    placeholder = t(($) => $.input.placeholder_named, { name: agentName });
+  } else {
+    placeholder = t(($) => $.input.placeholder_default);
+  }
 
   const uploadEnabled = !!uploadAllowed && !disabled && !noAgent;
   // Lock only while the send request itself is creating/resolving the target
@@ -565,6 +570,26 @@ export function ChatInput({
     !submitting &&
     !isProjectUpdating;
   const selectedProject = projects.find((project) => project.id === projectId);
+
+  let submitTooltip: string;
+  if (gate.uploading) {
+    submitTooltip = tEditor(($) => $.upload.in_progress);
+  } else if (isRunning) {
+    submitTooltip = t(($) => $.input.queue_send_tooltip);
+  } else if (sendShortcut) {
+    submitTooltip = `${t(($) => $.input.send_tooltip)} · ${formatShortcut(sendShortcut)}`;
+  } else {
+    submitTooltip = t(($) => $.input.send_tooltip);
+  }
+
+  let submitAriaLabel: string;
+  if (gate.uploading) {
+    submitAriaLabel = tEditor(($) => $.upload.in_progress);
+  } else if (isRunning) {
+    submitAriaLabel = t(($) => $.input.queue_send_tooltip);
+  } else {
+    submitAriaLabel = t(($) => $.input.send_tooltip);
+  }
 
   return (
     <div
@@ -710,18 +735,8 @@ export function ChatInput({
               (!allowSubmitWhileRunning || hasNothingToSend || gate.uploading)
             }
             onStop={onStop}
-            tooltip={gate.uploading
-              ? tEditor(($) => $.upload.in_progress)
-              : isRunning
-                ? t(($) => $.input.queue_send_tooltip)
-                : sendShortcut
-                  ? `${t(($) => $.input.send_tooltip)} · ${formatShortcut(sendShortcut)}`
-                  : t(($) => $.input.send_tooltip)}
-            ariaLabel={gate.uploading
-              ? tEditor(($) => $.upload.in_progress)
-              : isRunning
-                ? t(($) => $.input.queue_send_tooltip)
-              : t(($) => $.input.send_tooltip)}
+            tooltip={submitTooltip}
+            ariaLabel={submitAriaLabel}
             stopTooltip={t(($) => $.input.stop_tooltip)}
             stopAriaLabel={t(($) => $.input.stop_tooltip)}
           />

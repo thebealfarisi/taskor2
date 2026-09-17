@@ -19,6 +19,19 @@ const msg = (seq: number): TaskMessagePayload => ({
   content: `m${seq}`,
 });
 
+const session = (over: Partial<ChatSession>): ChatSession => ({
+  id: "s",
+  workspace_id: "w",
+  agent_id: "a",
+  creator_id: "c",
+  title: "t",
+  status: "active",
+  has_unread: false,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  ...over,
+});
+
 describe("taskMessagesOptions", () => {
   it("fetches task messages for persisted UUID task ids", () => {
     const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
@@ -103,19 +116,6 @@ describe("mergeTaskMessagesBySeq", () => {
 });
 
 describe("sortChatSessions", () => {
-  const session = (over: Partial<ChatSession>): ChatSession => ({
-    id: "s",
-    workspace_id: "w",
-    agent_id: "a",
-    creator_id: "c",
-    title: "t",
-    status: "active",
-    has_unread: false,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...over,
-  });
-
   it("puts pinned sessions before unpinned ones regardless of activity", () => {
     const pinnedOld = session({ id: "pinned-old", pinned: true, updated_at: "2026-01-01T00:00:00Z" });
     const unpinnedNew = session({ id: "unpinned-new", pinned: false, updated_at: "2026-06-01T00:00:00Z" });
@@ -145,19 +145,6 @@ describe("sortChatSessions", () => {
 });
 
 describe("countUnreadChatSessions", () => {
-  const session = (over: Partial<ChatSession>): ChatSession => ({
-    id: "s",
-    workspace_id: "w",
-    agent_id: "a",
-    creator_id: "c",
-    title: "t",
-    status: "active",
-    has_unread: false,
-    created_at: "2026-01-01T00:00:00Z",
-    updated_at: "2026-01-01T00:00:00Z",
-    ...over,
-  });
-
   it("counts only active sessions that have unread", () => {
     const sessions = [
       session({ id: "active-unread", status: "active", has_unread: true }),

@@ -82,16 +82,18 @@ function AgentActivityTaskRow({
   // queued + online → muted gray (transient race, no warning);
   // queued + offline/unstable → keep warning amber from workloadConfig.
   // Mirrors agent-presence-indicator.tsx.
-  const dotClass = isRunning
-    ? "bg-brand"
-    : availability === "online"
-      ? "bg-muted-foreground/40"
-      : "bg-warning";
-  const labelClass = isRunning
-    ? wl.textClass
-    : availability === "online"
-      ? "text-muted-foreground"
-      : wl.textClass;
+  let dotClass: string;
+  let labelClass: string;
+  if (isRunning) {
+    dotClass = "bg-brand";
+    labelClass = wl.textClass;
+  } else if (availability === "online") {
+    dotClass = "bg-muted-foreground/40";
+    labelClass = "text-muted-foreground";
+  } else {
+    dotClass = "bg-warning";
+    labelClass = wl.textClass;
+  }
   const startedFrom = isRunning
     ? (task.started_at ?? task.dispatched_at ?? task.created_at)
     : task.created_at;

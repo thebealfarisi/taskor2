@@ -147,12 +147,14 @@ export function StatusPill({
 
   // Deferred retries retain task messages from the earlier attempt, so the
   // newer server status must win over those stale running hints.
-  const status =
-    pendingTask?.status === "deferred"
-      ? "deferred"
-      : taskMessages.length > 0
-        ? "running"
-        : pendingTask?.status;
+  let status: string | undefined;
+  if (pendingTask?.status === "deferred") {
+    status = "deferred";
+  } else if (taskMessages.length > 0) {
+    status = "running";
+  } else {
+    status = pendingTask?.status;
+  }
   const elapsedSec = Math.max(0, Math.floor((Date.now() - anchorMs) / 1000));
   const stage = pickStage(status, taskMessages, availability);
 

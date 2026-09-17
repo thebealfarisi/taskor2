@@ -17,17 +17,22 @@ export const workspaceWorkingAgentsKeys = {
     type?: WorkspaceWorkingAgentType,
     mineRelation?: WorkspaceWorkingAgentMineRelation,
     parentIssueId?: string,
-  ) =>
-    [
+  ) => {
+    let scope: string;
+    if (mineRelation) {
+      scope = `mine:${mineRelation}`;
+    } else if (parentIssueId) {
+      scope = `parent:${parentIssueId}`;
+    } else {
+      scope = "workspace";
+    }
+    return [
       ...workspaceWorkingAgentsKeys.all(wsId),
       "list",
       type ?? "all",
-      mineRelation
-        ? `mine:${mineRelation}`
-        : parentIssueId
-          ? `parent:${parentIssueId}`
-          : "workspace",
-    ] as const,
+      scope,
+    ] as const;
+  },
 };
 
 export const agentActivityKeys = {

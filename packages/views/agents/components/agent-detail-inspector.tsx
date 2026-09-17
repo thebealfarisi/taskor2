@@ -123,15 +123,11 @@ export function AgentDetailInspector({
   const modelsQuery = useQuery(
     runtimeModelsOptions(isOnline ? agent.runtime_id : null),
   );
-  const modelCatalog = useMemo<ModelCatalog>(
-    () =>
-      modelsQuery.isSuccess
-        ? modelsQuery.data.supported
-          ? modelsQuery.data.models
-          : []
-        : null,
-    [modelsQuery.data, modelsQuery.isSuccess],
-  );
+  const modelCatalog = useMemo<ModelCatalog>(() => {
+    if (!modelsQuery.isSuccess) return null;
+    if (!modelsQuery.data.supported) return [];
+    return modelsQuery.data.models;
+  }, [modelsQuery.data, modelsQuery.isSuccess]);
   const handleModelChange = useCallback(
     (model: string) =>
       update(

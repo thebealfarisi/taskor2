@@ -10,6 +10,10 @@ import { MulticaLogo } from "@/components/brand/multica-logo";
 import { useAuthStore } from "@/data/auth-store";
 import { mapAuthError } from "@/lib/auth-error";
 
+function encodePathSegment(segment: string): string {
+  return encodeURIComponent(segment);
+}
+
 const CODE_LENGTH = 6;
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -40,7 +44,7 @@ export default function Verify() {
     try {
       await verifyCode(email, value);
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      router.replace("/");
+      router.replace(`/${encodePathSegment(email)}`);
     } catch (err) {
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(mapAuthError(err, "Couldn't verify the code. Try again."));

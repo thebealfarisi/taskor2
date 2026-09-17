@@ -566,7 +566,7 @@ function LoadingSkeleton() {
         <span aria-hidden="true" />
       </ListGridHeader>
       {Array.from({ length: 5 }).map((_, i) => (
-        <ListGridRow key={i} className="hover:bg-transparent">
+        <ListGridRow key={`skeleton-row-${i}`} className="hover:bg-transparent">
           <span aria-hidden="true" />
           <ListGridCell>
             <Skeleton className="h-3.5 w-40 max-w-full" />
@@ -777,7 +777,9 @@ export function AutopilotsPage() {
         }
       />
 
-      {listError ? (
+      {(() => {
+        if (listError) {
+          return (
         <CollectionPageState
           role="alert"
           tone="destructive"
@@ -796,11 +798,17 @@ export function AutopilotsPage() {
             </Button>
           }
         />
-      ) : isLoading ? (
+          );
+        }
+        if (isLoading) {
+          return (
         <div className="flex-1 overflow-y-auto @container">
           <LoadingSkeleton />
         </div>
-      ) : showEmpty ? (
+          );
+        }
+        if (showEmpty) {
+          return (
         <div className="flex flex-col items-center px-5 py-16">
           <Zap className="mb-3 h-10 w-10 text-faint-foreground" />
           <p className="text-body text-muted-foreground">
@@ -842,7 +850,9 @@ export function AutopilotsPage() {
             {t(($) => $.page.start_blank)}
           </Button>
         </div>
-      ) : (
+          );
+        }
+        return (
         <>
           <AutopilotListToolbar
             scope={scope}
@@ -952,7 +962,8 @@ export function AutopilotsPage() {
             </ListGrid>
           </div>
         </>
-      )}
+        );
+      })()}
 
       <AutopilotBatchToolbar
         rows={selectedRows}

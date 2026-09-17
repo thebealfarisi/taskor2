@@ -1492,9 +1492,8 @@ export class ApiClient {
     if (params?.limit !== undefined) search.set("limit", String(params.limit));
     if (params?.offset !== undefined) search.set("offset", String(params.offset));
     const query = search.toString();
-    const raw = await this.fetch<unknown>(
-      `/api/cloud-runtime/nodes${query ? `?${query}` : ""}`,
-    );
+    const path = query ? `/api/cloud-runtime/nodes?${query}` : "/api/cloud-runtime/nodes";
+    const raw = await this.fetch<unknown>(path);
     return parseWithFallback(
       raw,
       CloudRuntimeNodeListSchema,
@@ -1549,9 +1548,8 @@ export class ApiClient {
     if (params?.page !== undefined) search.set("page", String(params.page));
     if (params?.page_size !== undefined) search.set("page_size", String(params.page_size));
     const query = search.toString();
-    const raw = await this.fetch<unknown>(
-      `/api/cloud-billing/transactions${query ? `?${query}` : ""}`,
-    );
+    const path = query ? `/api/cloud-billing/transactions?${query}` : "/api/cloud-billing/transactions";
+    const raw = await this.fetch<unknown>(path);
     return parseWithFallback(
       raw,
       BillingTransactionsPageSchema,
@@ -1567,9 +1565,8 @@ export class ApiClient {
     if (params?.page !== undefined) search.set("page", String(params.page));
     if (params?.page_size !== undefined) search.set("page_size", String(params.page_size));
     const query = search.toString();
-    const raw = await this.fetch<unknown>(
-      `/api/cloud-billing/batches${query ? `?${query}` : ""}`,
-    );
+    const path = query ? `/api/cloud-billing/batches?${query}` : "/api/cloud-billing/batches";
+    const raw = await this.fetch<unknown>(path);
     return parseWithFallback(
       raw,
       BillingBatchesPageSchema,
@@ -1585,9 +1582,8 @@ export class ApiClient {
     if (params?.page !== undefined) search.set("page", String(params.page));
     if (params?.page_size !== undefined) search.set("page_size", String(params.page_size));
     const query = search.toString();
-    const raw = await this.fetch<unknown>(
-      `/api/cloud-billing/topups${query ? `?${query}` : ""}`,
-    );
+    const path = query ? `/api/cloud-billing/topups?${query}` : "/api/cloud-billing/topups";
+    const raw = await this.fetch<unknown>(path);
     return parseWithFallback(
       raw,
       BillingTopupsPageSchema,
@@ -2171,7 +2167,8 @@ export class ApiClient {
       search.set("parent", parentIssueId);
     }
     const query = search.toString();
-    return this.fetch(`/api/working-agents${query ? `?${query}` : ""}`);
+    const path = query ? `/api/working-agents?${query}` : "/api/working-agents";
+    return this.fetch(path);
   }
 
   // Per-agent daily activity for the last 30 days, anchored on

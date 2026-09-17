@@ -18,7 +18,7 @@
  * already auth-checked, so the slug is purely a URL contract.
  */
 
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useAttachmentHtmlText } from "../editor/hooks/use-attachment-html-text";
 import { useHtmlPreviewScrollRestore } from "./use-html-preview-scroll-restore";
@@ -56,30 +56,39 @@ export function AttachmentPreviewPage({
   const isLoading = query.isLoading;
   const isError = !isLoading && (!!query.error || !text);
 
+  let body: ReactNode;
+  if (isLoading) {
+    body = (
+      <div className="flex flex-1 items-center justify-center text-body text-muted-foreground">
+        {t(($) => $.attachment.preview_loading)}
+      </div>
+    );
+  } else if (isError) {
+    body = (
+      <div
+        className="flex flex-1 items-center justify-center px-4 text-body text-muted-foreground"
+        data-testid="attachment-preview-page-error"
+      >
+        {t(($) => $.attachment.preview_failed)}
+      </div>
+    );
+  } else {
+    body = (
+      <iframe
+        key={contentKey}
+        ref={iframeRef}
+        onLoad={onLoad}
+        srcDoc={buildSrcDoc(text as string)}
+        sandbox="allow-scripts"
+        title={filename ?? "HTML attachment"}
+        className="flex-1 w-full border-0 bg-background"
+      />
+    );
+  }
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      {isLoading ? (
-        <div className="flex flex-1 items-center justify-center text-body text-muted-foreground">
-          {t(($) => $.attachment.preview_loading)}
-        </div>
-      ) : isError ? (
-        <div
-          className="flex flex-1 items-center justify-center px-4 text-body text-muted-foreground"
-          data-testid="attachment-preview-page-error"
-        >
-          {t(($) => $.attachment.preview_failed)}
-        </div>
-      ) : (
-        <iframe
-          key={contentKey}
-          ref={iframeRef}
-          onLoad={onLoad}
-          srcDoc={buildSrcDoc(text as string)}
-          sandbox="allow-scripts"
-          title={filename ?? "HTML attachment"}
-          className="flex-1 w-full border-0 bg-background"
-        />
-      )}
+      {body}
     </div>
   );
 }

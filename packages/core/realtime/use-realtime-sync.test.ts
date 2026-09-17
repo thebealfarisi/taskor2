@@ -47,6 +47,23 @@ function createQueryClient() {
   });
 }
 
+function workspace(overrides: Partial<Workspace> = {}): Workspace {
+  return {
+    id: "ws-a",
+    name: "Workspace A",
+    slug: "workspace-a",
+    description: null,
+    context: null,
+    settings: {},
+    repos: [],
+    issue_prefix: "WSA",
+    avatar_url: null,
+    created_at: "2026-05-18T00:00:00Z",
+    updated_at: "2026-05-18T00:00:00Z",
+    ...overrides,
+  };
+}
+
 function userMessage(): ChatMessage {
   return {
     id: "msg-user",
@@ -690,23 +707,6 @@ describe("applyChatDoneToCache paged messages", () => {
   });
 });
 describe("resolveInboxSourceSlug", () => {
-  function workspace(overrides: Partial<Workspace> = {}): Workspace {
-    return {
-      id: "ws-a",
-      name: "Workspace A",
-      slug: "workspace-a",
-      description: null,
-      context: null,
-      settings: {},
-      repos: [],
-      issue_prefix: "WSA",
-      avatar_url: null,
-      created_at: "2026-05-18T00:00:00Z",
-      updated_at: "2026-05-18T00:00:00Z",
-      ...overrides,
-    };
-  }
-
   it("resolves the inbox item's source workspace, not another cached one", async () => {
     // Regression for #3766: an `inbox:new` from workspace A arriving while
     // workspace B is active must resolve A's slug for notification routing.
@@ -745,23 +745,6 @@ describe("resolveInboxSourceSlug", () => {
 });
 
 describe("handleInboxNew", () => {
-  function workspace(overrides: Partial<Workspace> = {}): Workspace {
-    return {
-      id: "ws-a",
-      name: "Workspace A",
-      slug: "workspace-a",
-      description: null,
-      context: null,
-      settings: {},
-      repos: [],
-      issue_prefix: "WSA",
-      avatar_url: null,
-      created_at: "2026-05-18T00:00:00Z",
-      updated_at: "2026-05-18T00:00:00Z",
-      ...overrides,
-    };
-  }
-
   function inboxItem(overrides: Partial<InboxItem> = {}): InboxItem {
     return {
       id: "item-1",

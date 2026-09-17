@@ -58,6 +58,13 @@ function ProgressCircle({
   color: string;
   children?: React.ReactNode;
 }) {
+  let fillNode: React.ReactNode = null;
+  if (progress === 1) {
+    fillNode = <Circle cx={CX} cy={CY} r={OUTER_R} fill={color} />;
+  } else if (progress > 0) {
+    fillNode = <Path d={piePath(progress)} fill={color} />;
+  }
+
   return (
     <>
       <Circle
@@ -68,11 +75,7 @@ function ProgressCircle({
         stroke={color}
         strokeWidth={1.5}
       />
-      {progress === 1 ? (
-        <Circle cx={CX} cy={CY} r={OUTER_R} fill={color} />
-      ) : progress > 0 ? (
-        <Path d={piePath(progress)} fill={color} />
-      ) : null}
+      {fillNode}
       {children}
     </>
   );
@@ -155,29 +158,39 @@ export function StatusIcon({
 }) {
   const category = categoryProp ?? statusCategoryOfKey(status);
   const color = colorProp ?? CATEGORY_COLOR[category];
+
+  let glyph: React.ReactNode;
+  if (category === "backlog") {
+    glyph = <BacklogIcon color={color} />;
+  } else if (category === "todo") {
+    glyph = <ProgressCircle progress={0} color={color} />;
+  } else if (category === "in_progress") {
+    glyph = <ProgressCircle progress={0.5} color={color} />;
+  } else if (category === "in_review") {
+    glyph = <ProgressCircle progress={0.75} color={color} />;
+  } else if (category === "done") {
+    glyph = (
+      <ProgressCircle progress={1} color={color}>
+        <DoneCheck />
+      </ProgressCircle>
+    );
+  } else if (category === "blocked") {
+    glyph = (
+      <ProgressCircle progress={0} color={color}>
+        <BlockedSlash color={color} />
+      </ProgressCircle>
+    );
+  } else {
+    glyph = (
+      <ProgressCircle progress={0} color={color}>
+        <CancelledX color={color} />
+      </ProgressCircle>
+    );
+  }
+
   return (
     <Svg width={size} height={size} viewBox="0 0 14 14">
-      {category === "backlog" ? (
-        <BacklogIcon color={color} />
-      ) : category === "todo" ? (
-        <ProgressCircle progress={0} color={color} />
-      ) : category === "in_progress" ? (
-        <ProgressCircle progress={0.5} color={color} />
-      ) : category === "in_review" ? (
-        <ProgressCircle progress={0.75} color={color} />
-      ) : category === "done" ? (
-        <ProgressCircle progress={1} color={color}>
-          <DoneCheck />
-        </ProgressCircle>
-      ) : category === "blocked" ? (
-        <ProgressCircle progress={0} color={color}>
-          <BlockedSlash color={color} />
-        </ProgressCircle>
-      ) : (
-        <ProgressCircle progress={0} color={color}>
-          <CancelledX color={color} />
-        </ProgressCircle>
-      )}
+      {glyph}
     </Svg>
   );
 }

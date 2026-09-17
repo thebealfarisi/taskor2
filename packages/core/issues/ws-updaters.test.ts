@@ -597,7 +597,6 @@ describe("onIssueUpdated — position move is surgical, not a list refetch", () 
       WS_ID,
       "assigned",
       { assignee_id: "user-1" },
-      undefined,
     );
     const mine: Issue = { ...issueA, assignee_type: "member", assignee_id: "user-1" };
     qc.setQueryData<ListIssuesCache>(assignedKey, makeListCache(mine));
@@ -618,7 +617,7 @@ describe("onIssueUpdated — position move is surgical, not a list refetch", () 
   });
 
   it("flags union-scope (my:all) lists stale on an assignee change instead of guessing membership", () => {
-    const myAllListKey = issueKeys.myListSorted(WS_ID, "all", {}, undefined);
+    const myAllListKey = issueKeys.myListSorted(WS_ID, "all", {});
     const mine: Issue = { ...issueA, assignee_type: "member", assignee_id: "user-1" };
     qc.setQueryData<ListIssuesCache>(myAllListKey, makeListCache(mine));
 
@@ -644,7 +643,6 @@ describe("onIssueUpdated — position move is surgical, not a list refetch", () 
       WS_ID,
       "project:project-9",
       { project_id: "project-9" },
-      undefined,
     );
     qc.setQueryData<ListIssuesCache>(targetKey, makeListCache());
 
@@ -669,7 +667,6 @@ describe("onIssueUpdated — position move is surgical, not a list refetch", () 
       WS_ID,
       "project:project-1",
       { project_id: "project-1" },
-      undefined,
     );
     qc.setQueryData<Issue>(issueKeys.detail(WS_ID, moved.id), moved);
     qc.setQueryData<ListIssuesCache>(oldProjectKey, makeListCache(moved));
@@ -689,7 +686,6 @@ describe("onIssueUpdated — position move is surgical, not a list refetch", () 
       WS_ID,
       "project:project-9",
       { project_id: "project-9" },
-      undefined,
     );
     qc.setQueryData<ListIssuesCache>(projectKey, makeListCache());
 

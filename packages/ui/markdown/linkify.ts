@@ -274,12 +274,14 @@ function collectLinkifyMatches(text: string, offset: number, out: DetectedLink[]
       // otherwise keep linkify-it's normalized url as-is.
       const trimmed = matchText.length !== match.text.length
       const schemePrefix = match.url.slice(0, match.url.length - match.text.length)
-      const matchUrl =
-        match.schema === '' && /^www\./i.test(matchText)
-          ? `https://${matchText}`
-          : trimmed
-            ? schemePrefix + matchText
-            : match.url
+      let matchUrl: string
+      if (match.schema === '' && /^www\./i.test(matchText)) {
+        matchUrl = `https://${matchText}`
+      } else if (trimmed) {
+        matchUrl = schemePrefix + matchText
+      } else {
+        matchUrl = match.url
+      }
 
       out.push({
         type: match.schema === 'mailto:' ? 'email' : 'url',
@@ -395,5 +397,5 @@ export function preprocessLinks(text: string): string {
  * Useful for optimization - skip preprocessing if no links present
  */
 export function hasLinks(text: string): boolean {
-  return linkify.pretest(text) || /[~/.]\/[\w]/.test(text)
+  return linkify.pretest(text) || /[~/.]\/\w/.test(text)
 }

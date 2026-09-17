@@ -409,7 +409,9 @@ export function EnvTab({
         </div>
       </div>
 
-      {bulkEditing ? (
+      {(() => {
+        if (bulkEditing) {
+          return (
         <div className="space-y-2">
           <Textarea
             value={bulkText}
@@ -430,7 +432,10 @@ export function EnvTab({
             </p>
           )}
         </div>
-      ) : revealed.length > 0 ? (
+          );
+        }
+        if (revealed.length > 0) {
+          return (
         <div className="space-y-2">
           {revealed.map((entry, index) => (
             <div key={entry.id} className="flex items-center gap-2">
@@ -483,11 +488,14 @@ export function EnvTab({
             </div>
           ))}
         </div>
-      ) : (
+          );
+        }
+        return (
         <p className="text-caption italic text-muted-foreground">
           {t(($) => $.tab_body.env.empty_editable)}
         </p>
-      )}
+        );
+      })()}
 
       <div className="flex items-center justify-end gap-3">
         {hasUnsavedWork && (

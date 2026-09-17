@@ -12,7 +12,7 @@
  * `headerSearchBarOptions.onChangeText` to a local `query` state and passes
  * it in as the `query` prop. This body is just a FlatList — no chrome.
  */
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -155,6 +155,55 @@ export function AssigneePickerBody({ value, query, onChange }: Props) {
           (item.kind === "agent" && !isAgentRuntimeBound(item.agent)) ||
           (item.kind === "squad" &&
             !runnableAgentIds.has(item.squad.leader_id));
+
+        let avatarNode: ReactNode;
+        if (item.kind === "unassigned") {
+          avatarNode = (
+            <View
+              className="rounded-full border border-dashed border-muted-foreground/40 items-center justify-center"
+              style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
+            >
+              <Text className="text-sm text-muted-foreground">∅</Text>
+            </View>
+          );
+        } else if (item.kind === "member") {
+          avatarNode = (
+            <ActorAvatar
+              type="member"
+              id={item.member.user_id}
+              size={AVATAR_SIZE}
+            />
+          );
+        } else if (item.kind === "agent") {
+          avatarNode = (
+            <ActorAvatar type="agent" id={item.agent.id} size={AVATAR_SIZE} />
+          );
+        } else {
+          avatarNode = (
+            <ActorAvatar type="squad" id={item.squad.id} size={AVATAR_SIZE} />
+          );
+        }
+
+        let rowLabel: string;
+        if (item.kind === "unassigned") {
+          rowLabel = "Unassigned";
+        } else if (item.kind === "member") {
+          rowLabel = item.member.name;
+        } else if (item.kind === "agent") {
+          rowLabel = item.agent.name;
+        } else {
+          rowLabel = item.squad.name;
+        }
+
+        let secondaryLabel: string | null = null;
+        if (item.kind === "agent") {
+          secondaryLabel = isAgentRuntimeBound(item.agent)
+            ? "Agent"
+            : "Needs runtime";
+        } else if (item.kind === "squad") {
+          secondaryLabel = needsRuntime ? "Leader needs runtime" : "Squad";
+        }
+
         return (
           <Pressable
           disabled={needsRuntime}
@@ -164,44 +213,17 @@ export function AssigneePickerBody({ value, query, onChange }: Props) {
             needsRuntime && "opacity-50",
           )}
         >
-          {item.kind === "unassigned" ? (
-            <View
-              className="rounded-full border border-dashed border-muted-foreground/40 items-center justify-center"
-              style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
-            >
-              <Text className="text-sm text-muted-foreground">∅</Text>
-            </View>
-          ) : item.kind === "member" ? (
-            <ActorAvatar
-              type="member"
-              id={item.member.user_id}
-              size={AVATAR_SIZE}
-            />
-          ) : item.kind === "agent" ? (
-            <ActorAvatar type="agent" id={item.agent.id} size={AVATAR_SIZE} />
-          ) : (
-            <ActorAvatar type="squad" id={item.squad.id} size={AVATAR_SIZE} />
-          )}
+          {avatarNode}
           <Text className="flex-1 text-base text-foreground">
-            {item.kind === "unassigned"
-              ? "Unassigned"
-              : item.kind === "member"
-                ? item.member.name
-                : item.kind === "agent"
-                  ? item.agent.name
-                  : item.squad.name}
+            {rowLabel}
           </Text>
           {/* Right-aligned secondary label. Mirrors Apple's
               UITableViewCellStyleValue1 / UIListContentConfiguration.valueCell
               pattern used throughout iOS Settings — type tag in lighter font on
               the same row. Members carry no tag (they're the default actor). */}
-          {item.kind === "agent" ? (
+          {secondaryLabel ? (
             <Text className="text-sm text-muted-foreground">
-              {isAgentRuntimeBound(item.agent) ? "Agent" : "Needs runtime"}
-            </Text>
-          ) : item.kind === "squad" ? (
-            <Text className="text-sm text-muted-foreground">
-              {needsRuntime ? "Leader needs runtime" : "Squad"}
+              {secondaryLabel}
             </Text>
           ) : null}
           {isSelected(item) ? (

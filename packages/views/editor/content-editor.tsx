@@ -593,11 +593,7 @@ const ContentEditor = forwardRef<ContentEditorRef, ContentEditorProps>(
         }
       },
       content: mountChunked ? "" : initialContent,
-      contentType: mountChunked
-        ? undefined
-        : initialMarkdown
-          ? "markdown"
-          : undefined,
+      contentType: !mountChunked && initialMarkdown ? "markdown" : undefined,
       extensions: createEditorExtensions({
         placeholder: () => placeholderRef.current,
         queryClient,

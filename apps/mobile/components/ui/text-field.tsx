@@ -30,6 +30,15 @@ export function TextField({
 }: TextFieldProps) {
   const [focused, setFocused] = useState(false);
 
+  let stateClassName: string;
+  if (invalid) {
+    stateClassName = "bg-destructive/10 border-destructive/60";
+  } else if (focused) {
+    stateClassName = "bg-secondary border-ring";
+  } else {
+    stateClassName = "bg-secondary/50 border-transparent";
+  }
+
   return (
     <TextInput
       placeholderTextColor={MOBILE_PLACEHOLDER_COLOR}
@@ -47,11 +56,7 @@ export function TextField({
       }}
       className={cn(
         "rounded-md px-3 h-10 text-foreground border",
-        invalid
-          ? "bg-destructive/10 border-destructive/60"
-          : focused
-            ? "bg-secondary border-ring"
-            : "bg-secondary/50 border-transparent",
+        stateClassName,
         className,
       )}
       {...rest}

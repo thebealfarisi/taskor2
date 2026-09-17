@@ -95,6 +95,15 @@ export function ChatComposer({
     onStop();
   }, [onStop]);
 
+  let pillLabel: string;
+  if (sending) {
+    pillLabel = "Agent is working…";
+  } else if (disabled) {
+    pillLabel = disabledReason ?? "Chat unavailable";
+  } else {
+    pillLabel = "Message…";
+  }
+
   return (
     <MessageComposer
       value={value}
@@ -105,13 +114,7 @@ export function ChatComposer({
         params: { workspace: wsSlug ?? "", mode: "chat" },
       }}
       placeholder={sending ? "Agent is working…" : "Message…"}
-      pillLabel={
-        sending
-          ? "Agent is working…"
-          : disabled
-            ? (disabledReason ?? "Chat unavailable")
-            : "Message…"
-      }
+      pillLabel={pillLabel}
       pillIcon="chatbubble-ellipses-outline"
       disabled={disabled}
       disabledReason={disabledReason}

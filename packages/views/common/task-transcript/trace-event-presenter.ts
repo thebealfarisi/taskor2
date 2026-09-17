@@ -588,7 +588,14 @@ export function readImageResult(output: string | undefined): TraceImageResult | 
 
 /** Rough decoded size of a base64 payload, for a human-readable label. */
 export function base64ByteLength(base64: string): number {
-  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  let padding: number;
+  if (base64.endsWith("==")) {
+    padding = 2;
+  } else if (base64.endsWith("=")) {
+    padding = 1;
+  } else {
+    padding = 0;
+  }
   return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 

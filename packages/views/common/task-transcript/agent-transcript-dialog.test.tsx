@@ -114,9 +114,15 @@ vi.mock("@multica/ui/components/ui/dropdown-menu", async () => {
     value?: string;
     onValueChange?: (value: string) => void;
     children: ReactNode;
-  }) => (
-    <RadioContext.Provider value={{ value, onValueChange }}>{children}</RadioContext.Provider>
-  ),
+  }) => {
+    const contextValue = React.useMemo(
+      () => ({ value, onValueChange }),
+      [value, onValueChange],
+    );
+    return (
+      <RadioContext.Provider value={contextValue}>{children}</RadioContext.Provider>
+    );
+  },
   DropdownMenuRadioItem: ({
     value,
     children,

@@ -61,7 +61,7 @@ export function WebhookEventFilterSection({
         <div className="space-y-1">
           {filters.map((f, idx) => (
             <div
-              key={idx}
+              key={f.event}
               className="flex items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-caption"
             >
               <span className="font-mono font-medium text-foreground">

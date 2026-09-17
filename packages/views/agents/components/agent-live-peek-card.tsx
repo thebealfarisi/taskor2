@@ -96,27 +96,33 @@ export function AgentLivePeekCard({ agentId }: AgentLivePeekCardProps) {
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-semibold">{agent.name}</p>
           <div className="mt-0.5 inline-flex items-center gap-1.5">
-            {isArchived ? (
-              <>
-                <archivedVisual.icon
-                  className={`h-3 w-3 shrink-0 ${archivedVisual.textClass}`}
-                />
-                <span className={`text-caption ${archivedVisual.textClass}`}>
-                  {t(($) => $.availability.archived)}
-                </span>
-              </>
-            ) : workloadVisual ? (
-              <>
-                <workloadVisual.icon
-                  className={`h-3 w-3 shrink-0 ${workloadVisual.textClass}`}
-                />
-                <span className={`text-caption ${workloadVisual.textClass}`}>
-                  {t(($) => $.workload[workload!])}
-                </span>
-              </>
-            ) : (
-              <Skeleton className="h-3 w-12" />
-            )}
+            {(() => {
+              if (isArchived) {
+                return (
+                  <>
+                    <archivedVisual.icon
+                      className={`h-3 w-3 shrink-0 ${archivedVisual.textClass}`}
+                    />
+                    <span className={`text-caption ${archivedVisual.textClass}`}>
+                      {t(($) => $.availability.archived)}
+                    </span>
+                  </>
+                );
+              }
+              if (workloadVisual) {
+                return (
+                  <>
+                    <workloadVisual.icon
+                      className={`h-3 w-3 shrink-0 ${workloadVisual.textClass}`}
+                    />
+                    <span className={`text-caption ${workloadVisual.textClass}`}>
+                      {t(($) => $.workload[workload!])}
+                    </span>
+                  </>
+                );
+              }
+              return <Skeleton className="h-3 w-12" />;
+            })()}
           </div>
         </div>
       </div>
@@ -183,25 +189,28 @@ function CurrentIssueRow({
     enabled: !!issueId,
   });
 
+  let content;
+  if (!issueId) {
+    content = <span className="text-muted-foreground">{emptyLabel}</span>;
+  } else if (!issue) {
+    content = <Skeleton className="h-3 w-24" />;
+  } else {
+    content = (
+      <AppLink
+        href={issueHref(issueId)}
+        className="min-w-0 truncate text-brand hover:underline"
+        title={`${issue.identifier} ${issue.title}`}
+      >
+        <span className="mr-1 font-mono text-micro">{issue.identifier}</span>
+        <span>{issue.title}</span>
+      </AppLink>
+    );
+  }
+
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-16 shrink-0 text-muted-foreground">{label}</span>
-      {issueId ? (
-        issue ? (
-          <AppLink
-            href={issueHref(issueId)}
-            className="min-w-0 truncate text-brand hover:underline"
-            title={`${issue.identifier} ${issue.title}`}
-          >
-            <span className="mr-1 font-mono text-micro">{issue.identifier}</span>
-            <span>{issue.title}</span>
-          </AppLink>
-        ) : (
-          <Skeleton className="h-3 w-24" />
-        )
-      ) : (
-        <span className="text-muted-foreground">{emptyLabel}</span>
-      )}
+      {content}
     </div>
   );
 }

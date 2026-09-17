@@ -690,33 +690,34 @@ function DataTableBody<TData>({
       </TableRow>
     ) : null;
 
-  return (
-    <TableBody>
-      {rows.length ? (
-        virtualizeRows ? (
-          <>
-            {renderVirtualSpacer("top", virtualPaddingTop)}
-            {virtualItems.map((virtualItem) => {
-              const row = rows[virtualItem.index];
-              return row ? renderDataRow(row, virtualItem.index) : null;
-            })}
-            {renderVirtualSpacer("bottom", virtualPaddingBottom)}
-          </>
-        ) : (
-          rows.map(renderDataRow)
-        )
-      ) : (
-        <TableRow>
-          <TableCell
-            colSpan={table.getAllColumns().length}
-            className="h-24 text-center text-muted-foreground"
-          >
-            {emptyMessage}
-          </TableCell>
-        </TableRow>
-      )}
-    </TableBody>
-  );
+  let body: React.ReactNode;
+  if (!rows.length) {
+    body = (
+      <TableRow>
+        <TableCell
+          colSpan={table.getAllColumns().length}
+          className="h-24 text-center text-muted-foreground"
+        >
+          {emptyMessage}
+        </TableCell>
+      </TableRow>
+    );
+  } else if (virtualizeRows) {
+    body = (
+      <>
+        {renderVirtualSpacer("top", virtualPaddingTop)}
+        {virtualItems.map((virtualItem) => {
+          const row = rows[virtualItem.index];
+          return row ? renderDataRow(row, virtualItem.index) : null;
+        })}
+        {renderVirtualSpacer("bottom", virtualPaddingBottom)}
+      </>
+    );
+  } else {
+    body = rows.map(renderDataRow);
+  }
+
+  return <TableBody>{body}</TableBody>;
 }
 
 // Rendered in place of DataTableBody for the duration of a column drag. Only

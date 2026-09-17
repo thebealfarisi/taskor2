@@ -123,17 +123,24 @@ export function WebhookDeliveriesSection({
       <h2 className="text-body font-medium text-muted-foreground uppercase tracking-wider">
         {t(($) => $.deliveries.section_title)}
       </h2>
-      {isLoading ? (
-        <div className="space-y-1">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
-      ) : deliveries.length === 0 ? (
-        <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
-          {t(($) => $.deliveries.empty)}
-        </div>
-      ) : (
+      {(() => {
+        if (isLoading) {
+          return (
+            <div className="space-y-1">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={`delivery-skeleton-${i}`} className="h-10 w-full" />
+              ))}
+            </div>
+          );
+        }
+        if (deliveries.length === 0) {
+          return (
+            <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
+              {t(($) => $.deliveries.empty)}
+            </div>
+          );
+        }
+        return (
         <div className="rounded-md border overflow-hidden">
           {deliveries.map((delivery) => (
             <DeliveryRow
@@ -143,7 +150,8 @@ export function WebhookDeliveriesSection({
             />
           ))}
         </div>
-      )}
+        );
+      })()}
     </section>
   );
 }

@@ -59,6 +59,9 @@
     --scrollbar-thumb: oklch(0 0 0 / 10%);
     --scrollbar-thumb-hover: oklch(0 0 0 / 18%);
     --scrollbar-track: transparent;
+    --font-serif: var(--font-instrument-serif), "Songti SC", "SimSun",
+        "Noto Serif CJK SC", "Nanum Myeongjo", "AppleMyungjo", "Batang",
+        "Noto Serif CJK KR", ui-serif, serif;
 }
 
 /* -----------------------------------------------------------------------------
@@ -83,12 +86,6 @@
  * to the Chinese serifs, then Hangul to the Korean ones. Chinese MUST stay
  * before Korean so zh users never get Korean Hanja glyph shapes (Hangul is a
  * separate Unicode block, so ko users still get Korean fonts for Hangul). */
-.landing-light {
-    --font-serif: var(--font-instrument-serif), "Songti SC", "SimSun",
-        "Noto Serif CJK SC", "Nanum Myeongjo", "AppleMyungjo", "Batang",
-        "Noto Serif CJK KR", ui-serif, serif;
-}
-
 /* Japanese: Kanji are Han ideographs sharing the same Unicode block as Chinese,
    and CSS font-fallback order is NOT affected by `<html lang>` — so the
    Chinese-first default above would hand Japanese users Chinese glyph shapes for

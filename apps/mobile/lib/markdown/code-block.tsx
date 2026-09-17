@@ -127,7 +127,7 @@ function HighlightedCode({
     <View>
       {lines.map((line, i) => (
         <Text
-          key={i}
+          key={`line-${i}`}
           className={CODE_BLOCK_TEXT_CLASS}
           selectable={selectable}
         >
@@ -135,7 +135,7 @@ function HighlightedCode({
             ? " "
             : line.tokens.map((t, j) => (
                 <Text
-                  key={j}
+                  key={`t-${j}`}
                   style={t.color ? { color: t.color } : undefined}
                 >
                   {t.content}

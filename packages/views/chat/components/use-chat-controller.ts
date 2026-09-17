@@ -54,6 +54,17 @@ import { useAppForeground } from "../../common/use-app-foreground";
 const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
 
+// Shared by both send-error catch blocks below so the reason → toast copy
+// mapping lives in one place instead of two nested ternaries.
+function sendErrorToastMessage(
+  reason: string | undefined,
+  t: ReturnType<typeof useT<"chat">>["t"],
+): string {
+  if (reason === "invocation_not_allowed") return t(($) => $.input.send_blocked_toast);
+  if (reason === "agent_runtime_required") return t(($) => $.input.runtime_required_toast);
+  return t(($) => $.input.send_failed_toast);
+}
+
 // Derive a concise session title from the first user message: first line,
 // markdown stripped, whitespace collapsed, capped. A deterministic title
 // (no LLM) — the server has no summarization model, so this is the sensible
@@ -520,13 +531,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
         // A revoked invoke permission blocks session create with a structured
         // 403 (MUL-4525) — name the cause instead of a generic failure.
         const reason = dispatchReasonCode(err);
-        toast.error(
-          reason === "invocation_not_allowed"
-            ? t(($) => $.input.send_blocked_toast)
-            : reason === "agent_runtime_required"
-              ? t(($) => $.input.runtime_required_toast)
-              : t(($) => $.input.send_failed_toast),
-        );
+        toast.error(sendErrorToastMessage(reason, t));
         return false;
       }
       if (!sessionId) {
@@ -550,13 +555,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
         // specific cause so the user knows it is a permission change, not a
         // transient failure they should retry.
         const reason = dispatchReasonCode(err);
-        toast.error(
-          reason === "invocation_not_allowed"
-            ? t(($) => $.input.send_blocked_toast)
-            : reason === "agent_runtime_required"
-              ? t(($) => $.input.runtime_required_toast)
-              : t(($) => $.input.send_failed_toast),
-        );
+        toast.error(sendErrorToastMessage(reason, t));
         return false;
       }
       apiLogger.info("sendChatMessage.success", {

@@ -107,6 +107,10 @@ async function triage() {
 
 function render(view) {
   const disabled = view.state === "running";
+  const buttonLabel = disabled ? "Triaging…" : "Triage this issue";
+  const buttonHtml = context?.issue
+    ? `<button id="run" ${disabled ? "disabled" : ""}>${buttonLabel}</button>`
+    : "";
   document.body.innerHTML = `
     <div class="wrap">
       <p class="lede">${
@@ -114,9 +118,7 @@ function render(view) {
           ? "Ask the triage service to suggest an owner and priority for this issue."
           : "Open this panel on an issue to triage it."
       }</p>
-      ${context?.issue ? `<button id="run" ${disabled ? "disabled" : ""}>${
-        disabled ? "Triaging…" : "Triage this issue"
-      }</button>` : ""}
+      ${buttonHtml}
       ${view.state === "done" ? `<p class="ok">Suggested: <strong>${escapeHtml(
         String(view.output?.priority ?? "unknown"),
       )}</strong> → <strong>${escapeHtml(String(view.output?.owner ?? "unknown"))}</strong>. A comment was posted.</p>` : ""}

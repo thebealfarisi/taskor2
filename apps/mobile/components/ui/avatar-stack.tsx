@@ -34,7 +34,7 @@ export function AvatarStack({ actors, max = 3, size = 24 }: Props) {
     <View className="flex-row">
       {visible.map((actor, i) => (
         <Ring
-          key={`${actor.type}:${actor.id}:${i}`}
+          key={`${actor.type}:${actor.id}`}
           size={size}
           offset={i === 0 ? 0 : -size / 3}
         >

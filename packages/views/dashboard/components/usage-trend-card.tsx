@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { BarChart3 } from "lucide-react";
 import {
   DailyCostChart,
@@ -85,30 +85,101 @@ export function UsageTrendCard({
   );
   const totalSeconds = timeData.reduce((sum, d) => sum + d.totalSeconds, 0);
   const totalTasks = tasksData.reduce((sum, d) => sum + d.completed + d.failed, 0);
-  const isEmpty =
-    metric === "cost"
-      ? totalCost === 0
-      : metric === "tokens"
-        ? totalTokens === 0
-        : metric === "time"
-          ? totalSeconds === 0
-          : totalTasks === 0;
+  let isEmpty: boolean;
+  switch (metric) {
+    case "cost":
+      isEmpty = totalCost === 0;
+      break;
+    case "tokens":
+      isEmpty = totalTokens === 0;
+      break;
+    case "time":
+      isEmpty = totalSeconds === 0;
+      break;
+    default:
+      isEmpty = totalTasks === 0;
+  }
 
-  const title = weekly
-    ? metric === "cost"
-      ? t(($) => $.weekly.title_cost)
-      : metric === "tokens"
-        ? t(($) => $.weekly.title_tokens)
-        : metric === "time"
-          ? t(($) => $.weekly.title_time)
-          : t(($) => $.weekly.title_tasks)
-    : metric === "cost"
-      ? t(($) => $.daily.title_cost)
-      : metric === "tokens"
-        ? t(($) => $.daily.title_tokens)
-        : metric === "time"
-          ? t(($) => $.daily.title_time)
-          : t(($) => $.daily.title_tasks);
+  let title: string;
+  if (weekly) {
+    switch (metric) {
+      case "cost":
+        title = t(($) => $.weekly.title_cost);
+        break;
+      case "tokens":
+        title = t(($) => $.weekly.title_tokens);
+        break;
+      case "time":
+        title = t(($) => $.weekly.title_time);
+        break;
+      default:
+        title = t(($) => $.weekly.title_tasks);
+    }
+  } else {
+    switch (metric) {
+      case "cost":
+        title = t(($) => $.daily.title_cost);
+        break;
+      case "tokens":
+        title = t(($) => $.daily.title_tokens);
+        break;
+      case "time":
+        title = t(($) => $.daily.title_time);
+        break;
+      default:
+        title = t(($) => $.daily.title_tasks);
+    }
+  }
+
+  let chart: ReactNode;
+  if (isEmpty) {
+    chart = (
+      <div className="flex aspect-[3/1] flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-muted/20 p-6 text-center">
+        <BarChart3 className="h-5 w-5 text-faint-foreground" />
+        <p className="text-caption text-muted-foreground">{t(($) => $.daily.no_data)}</p>
+      </div>
+    );
+  } else if (weekly) {
+    switch (metric) {
+      case "cost":
+        chart = <WeeklyCostChart data={weeklyCost} />;
+        break;
+      case "tokens":
+        chart = <WeeklyTokensChart data={weeklyTokens} />;
+        break;
+      case "time":
+        chart = (
+          <WeeklyTimeChart
+            data={weeklyTime}
+            formatY={(s) => formatDuration(s, lessThanMinuteLabel)}
+            formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
+          />
+        );
+        break;
+      default:
+        chart = <WeeklyTasksChart data={weeklyTasks} />;
+    }
+  } else {
+    switch (metric) {
+      case "cost":
+        chart = <DailyCostChart data={dailyCost} />;
+        break;
+      case "tokens":
+        chart = <DailyTokensChart data={dailyTokens} />;
+        break;
+      case "time":
+        chart = (
+          <DailyTimeChart
+            data={dailyTime}
+            formatY={(s) => formatDuration(s, lessThanMinuteLabel)}
+            formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
+          />
+        );
+        break;
+      default:
+        chart = <DailyTasksChart data={dailyTasks} />;
+    }
+  }
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -129,42 +200,7 @@ export function UsageTrendCard({
           <DimSegmented allowedDims={allowedDims} value={effectiveDim} onChange={setDim} />
         </div>
       </div>
-      <div className="min-h-[240px]">
-        {isEmpty ? (
-          <div className="flex aspect-[3/1] flex-col items-center justify-center gap-2 rounded-md border border-dashed bg-muted/20 p-6 text-center">
-            <BarChart3 className="h-5 w-5 text-faint-foreground" />
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.daily.no_data)}
-            </p>
-          </div>
-        ) : weekly ? (
-          metric === "cost" ? (
-            <WeeklyCostChart data={weeklyCost} />
-          ) : metric === "tokens" ? (
-            <WeeklyTokensChart data={weeklyTokens} />
-          ) : metric === "time" ? (
-            <WeeklyTimeChart
-              data={weeklyTime}
-              formatY={(s) => formatDuration(s, lessThanMinuteLabel)}
-              formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
-            />
-          ) : (
-            <WeeklyTasksChart data={weeklyTasks} />
-          )
-        ) : metric === "cost" ? (
-          <DailyCostChart data={dailyCost} />
-        ) : metric === "tokens" ? (
-          <DailyTokensChart data={dailyTokens} />
-        ) : metric === "time" ? (
-          <DailyTimeChart
-            data={dailyTime}
-            formatY={(s) => formatDuration(s, lessThanMinuteLabel)}
-            formatTooltip={(s) => formatDuration(s, lessThanMinuteLabel)}
-          />
-        ) : (
-          <DailyTasksChart data={dailyTasks} />
-        )}
-      </div>
+      <div className="min-h-[240px]">{chart}</div>
     </div>
   );
 }

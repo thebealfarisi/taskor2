@@ -77,11 +77,14 @@ export function AccessPicker({
   const canonical = effectiveAccessScope(permissionMode, invocationTargets);
   const persistedPrivate = permissionMode === "private";
   const persistedWorkspace = canonical === "workspace";
-  const persistedScope: AccessScope = persistedPrivate
-    ? "private"
-    : persistedWorkspace
-      ? "workspace"
-      : "members";
+  let persistedScope: AccessScope;
+  if (persistedPrivate) {
+    persistedScope = "private";
+  } else if (persistedWorkspace) {
+    persistedScope = "workspace";
+  } else {
+    persistedScope = "members";
+  }
   const persistedMembers = useMemo(
     () => selectedTargetIds(invocationTargets, "member"),
     [invocationTargets],
@@ -203,15 +206,18 @@ export function AccessPicker({
   };
 
   if (!canEdit) {
-    const summaryLabel = persistedPrivate
-      ? t(($) => $.access.trigger_private)
-      : persistedWorkspace
-        ? t(($) => $.access.trigger_workspace)
-        : persistedMembers.length > 0
-          ? t(($) => $.access.trigger_members_count, {
-              count: persistedMembers.length,
-            })
-          : t(($) => $.access.trigger_members_empty);
+    let summaryLabel: string;
+    if (persistedPrivate) {
+      summaryLabel = t(($) => $.access.trigger_private);
+    } else if (persistedWorkspace) {
+      summaryLabel = t(($) => $.access.trigger_workspace);
+    } else if (persistedMembers.length > 0) {
+      summaryLabel = t(($) => $.access.trigger_members_count, {
+        count: persistedMembers.length,
+      });
+    } else {
+      summaryLabel = t(($) => $.access.trigger_members_empty);
+    }
 
     return (
       <div

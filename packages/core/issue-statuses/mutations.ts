@@ -55,7 +55,7 @@ function useCatalogCache() {
       if (!statuses) return old;
       return {
         ...old,
-        statuses: statuses.sort(compareIssueStatusEntries),
+        statuses: [...statuses].sort(compareIssueStatusEntries),
         total: old.total + totalDelta,
       };
     });

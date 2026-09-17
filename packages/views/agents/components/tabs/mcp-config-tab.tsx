@@ -235,33 +235,39 @@ export function McpConfigTab({
           )}
         </div>
 
-        {redacted ? (
-          <div className="flex items-start gap-2 rounded-lg border px-4 py-3">
-            <Lock
-              className="mt-0.5 h-4 w-4 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <div>
-              <p className="text-body font-medium">
-                {t(($) => $.tab_body.mcp_config.redacted_title)}
-              </p>
-              <p className="mt-1 text-caption text-muted-foreground">
-                {t(($) => $.tab_body.mcp_config.redacted_hint)}
-              </p>
-            </div>
-          </div>
-        ) : managedServers.length > 0 ? (
-          <McpServerList
-            servers={managedServers}
-            disabledLabel={t(($) => $.tab_body.mcp_config.agent_disabled_badge)}
-            onEdit={openEditDialog}
-            onDelete={setDeletingServer}
-            editLabel={t(($) => $.tab_body.mcp_config.edit_aria)}
-            deleteLabel={t(($) => $.tab_body.mcp_config.delete_aria)}
-          />
-        ) : (
-          <McpNotice text={t(($) => $.tab_body.mcp_config.managed_empty)} />
-        )}
+        {(() => {
+          if (redacted) {
+            return (
+              <div className="flex items-start gap-2 rounded-lg border px-4 py-3">
+                <Lock
+                  className="mt-0.5 h-4 w-4 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="text-body font-medium">
+                    {t(($) => $.tab_body.mcp_config.redacted_title)}
+                  </p>
+                  <p className="mt-1 text-caption text-muted-foreground">
+                    {t(($) => $.tab_body.mcp_config.redacted_hint)}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+          if (managedServers.length > 0) {
+            return (
+              <McpServerList
+                servers={managedServers}
+                disabledLabel={t(($) => $.tab_body.mcp_config.agent_disabled_badge)}
+                onEdit={openEditDialog}
+                onDelete={setDeletingServer}
+                editLabel={t(($) => $.tab_body.mcp_config.edit_aria)}
+                deleteLabel={t(($) => $.tab_body.mcp_config.delete_aria)}
+              />
+            );
+          }
+          return <McpNotice text={t(($) => $.tab_body.mcp_config.managed_empty)} />;
+        })()}
       </section>
 
       <section className="space-y-3">
@@ -277,34 +283,38 @@ export function McpConfigTab({
             />
           )}
         </div>
-        {assignedQuery.isLoading ? (
-          <McpNotice
-            loading
-            text={t(($) => $.tab_body.mcp_config.workspace_loading)}
-          />
-        ) : assignedServers.length > 0 ? (
-          <ul className="divide-y rounded-lg border bg-surface-raised/40">
-            {assignedServers.map((server) => (
-              <McpWorkspaceServerRow
-                key={server.id}
-                server={server}
-                overridden={managedNames.has(server.name)}
-                canEdit={canEdit}
-                busy={setServerEnabled.isPending || removeServer.isPending}
-                onToggle={(enabled) => void handleToggleWorkspaceServer(server.id, enabled)}
-                onRemove={() => void handleRemoveWorkspaceServer(server.id)}
+        {(() => {
+          if (assignedQuery.isLoading) {
+            return (
+              <McpNotice
+                loading
+                text={t(($) => $.tab_body.mcp_config.workspace_loading)}
               />
-            ))}
-          </ul>
-        ) : (
-          <McpNotice
-            text={
-              (libraryQuery.data ?? []).length === 0
-                ? t(($) => $.tab_body.mcp_config.workspace_library_empty)
-                : t(($) => $.tab_body.mcp_config.workspace_none_assigned)
-            }
-          />
-        )}
+            );
+          }
+          if (assignedServers.length > 0) {
+            return (
+              <ul className="divide-y rounded-lg border bg-surface-raised/40">
+                {assignedServers.map((server) => (
+                  <McpWorkspaceServerRow
+                    key={server.id}
+                    server={server}
+                    overridden={managedNames.has(server.name)}
+                    canEdit={canEdit}
+                    busy={setServerEnabled.isPending || removeServer.isPending}
+                    onToggle={(enabled) => void handleToggleWorkspaceServer(server.id, enabled)}
+                    onRemove={() => void handleRemoveWorkspaceServer(server.id)}
+                  />
+                ))}
+              </ul>
+            );
+          }
+          const workspaceEmptyText =
+            (libraryQuery.data ?? []).length === 0
+              ? t(($) => $.tab_body.mcp_config.workspace_library_empty)
+              : t(($) => $.tab_body.mcp_config.workspace_none_assigned);
+          return <McpNotice text={workspaceEmptyText} />;
+        })()}
       </section>
 
       <section className="space-y-3">
@@ -337,43 +347,53 @@ export function McpConfigTab({
             </Button>
           )}
         </div>
-        {!runtime ? (
-          <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_missing)} />
-        ) : runtime.status !== "online" ? (
-          <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_offline)} />
-        ) : runtimeQuery.isLoading ? (
-          <McpNotice
-            loading
-            text={t(($) => $.tab_body.mcp_config.runtime_discovering)}
-          />
-        ) : runtimeQuery.isError ? (
-          <McpNotice
-            text={
+        {(() => {
+          if (!runtime) {
+            return <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_missing)} />;
+          }
+          if (runtime.status !== "online") {
+            return <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_offline)} />;
+          }
+          if (runtimeQuery.isLoading) {
+            return (
+              <McpNotice
+                loading
+                text={t(($) => $.tab_body.mcp_config.runtime_discovering)}
+              />
+            );
+          }
+          if (runtimeQuery.isError) {
+            const runtimeErrorText =
               runtimeQuery.error instanceof ApiError &&
               runtimeQuery.error.status === 403
                 ? t(($) => $.tab_body.mcp_config.runtime_forbidden)
-                : t(($) => $.tab_body.mcp_config.runtime_failed)
-            }
-          />
-        ) : runtimeQuery.data?.mcpSupported !== true ? (
-          <McpNotice
-            text={t(($) => $.tab_body.mcp_config.runtime_unsupported)}
-          />
-        ) : runtimeQuery.data.mcpServers.length === 0 ? (
-          <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_empty)} />
-        ) : (
-          <McpServerList
-            servers={runtimeQuery.data.mcpServers.map((server) => ({
-              name: server.name,
-              transport: server.transport || "unknown",
-              enabled: server.enabled,
-              source: server.source,
-              overridden: effectiveNames.has(server.name),
-            }))}
-            disabledLabel={t(($) => $.tab_body.mcp_config.runtime_disabled_badge)}
-            overriddenLabel={t(($) => $.tab_body.mcp_config.runtime_overridden_badge)}
-          />
-        )}
+                : t(($) => $.tab_body.mcp_config.runtime_failed);
+            return <McpNotice text={runtimeErrorText} />;
+          }
+          if (runtimeQuery.data?.mcpSupported !== true) {
+            return (
+              <McpNotice
+                text={t(($) => $.tab_body.mcp_config.runtime_unsupported)}
+              />
+            );
+          }
+          if (runtimeQuery.data.mcpServers.length === 0) {
+            return <McpNotice text={t(($) => $.tab_body.mcp_config.runtime_empty)} />;
+          }
+          return (
+            <McpServerList
+              servers={runtimeQuery.data.mcpServers.map((server) => ({
+                name: server.name,
+                transport: server.transport || "unknown",
+                enabled: server.enabled,
+                source: server.source,
+                overridden: effectiveNames.has(server.name),
+              }))}
+              disabledLabel={t(($) => $.tab_body.mcp_config.runtime_disabled_badge)}
+              overriddenLabel={t(($) => $.tab_body.mcp_config.runtime_overridden_badge)}
+            />
+          );
+        })()}
       </section>
 
       {!redacted && (
@@ -571,7 +591,14 @@ function McpServerList({
 }) {
   return (
     <ul className="divide-y rounded-lg border bg-surface-raised/40">
-      {servers.map((server) => (
+      {servers.map((server) => {
+        let statusBadge = null;
+        if (server.overridden && overriddenLabel) {
+          statusBadge = <Badge variant="outline">{overriddenLabel}</Badge>;
+        } else if (!server.enabled) {
+          statusBadge = <Badge variant="outline">{disabledLabel}</Badge>;
+        }
+        return (
         <li key={server.name} className="flex items-center gap-3 p-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <Server className="h-4 w-4" aria-hidden="true" />
@@ -583,11 +610,7 @@ function McpServerList({
               {server.source ? ` · ${server.source}` : null}
             </p>
           </div>
-          {server.overridden && overriddenLabel ? (
-            <Badge variant="outline">{overriddenLabel}</Badge>
-          ) : !server.enabled ? (
-            <Badge variant="outline">{disabledLabel}</Badge>
-          ) : null}
+          {statusBadge}
           {onEdit && onDelete && (
             <div className="flex items-center gap-1">
               <Button
@@ -611,7 +634,8 @@ function McpServerList({
             </div>
           )}
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }

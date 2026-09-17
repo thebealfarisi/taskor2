@@ -62,7 +62,6 @@ function splitIntoBlocks(content: string): Block[] {
         // Starting a code block - flush current paragraph first
         if (currentBlock.trim()) {
           blocks.push({ content: currentBlock.trim(), isCodeBlock: false })
-          currentBlock = ''
         }
         inCodeBlock = true
         currentBlock = line + '\n'
@@ -82,7 +81,6 @@ function splitIntoBlocks(content: string): Block[] {
         // Starting a math block - flush current paragraph first
         if (currentBlock.trim()) {
           blocks.push({ content: currentBlock.trim(), isCodeBlock: false })
-          currentBlock = ''
         }
         inMathBlock = true
         currentBlock = line + '\n'

@@ -204,22 +204,28 @@ export function RunTimeline({
         >
           <div className="relative" style={{ width: `${zoom * 100}%` }}>
             <div className="relative h-3">
-              {ticks.map((tick, index) => (
-                <span
-                  key={tick}
-                  className={cn(
-                    "absolute top-0 whitespace-nowrap text-micro tabular-nums text-faint-foreground",
-                    index === 0
-                      ? ""
-                      : index === ticks.length - 1
-                        ? "-translate-x-full"
-                        : "-translate-x-1/2",
-                  )}
-                  style={{ left: `${(tick / lanes.totalMs) * 100}%` }}
-                >
-                  {formatTick(tick)}
-                </span>
-              ))}
+              {ticks.map((tick, index) => {
+                let tickAlignClass: string;
+                if (index === 0) {
+                  tickAlignClass = "";
+                } else if (index === ticks.length - 1) {
+                  tickAlignClass = "-translate-x-full";
+                } else {
+                  tickAlignClass = "-translate-x-1/2";
+                }
+                return (
+                  <span
+                    key={tick}
+                    className={cn(
+                      "absolute top-0 whitespace-nowrap text-micro tabular-nums text-faint-foreground",
+                      tickAlignClass,
+                    )}
+                    style={{ left: `${(tick / lanes.totalMs) * 100}%` }}
+                  >
+                    {formatTick(tick)}
+                  </span>
+                );
+              })}
             </div>
             <div className="mt-1 space-y-1">
               <LaneTrack

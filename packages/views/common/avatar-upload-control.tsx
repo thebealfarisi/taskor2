@@ -225,6 +225,31 @@ export function AvatarUploadControl({
     }
   };
 
+  let avatarContent: React.ReactNode;
+  if (emoji) {
+    avatarContent = (
+      <span
+        role="img"
+        aria-label={name}
+        className="select-none leading-none"
+        style={{ fontSize: size * 0.58 }}
+      >
+        {emoji}
+      </span>
+    );
+  } else if (hasImage) {
+    avatarContent = (
+      <img
+        src={resolved ?? undefined}
+        alt={name}
+        className="h-full w-full object-cover"
+        onError={() => setPreviewError(true)}
+      />
+    );
+  } else {
+    avatarContent = <AvatarFallback variant={variant} name={name} size={size} />;
+  }
+
   const avatarButton = (
     <button
       type="button"
@@ -244,25 +269,7 @@ export function AvatarUploadControl({
       )}
       style={{ width: size, height: size }}
     >
-      {emoji ? (
-        <span
-          role="img"
-          aria-label={name}
-          className="select-none leading-none"
-          style={{ fontSize: size * 0.58 }}
-        >
-          {emoji}
-        </span>
-      ) : hasImage ? (
-        <img
-          src={resolved ?? undefined}
-          alt={name}
-          className="h-full w-full object-cover"
-          onError={() => setPreviewError(true)}
-        />
-      ) : (
-        <AvatarFallback variant={variant} name={name} size={size} />
-      )}
+      {avatarContent}
 
       {!disabled && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">

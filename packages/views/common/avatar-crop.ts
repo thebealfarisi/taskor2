@@ -52,7 +52,14 @@ export function blobToAvatarFile(
   sourceName: string,
   type: string,
 ): File {
-  const ext = type === "image/webp" ? "webp" : type === "image/png" ? "png" : "jpg";
+  let ext: string;
+  if (type === "image/webp") {
+    ext = "webp";
+  } else if (type === "image/png") {
+    ext = "png";
+  } else {
+    ext = "jpg";
+  }
   const base = sourceName.replace(/\.[^./\\]+$/, "") || "avatar";
   return new File([blob], `${base}.${ext}`, { type });
 }

@@ -136,12 +136,14 @@ function MentionChipView({
 
   // Icon picks: @all → people; issue → git-branch (matches web's status icon
   // styling for issue mentions); else single-person glyph.
-  const iconName =
-    mention.type === "all"
-      ? "people"
-      : mention.type === "issue"
-        ? "git-branch-outline"
-        : "person";
+  let iconName: "people" | "git-branch-outline" | "person";
+  if (mention.type === "all") {
+    iconName = "people";
+  } else if (mention.type === "issue") {
+    iconName = "git-branch-outline";
+  } else {
+    iconName = "person";
+  }
 
   // Issue chips show the bare identifier (e.g. "MUL-123") — no leading @.
   // Mirrors how the serialized markdown link renders on web/desktop.
@@ -208,11 +210,14 @@ function AttachmentChipView({ item, onRemove, onRetry }: AttachmentChipProps) {
     }
   };
 
-  const iconName = item.status === "failed"
-    ? "refresh"
-    : isImage
-      ? "image-outline"
-      : "document-outline";
+  let iconName: "refresh" | "image-outline" | "document-outline";
+  if (item.status === "failed") {
+    iconName = "refresh";
+  } else if (isImage) {
+    iconName = "image-outline";
+  } else {
+    iconName = "document-outline";
+  }
 
   return (
     <Pressable

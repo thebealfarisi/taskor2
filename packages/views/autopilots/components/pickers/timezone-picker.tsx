@@ -129,10 +129,10 @@ export function TimezonePicker({
           build an Intl.DateTimeFormat, and evaluating the full IANA list here on
           every render would pay that burst on dialog open (and again on each
           cache expiry) for a list the user may never look at. */}
-      {!open ? null : filteredOptions.length === 0 ? (
-        <PickerEmpty />
-      ) : (
-        filteredOptions.map((tz) => {
+      {(() => {
+        if (!open) return null;
+        if (filteredOptions.length === 0) return <PickerEmpty />;
+        return filteredOptions.map((tz) => {
           const off = offsetFor(tz);
           const isSelected = tz === value;
           return (
@@ -159,8 +159,8 @@ export function TimezonePicker({
               )}
             </button>
           );
-        })
-      )}
+        });
+      })()}
     </PropertyPicker>
   );
 }

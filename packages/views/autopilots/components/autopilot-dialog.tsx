@@ -283,8 +283,14 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   // The FIRST empty required field in reading order — the user fills one, the
   // next surfaces. Only these two are answered here: a rejected schedule is
   // re-checked against the server below, which toasts its actual reason.
-  const missingField: "title" | "assignee" | null =
-    title.trim().length === 0 ? "title" : assigneeId.length === 0 ? "assignee" : null;
+  let missingField: "title" | "assignee" | null;
+  if (title.trim().length === 0) {
+    missingField = "title";
+  } else if (assigneeId.length === 0) {
+    missingField = "assignee";
+  } else {
+    missingField = null;
+  }
 
   // Inline errors appear only after a submit attempt: a form that opens already
   // shouting at the user for fields they have not reached yet is worse than the
@@ -436,12 +442,14 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
         }
       }
     } catch (err) {
+      let fallbackFailureMessage: string;
+      if (isCreate) {
+        fallbackFailureMessage = t(($) => $.dialog.toast_create_failed);
+      } else {
+        fallbackFailureMessage = t(($) => $.dialog.toast_update_failed);
+      }
       toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : isCreate
-            ? t(($) => $.dialog.toast_create_failed)
-            : t(($) => $.dialog.toast_update_failed),
+        err instanceof Error && err.message ? err.message : fallbackFailureMessage,
       );
     } finally {
       setSubmitting(false);
@@ -449,6 +457,13 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
   };
 
   const contentKey = isCreate ? "create" : props.autopilotId;
+
+  let submitButtonLabel: string;
+  if (submitting) {
+    submitButtonLabel = isCreate ? t(($) => $.dialog.creating) : t(($) => $.dialog.saving);
+  } else {
+    submitButtonLabel = isCreate ? t(($) => $.dialog.create) : t(($) => $.dialog.save);
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -709,13 +724,7 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
               disabled={submitting}
               aria-busy={submitting || undefined}
             >
-              {submitting
-                ? isCreate
-                  ? t(($) => $.dialog.creating)
-                  : t(($) => $.dialog.saving)
-                : isCreate
-                  ? t(($) => $.dialog.create)
-                  : t(($) => $.dialog.save)}
+              {submitButtonLabel}
             </Button>
           </div>
         </div>

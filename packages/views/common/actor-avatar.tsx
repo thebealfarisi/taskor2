@@ -114,15 +114,16 @@ export function ActorAvatar({
   const shouldLinkToProfile =
     profileLink ??
     (actorType === "member" || actorType === "agent" || actorType === "squad");
-  const profileHref = shouldLinkToProfile
-    ? actorType === "member"
-      ? paths.memberDetail(actorId)
-      : actorType === "agent"
-        ? paths.agentDetail(actorId)
-        : actorType === "squad"
-          ? paths.squadDetail(actorId)
-          : null
-    : null;
+  let profileHref: string | null = null;
+  if (shouldLinkToProfile) {
+    if (actorType === "member") {
+      profileHref = paths.memberDetail(actorId);
+    } else if (actorType === "agent") {
+      profileHref = paths.agentDetail(actorId);
+    } else if (actorType === "squad") {
+      profileHref = paths.squadDetail(actorId);
+    }
+  }
   const content = profileHref ? (
     <ActorAvatarProfileLink href={profileHref}>{dotted}</ActorAvatarProfileLink>
   ) : (

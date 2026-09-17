@@ -33,6 +33,14 @@ export function CreateAgentFooter({
   discarding?: boolean;
 }) {
   const { t } = useT("agents");
+  let createLabel: string;
+  if (creating) {
+    createLabel = t(($) => $.creation_studio.creating);
+  } else if (squad) {
+    createLabel = t(($) => $.creation_studio.create_and_add);
+  } else {
+    createLabel = t(($) => $.creation_studio.create_and_open);
+  }
   return (
     <div className="pe-chat-launcher sticky bottom-0 mt-8 flex items-center justify-between gap-3 border-t bg-background/95 py-3 pl-5 backdrop-blur">
       {error ? (
@@ -61,11 +69,7 @@ export function CreateAgentFooter({
         disabled={!canCreate}
       >
         {creating && <Loader2 className="size-4 animate-spin" />}
-        {creating
-          ? t(($) => $.creation_studio.creating)
-          : squad
-            ? t(($) => $.creation_studio.create_and_add)
-            : t(($) => $.creation_studio.create_and_open)}
+        {createLabel}
       </Button>
     </div>
   );

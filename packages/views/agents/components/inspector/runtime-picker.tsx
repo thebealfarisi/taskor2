@@ -105,11 +105,14 @@ export function RuntimePicker({
   // (chip, read-only field, tooltips). The dedupe guard covers runtimes
   // whose whole label already is the machine title (single unnamed cloud
   // workers and the like).
-  const combinedLabel = selected
-    ? selectedMachine && selectedMachine.title !== selectedLabel
-      ? `${selectedLabel} · ${selectedMachine.title}`
-      : (selectedLabel ?? "")
-    : t(($) => $.pickers.runtime_none);
+  let combinedLabel: string;
+  if (!selected) {
+    combinedLabel = t(($) => $.pickers.runtime_none);
+  } else if (selectedMachine && selectedMachine.title !== selectedLabel) {
+    combinedLabel = `${selectedLabel} · ${selectedMachine.title}`;
+  } else {
+    combinedLabel = selectedLabel ?? "";
+  }
 
   const isOnline = selected?.status === "online";
 
@@ -210,11 +213,14 @@ export function RuntimePicker({
               { now: Date.now(), currentUserId },
             )
           : allMachines;
-      const landing = selected
-        ? machineOf(visible, selected.id)
-        : visible.length === 1
-          ? visible[0]
-          : null;
+      let landing: RuntimeMachine | null;
+      if (selected) {
+        landing = machineOf(visible, selected.id);
+      } else if (visible.length === 1) {
+        landing = visible[0] ?? null;
+      } else {
+        landing = null;
+      }
       setMachineId(landing?.id ?? null);
     }
     setOpen(next);
@@ -235,6 +241,49 @@ export function RuntimePicker({
       total: machine.runtimes.length,
     });
 
+  const fieldButtonClass = `${showLabel ? "mt-1.5 " : ""}flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-transparent px-3 text-left text-body transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50`;
+
+  let headerContent;
+  if (drilled) {
+    headerContent = (
+      <button
+        type="button"
+        onClick={() => setMachineId(null)}
+        aria-label={t(($) => $.pickers.runtime_back_to_machines)}
+        className="flex w-full items-center gap-2 px-2 py-2 text-left text-body transition-colors hover:bg-muted/60"
+      >
+        <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {drilled.title}
+        </span>
+        <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
+          {onlineCountLabel(drilled)}
+        </span>
+      </button>
+    );
+  } else if (hasOtherRuntimes) {
+    headerContent = (
+      <div className="p-2">
+        <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5">
+          <FilterButton
+            active={filter === "mine"}
+            onClick={() => setFilter("mine")}
+          >
+            {t(($) => $.scope.mine)}
+          </FilterButton>
+          <FilterButton
+            active={filter === "all"}
+            onClick={() => setFilter("all")}
+          >
+            {t(($) => $.scope.all)}
+          </FilterButton>
+        </div>
+      </div>
+    );
+  } else {
+    headerContent = undefined;
+  }
+
   const picker = (
     <PropertyPicker
       open={open}
@@ -249,11 +298,7 @@ export function RuntimePicker({
       triggerRender={
         <button
           type="button"
-          className={
-            variant === "field"
-              ? `${showLabel ? "mt-1.5 " : ""}flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-transparent px-3 text-left text-body transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50`
-              : CHIP_CLASS
-          }
+          className={variant === "field" ? fieldButtonClass : CHIP_CLASS}
           aria-label={triggerTitle}
         />
       }
@@ -314,44 +359,11 @@ export function RuntimePicker({
           ) : null}
         </>
       }
-      header={
-        drilled ? (
-          <button
-            type="button"
-            onClick={() => setMachineId(null)}
-            aria-label={t(($) => $.pickers.runtime_back_to_machines)}
-            className="flex w-full items-center gap-2 px-2 py-2 text-left text-body transition-colors hover:bg-muted/60"
-          >
-            <ChevronLeft className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate font-medium">
-              {drilled.title}
-            </span>
-            <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
-              {onlineCountLabel(drilled)}
-            </span>
-          </button>
-        ) : hasOtherRuntimes ? (
-          <div className="p-2">
-            <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5">
-              <FilterButton
-                active={filter === "mine"}
-                onClick={() => setFilter("mine")}
-              >
-                {t(($) => $.scope.mine)}
-              </FilterButton>
-              <FilterButton
-                active={filter === "all"}
-                onClick={() => setFilter("all")}
-              >
-                {t(($) => $.scope.all)}
-              </FilterButton>
-            </div>
-          </div>
-        ) : undefined
-      }
+      header={headerContent}
     >
-      {drilled ? (
-        drilled.runtimes.map((rt) => {
+      {(() => {
+        if (drilled) {
+          return drilled.runtimes.map((rt) => {
           const owner = getOwner(rt.owner_id);
           const rtOnline = rt.status === "online";
           const locked = isDisabled(rt);
@@ -401,12 +413,16 @@ export function RuntimePicker({
               />
             </PickerItem>
           );
-        })
-      ) : machines.length === 0 ? (
-        <p className="px-2 py-3 text-center text-caption text-muted-foreground">
-          {t(($) => $.pickers.runtime_empty)}
-        </p>
-      ) : (
+          });
+        }
+        if (machines.length === 0) {
+          return (
+            <p className="px-2 py-3 text-center text-caption text-muted-foreground">
+              {t(($) => $.pickers.runtime_empty)}
+            </p>
+          );
+        }
+        return (
         machines.map((machine) => {
           const owner = machineOwner(machine);
           const containsSelection = machine.runtimes.some(
@@ -477,7 +493,8 @@ export function RuntimePicker({
             </button>
           );
         })
-      )}
+        );
+      })()}
     </PropertyPicker>
   );
 

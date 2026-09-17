@@ -121,7 +121,7 @@ export function Sparkline({
         const successH = totalH - failedH;
         const colTop = baselineY - totalH;
         return (
-          <g key={i}>
+          <g key={`bucket-${i}`}>
             {successH > 0 && (
               <rect
                 x={x}

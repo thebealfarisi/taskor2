@@ -31,7 +31,7 @@ export function renderDiffRows(lines: TraceDiffLine[], highlighted: HighlightedS
     if (line.kind === "gap") {
       return (
         // Transcript events are immutable once persisted, so index is stable.
-        <div key={index} className="select-none text-faint-foreground" aria-hidden>
+        <div key={`diff-gap-${index}`} className="select-none text-faint-foreground" aria-hidden>
           {"  ⋯"}
         </div>
       );
@@ -43,7 +43,7 @@ export function renderDiffRows(lines: TraceDiffLine[], highlighted: HighlightedS
 
     return (
       <div
-        key={index}
+        key={`diff-row-${index}`}
         className={cn(
           "-mx-1 px-1",
           kind === "add" && "bg-success/10",
@@ -63,7 +63,11 @@ export function renderDiffRows(lines: TraceDiffLine[], highlighted: HighlightedS
             kind === "remove" && "text-destructive",
           )}
         >
-          {kind === "add" ? "+" : kind === "remove" ? "-" : " "}
+          {(() => {
+            if (kind === "add") return "+";
+            if (kind === "remove") return "-";
+            return " ";
+          })()}
         </span>{" "}
         {html === undefined ? (
           redactSecrets(line.text)
@@ -116,7 +120,7 @@ export function PatchDetailSurface({
     <div className="divide-y divide-border/40">
       {files.map((file, index) => (
         // Transcript events are immutable once persisted, so index is stable.
-        <div key={`${file.path}:${index}`}>
+        <div key={`patch-file-${index}`}>
           <div className="flex items-center gap-2 px-3 pt-2 font-mono text-micro">
             {file.changeKind && (
               <span
@@ -140,21 +144,27 @@ export function PatchDetailSurface({
               </>
             )}
           </div>
-          {file.body.kind === "diff" ? (
-            <DiffDetailSurface lines={file.body.lines} path={file.path} />
-          ) : file.body.kind === "file" ? (
-            <FileWriteSurface
-              text={file.body.text}
-              lineCount={file.body.lineCount}
-              path={file.path}
-            />
-          ) : (
-            <div className="px-3 pb-2 pt-1 font-mono text-micro text-muted-foreground">
-              {file.truncated
-                ? t(($) => $.transcript.patch_body_truncated)
-                : t(($) => $.transcript.patch_no_content)}
-            </div>
-          )}
+          {(() => {
+            if (file.body.kind === "diff") {
+              return <DiffDetailSurface lines={file.body.lines} path={file.path} />;
+            }
+            if (file.body.kind === "file") {
+              return (
+                <FileWriteSurface
+                  text={file.body.text}
+                  lineCount={file.body.lineCount}
+                  path={file.path}
+                />
+              );
+            }
+            return (
+              <div className="px-3 pb-2 pt-1 font-mono text-micro text-muted-foreground">
+                {file.truncated
+                  ? t(($) => $.transcript.patch_body_truncated)
+                  : t(($) => $.transcript.patch_no_content)}
+              </div>
+            );
+          })()}
         </div>
       ))}
       {truncated && (

@@ -88,13 +88,15 @@ export function ModelDropdown({
     setSearch("");
   };
 
-  const triggerLabel =
-    value ||
-    (disabled
-      ? t(($) => $.model_dropdown.select_runtime_first)
-      : runtimeOnline
-        ? t(($) => $.model_dropdown.default_provider)
-        : t(($) => $.model_dropdown.runtime_offline_manual));
+  let triggerLabelFallback: string;
+  if (disabled) {
+    triggerLabelFallback = t(($) => $.model_dropdown.select_runtime_first);
+  } else if (runtimeOnline) {
+    triggerLabelFallback = t(($) => $.model_dropdown.default_provider);
+  } else {
+    triggerLabelFallback = t(($) => $.model_dropdown.runtime_offline_manual);
+  }
+  const triggerLabel = value || triggerLabelFallback;
 
   if (!supported && !modelsQuery.isLoading) {
     return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Cloud, Loader2, Lock, Search } from "lucide-react";
 import { ProviderLogo } from "../../runtimes/components/provider-logo";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -109,6 +109,31 @@ export function RuntimePicker({
     onSelect(firstUsable?.id ?? "");
   };
 
+  let triggerIcon: ReactNode;
+  if (runtimesLoading) {
+    triggerIcon = (
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+    );
+  } else if (selectedRuntime) {
+    triggerIcon = (
+      <ProviderLogo
+        provider={selectedRuntime.provider}
+        className="h-4 w-4 shrink-0"
+      />
+    );
+  } else {
+    triggerIcon = <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />;
+  }
+
+  let triggerLabel: string;
+  if (runtimesLoading) {
+    triggerLabel = t(($) => $.create_dialog.runtime_loading);
+  } else if (selectedRuntime) {
+    triggerLabel = runtimeDisplayName(selectedRuntime);
+  } else {
+    triggerLabel = t(($) => $.create_dialog.runtime_none);
+  }
+
   return (
     <div className="flex flex-col min-w-0">
       <div className="flex h-6 items-center justify-between">
@@ -159,24 +184,11 @@ export function RuntimePicker({
           disabled={disabled || (runtimes.length === 0 && !runtimesLoading)}
           className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 mt-1.5 text-left text-body transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
         >
-          {runtimesLoading ? (
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-          ) : selectedRuntime ? (
-            <ProviderLogo
-              provider={selectedRuntime.provider}
-              className="h-4 w-4 shrink-0"
-            />
-          ) : (
-            <Cloud className="h-4 w-4 shrink-0 text-muted-foreground" />
-          )}
+          {triggerIcon}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="truncate font-medium">
-                {runtimesLoading
-                  ? t(($) => $.create_dialog.runtime_loading)
-                  : selectedRuntime
-                    ? runtimeDisplayName(selectedRuntime)
-                    : t(($) => $.create_dialog.runtime_none)}
+                {triggerLabel}
               </span>
               {selectedRuntime?.runtime_mode === "cloud" && (
                 <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-caption font-medium text-info">
@@ -244,6 +256,14 @@ export function RuntimePicker({
                     const disabledTitle = disabled
                       ? t(($) => $.create_dialog.runtime_private_locked_tooltip)
                       : undefined;
+                    let rowStateClass: string;
+                    if (disabled) {
+                      rowStateClass = "cursor-not-allowed opacity-50";
+                    } else if (device.id === selectedRuntimeId) {
+                      rowStateClass = "bg-accent";
+                    } else {
+                      rowStateClass = "hover:bg-accent/50";
+                    }
                     return (
                       <button
                         key={device.id}
@@ -255,13 +275,7 @@ export function RuntimePicker({
                           onSelect(device.id);
                           setOpen(false);
                         }}
-                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-body transition-colors ${
-                          disabled
-                            ? "cursor-not-allowed opacity-50"
-                            : device.id === selectedRuntimeId
-                              ? "bg-accent"
-                              : "hover:bg-accent/50"
-                        }`}
+                        className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-body transition-colors ${rowStateClass}`}
                       >
                         <ProviderLogo
                           provider={device.provider}

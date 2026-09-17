@@ -141,7 +141,8 @@ const server = createServer((request, response) => {
     }
 
     const body = JSON.parse(rawBody.toString("utf8"));
-    console.log(`hook ${body.hook_key} via ${body.trigger}${body.event_type ? ` (${body.event_type})` : ""} as ${body.actor?.type}`);
+    const eventTypeSuffix = body.event_type ? ` (${body.event_type})` : "";
+    console.log(`hook ${body.hook_key} via ${body.trigger}${eventTypeSuffix} as ${body.actor?.type}`);
 
     try {
       // The host tells us which issue this is about, having already resolved and

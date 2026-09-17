@@ -88,9 +88,22 @@ export interface MarkdownProps {
   autolinkIssueIdentifiers?: boolean
 }
 
-// File path detection regex - matches paths starting with /, ~/, or ./
-const FILE_PATH_REGEX =
-  /^(?:\/|~\/|\.\/)[\w\-./@]+\.(?:ts|tsx|js|jsx|mjs|cjs|md|json|yaml|yml|py|go|rs|css|scss|less|html|htm|txt|log|sh|bash|zsh|swift|kt|java|c|cpp|h|hpp|rb|php|xml|toml|ini|cfg|conf|env|sql|graphql|vue|svelte|astro|prisma)$/i
+// File path detection - matches paths starting with /, ~/, or ./. The
+// extension allow-list is checked separately (a Set lookup) rather than as a
+// giant regex alternation, which kept tripping the regex-complexity linter.
+const FILE_PATH_PREFIX_REGEX = /^(?:\/|~\/|\.\/)[\w\-./@]+\.([A-Za-z0-9]+)$/
+const FILE_PATH_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "md", "json", "yaml", "yml", "py",
+  "go", "rs", "css", "scss", "less", "html", "htm", "txt", "log", "sh",
+  "bash", "zsh", "swift", "kt", "java", "c", "cpp", "h", "hpp", "rb", "php",
+  "xml", "toml", "ini", "cfg", "conf", "env", "sql", "graphql", "vue",
+  "svelte", "astro", "prisma",
+])
+
+function isFilePathToken(value: string): boolean {
+  const match = FILE_PATH_PREFIX_REGEX.exec(value)
+  return !!match && FILE_PATH_EXTENSIONS.has(match[1]!.toLowerCase())
+}
 
 /**
  * Create custom components based on render mode
@@ -191,7 +204,7 @@ function createComponents(
         e.preventDefault()
         if (href) {
           // Check if it's a file path
-          if (FILE_PATH_REGEX.test(href) && onFileClick) {
+          if (isFilePathToken(href) && onFileClick) {
             onFileClick(href)
           } else if (onUrlClick) {
             onUrlClick(href)

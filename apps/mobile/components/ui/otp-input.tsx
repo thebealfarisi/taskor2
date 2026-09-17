@@ -7,7 +7,7 @@
  *
  * Numeric input enforced via `inputMode="numeric"` (library default).
  */
-import { forwardRef } from "react";
+import { forwardRef, type ReactNode } from "react";
 import { Text, View } from "react-native";
 import {
   OTPInput,
@@ -34,7 +34,7 @@ export const OtpInput = forwardRef<OTPInputRef, OtpInputProps>(
         render={({ slots }) => (
           <>
             {slots.map((slot, idx) => (
-              <Slot key={idx} slot={slot} />
+              <Slot key={`slot-${idx}`} slot={slot} />
             ))}
           </>
         )}
@@ -46,6 +46,20 @@ export const OtpInput = forwardRef<OTPInputRef, OtpInputProps>(
 OtpInput.displayName = "OtpInput";
 
 function Slot({ slot }: { slot: SlotProps }) {
+  let content: ReactNode = null;
+  if (slot.char) {
+    content = (
+      <Text
+        className="text-foreground font-semibold"
+        style={{ fontSize: 22, includeFontPadding: false }}
+      >
+        {slot.char}
+      </Text>
+    );
+  } else if (slot.hasFakeCaret) {
+    content = <View className="w-0.5 h-6 bg-foreground" />;
+  }
+
   return (
     <View
       className={cn(
@@ -53,16 +67,7 @@ function Slot({ slot }: { slot: SlotProps }) {
         slot.isActive && "border-2 border-primary",
       )}
     >
-      {slot.char ? (
-        <Text
-          className="text-foreground font-semibold"
-          style={{ fontSize: 22, includeFontPadding: false }}
-        >
-          {slot.char}
-        </Text>
-      ) : slot.hasFakeCaret ? (
-        <View className="w-0.5 h-6 bg-foreground" />
-      ) : null}
+      {content}
     </View>
   );
 }

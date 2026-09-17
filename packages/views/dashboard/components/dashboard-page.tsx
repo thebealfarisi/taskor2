@@ -527,93 +527,97 @@ export function DashboardPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-6xl p-6">
           <TabsContent value="usage" className="space-y-5">
-            {usageLoading ? (
-              <DashboardSkeleton />
-            ) : usageHasNoData ? (
-              <DashboardEmpty />
-            ) : (
-              <>
-                {/* KPI row — same 3-divide-x card grid the runtime usage
-                    section uses, expanded to four tiles. */}
-                <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
-                  <KpiCard
-                    label={t(($) => $.kpi.cost_label, { days })}
-                    value={<CurrencyNumberFlow value={totals.cost} locales={locales} />}
-                  />
-                  <KpiCard
-                    label={t(($) => $.kpi.tokens_label, { days })}
-                    value={
-                      <CompactNumberFlow
-                        value={
-                          totals.input +
-                          totals.output +
-                          totals.cacheRead +
-                          totals.cacheWrite
-                        }
-                        locales={locales}
-                      />
-                    }
-                    hint={t(($) => $.kpi.tokens_hint, {
-                      input: formatTokens(totals.input),
-                      output: formatTokens(totals.output),
-                    })}
-                  />
-                  <KpiCard
-                    label={t(($) => $.kpi.run_time_label, { days })}
-                    value={
-                      <DurationNumberFlow
-                        seconds={runTimeTotals.totalSeconds}
-                        lessThanMinuteLabel={lessThanMinuteLabel}
-                        locales={locales}
-                      />
-                    }
-                    hint={t(($) => $.kpi.run_time_hint, {
-                      tasks: runTimeTotals.taskCount,
-                    })}
-                  />
-                  <KpiCard
-                    label={t(($) => $.kpi.tasks_label, { days })}
-                    value={
-                      <NumberFlow
-                        value={runTimeTotals.taskCount}
-                        locales={locales}
-                        format={{ maximumFractionDigits: 0 }}
-                        aria-label={String(runTimeTotals.taskCount)}
-                      />
-                    }
-                    // Deliberately sourced from `runTimeTotals`, not the
-                    // failure rollup: the tile's own value counts started tasks
-                    // only, so quoting the failure rollup's larger failure count
-                    // here would put two different denominators in one tile. The
-                    // Errors tab states its rate with the denominator spelled
-                    // out instead.
-                    hint={t(($) => $.kpi.tasks_hint, {
-                      failed: runTimeTotals.failedCount,
-                    })}
-                  />
-                </div>
+            {(() => {
+              if (usageLoading) {
+                return <DashboardSkeleton />;
+              }
+              if (usageHasNoData) {
+                return <DashboardEmpty />;
+              }
+              return (
+                <>
+                  {/* KPI row — same 3-divide-x card grid the runtime usage
+                      section uses, expanded to four tiles. */}
+                  <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+                    <KpiCard
+                      label={t(($) => $.kpi.cost_label, { days })}
+                      value={<CurrencyNumberFlow value={totals.cost} locales={locales} />}
+                    />
+                    <KpiCard
+                      label={t(($) => $.kpi.tokens_label, { days })}
+                      value={
+                        <CompactNumberFlow
+                          value={
+                            totals.input +
+                            totals.output +
+                            totals.cacheRead +
+                            totals.cacheWrite
+                          }
+                          locales={locales}
+                        />
+                      }
+                      hint={t(($) => $.kpi.tokens_hint, {
+                        input: formatTokens(totals.input),
+                        output: formatTokens(totals.output),
+                      })}
+                    />
+                    <KpiCard
+                      label={t(($) => $.kpi.run_time_label, { days })}
+                      value={
+                        <DurationNumberFlow
+                          seconds={runTimeTotals.totalSeconds}
+                          lessThanMinuteLabel={lessThanMinuteLabel}
+                          locales={locales}
+                        />
+                      }
+                      hint={t(($) => $.kpi.run_time_hint, {
+                        tasks: runTimeTotals.taskCount,
+                      })}
+                    />
+                    <KpiCard
+                      label={t(($) => $.kpi.tasks_label, { days })}
+                      value={
+                        <NumberFlow
+                          value={runTimeTotals.taskCount}
+                          locales={locales}
+                          format={{ maximumFractionDigits: 0 }}
+                          aria-label={String(runTimeTotals.taskCount)}
+                        />
+                      }
+                      // Deliberately sourced from `runTimeTotals`, not the
+                      // failure rollup: the tile's own value counts started tasks
+                      // only, so quoting the failure rollup's larger failure count
+                      // here would put two different denominators in one tile. The
+                      // Errors tab states its rate with the denominator spelled
+                      // out instead.
+                      hint={t(($) => $.kpi.tasks_hint, {
+                        failed: runTimeTotals.failedCount,
+                      })}
+                    />
+                  </div>
 
-                <UsageTrendCard
-                  allowedDims={allowedDims}
-                  dailyCost={dailyCost}
-                  dailyTokens={dailyTokens}
-                  dailyTime={dailyTime}
-                  dailyTasks={dailyTasks}
-                  weeklyCost={weeklyCost}
-                  weeklyTokens={weeklyTokens}
-                  weeklyTime={weeklyTime}
-                  weeklyTasks={weeklyTasks}
-                  lessThanMinuteLabel={lessThanMinuteLabel}
-                />
+                  <UsageTrendCard
+                    allowedDims={allowedDims}
+                    dailyCost={dailyCost}
+                    dailyTokens={dailyTokens}
+                    dailyTime={dailyTime}
+                    dailyTasks={dailyTasks}
+                    weeklyCost={weeklyCost}
+                    weeklyTokens={weeklyTokens}
+                    weeklyTime={weeklyTime}
+                    weeklyTasks={weeklyTasks}
+                    lessThanMinuteLabel={lessThanMinuteLabel}
+                  />
 
-                <Leaderboard
-                  rows={visibleAgentRows}
-                  agents={agents}
-                  deletedAgentCount={deletedAgentCount}
-                  lessThanMinuteLabel={lessThanMinuteLabel}
-                />
-              </>
-            )}
+                  <Leaderboard
+                    rows={visibleAgentRows}
+                    agents={agents}
+                    deletedAgentCount={deletedAgentCount}
+                    lessThanMinuteLabel={lessThanMinuteLabel}
+                  />
+                </>
+              );
+            })()}
           </TabsContent>
 
           <TabsContent value="errors">

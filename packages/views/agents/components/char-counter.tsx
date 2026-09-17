@@ -10,11 +10,14 @@ export function CharCounter({ length, max }: { length: number; max: number }) {
   const { t } = useT("agents");
   const over = length > max;
   const near = !over && length >= Math.floor(max * 0.9);
-  const tone = over
-    ? "text-destructive"
-    : near
-      ? "text-warning"
-      : "text-muted-foreground";
+  let tone: string;
+  if (over) {
+    tone = "text-destructive";
+  } else if (near) {
+    tone = "text-warning";
+  } else {
+    tone = "text-muted-foreground";
+  }
   return (
     <div className={`text-right text-caption tabular-nums ${tone}`}>
       {length} / {max}

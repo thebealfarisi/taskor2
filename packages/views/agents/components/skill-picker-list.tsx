@@ -93,16 +93,25 @@ export function SkillPickerList({
       )}
 
       <div className="max-h-64 space-y-0.5 overflow-y-auto p-1.5">
-        {loading ? (
-          <div className="py-6 text-center text-caption text-muted-foreground">
-            {t(($) => $.create_dialog.skills_section.list_loading)}
-          </div>
-        ) : skills.length === 0 ? (
-          <div className="py-6 text-center text-caption text-muted-foreground">{resolvedEmpty}</div>
-        ) : filtered.length === 0 ? (
-          <div className="py-6 text-center text-caption text-muted-foreground">{resolvedNoMatch}</div>
-        ) : (
-          filtered.map((skill) => {
+        {(() => {
+          if (loading) {
+            return (
+              <div className="py-6 text-center text-caption text-muted-foreground">
+                {t(($) => $.create_dialog.skills_section.list_loading)}
+              </div>
+            );
+          }
+          if (skills.length === 0) {
+            return (
+              <div className="py-6 text-center text-caption text-muted-foreground">{resolvedEmpty}</div>
+            );
+          }
+          if (filtered.length === 0) {
+            return (
+              <div className="py-6 text-center text-caption text-muted-foreground">{resolvedNoMatch}</div>
+            );
+          }
+          return filtered.map((skill) => {
             const isSelected = selectedIds.has(skill.id);
             return (
               <button
@@ -134,8 +143,8 @@ export function SkillPickerList({
                 </div>
               </button>
             );
-          })
-        )}
+          });
+        })()}
       </div>
     </div>
   );

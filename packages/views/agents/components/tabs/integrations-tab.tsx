@@ -158,37 +158,45 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="border-t px-4 py-3">
-          {!configured ? (
-            // No at-rest key on this deployment. The tab is only mounted
-            // when the feature is configured, so this is the rare "key was
-            // removed after an install existed" race.
-            <p className="text-caption text-muted-foreground">
-              {ts(($) => $.lark.not_enabled_title)}
-            </p>
-          ) : !installSupported && !hasActiveInstall ? (
-            // Key is set but the device-flow transport isn't wired in this
-            // build — a fresh scan would fail at the post-poll bot-info step,
-            // so we surface the "coming soon" notice instead of a broken CTA.
-            // An agent that is ALREADY bound is exempt: install_supported only
-            // governs NEW installs, so the bound state must still render below
-            // (server/internal/handler/lark.go).
-            <div className="space-y-1">
-              <p className="text-caption font-medium">{ts(($) => $.lark.preview_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {ts(($) => $.lark.preview_description)}
-              </p>
-            </div>
-          ) : (
+          {(() => {
+            if (!configured) {
+              // No at-rest key on this deployment. The tab is only mounted
+              // when the feature is configured, so this is the rare "key was
+              // removed after an install existed" race.
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {ts(($) => $.lark.not_enabled_title)}
+                </p>
+              );
+            }
+            if (!installSupported && !hasActiveInstall) {
+              // Key is set but the device-flow transport isn't wired in this
+              // build — a fresh scan would fail at the post-poll bot-info step,
+              // so we surface the "coming soon" notice instead of a broken CTA.
+              // An agent that is ALREADY bound is exempt: install_supported only
+              // governs NEW installs, so the bound state must still render below
+              // (server/internal/handler/lark.go).
+              return (
+                <div className="space-y-1">
+                  <p className="text-caption font-medium">{ts(($) => $.lark.preview_title)}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {ts(($) => $.lark.preview_description)}
+                  </p>
+                </div>
+              );
+            }
             // Agent owner or workspace owner/admin with either a supported
             // transport or an existing bot: the shared button renders the
             // scan-to-bind CTA or the already-connected "Manage in Lark"
             // badge. It self-authorizes on agentOwnerId + role.
-            <LarkAgentBindButton
-              agentId={agent.id}
-              agentName={agent.name}
-              agentOwnerId={agent.owner_id}
-            />
-          )}
+            return (
+              <LarkAgentBindButton
+                agentId={agent.id}
+                agentName={agent.name}
+                agentOwnerId={agent.owner_id}
+              />
+            );
+          })()}
         </div>
       </section>
 
@@ -205,30 +213,39 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="border-t px-4 py-3">
-          {!canManageSlack ? (
-            // Slack install/revoke stay workspace owner/admin-only, so an
-            // agent owner who is not an admin only gets the read-only note
-            // here (unlike Lark above). Reuses the shared members note.
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.integrations.members_note)}
-            </p>
-          ) : !slackConfigured ? (
-            <p className="text-caption text-muted-foreground">
-              {ts(($) => $.slack.not_enabled_title)}
-            </p>
-          ) : !slackInstallSupported && !slackHasActiveInstall ? (
-            // Secret key is set but the OAuth client credentials aren't, so a
-            // fresh "Connect Slack" would 503. Surface the "coming soon" notice
-            // instead of a broken CTA; an already-bound agent still renders.
-            <div className="space-y-1">
-              <p className="text-caption font-medium">{ts(($) => $.slack.preview_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {ts(($) => $.slack.preview_description)}
-              </p>
-            </div>
-          ) : (
-            <SlackAgentBindButton agentId={agent.id} agentName={agent.name} />
-          )}
+          {(() => {
+            if (!canManageSlack) {
+              // Slack install/revoke stay workspace owner/admin-only, so an
+              // agent owner who is not an admin only gets the read-only note
+              // here (unlike Lark above). Reuses the shared members note.
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.tab_body.integrations.members_note)}
+                </p>
+              );
+            }
+            if (!slackConfigured) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {ts(($) => $.slack.not_enabled_title)}
+                </p>
+              );
+            }
+            if (!slackInstallSupported && !slackHasActiveInstall) {
+              // Secret key is set but the OAuth client credentials aren't, so a
+              // fresh "Connect Slack" would 503. Surface the "coming soon" notice
+              // instead of a broken CTA; an already-bound agent still renders.
+              return (
+                <div className="space-y-1">
+                  <p className="text-caption font-medium">{ts(($) => $.slack.preview_title)}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {ts(($) => $.slack.preview_description)}
+                  </p>
+                </div>
+              );
+            }
+            return <SlackAgentBindButton agentId={agent.id} agentName={agent.name} />;
+          })()}
         </div>
       </section>
 
@@ -245,20 +262,26 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="border-t px-4 py-3">
-          {!canManageDingtalk ? (
-            // DingTalk install/revoke stay workspace owner/admin-only, so an
-            // agent owner who is not an admin only gets the read-only note
-            // here (unlike Lark above). Reuses the shared members note.
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.integrations.members_note)}
-            </p>
-          ) : !dingtalkConfigured ? (
-            <p className="text-caption text-muted-foreground">
-              {ts(($) => $.dingtalk.not_enabled_title)}
-            </p>
-          ) : (
-            <DingTalkAgentBindButton agentId={agent.id} agentName={agent.name} />
-          )}
+          {(() => {
+            if (!canManageDingtalk) {
+              // DingTalk install/revoke stay workspace owner/admin-only, so an
+              // agent owner who is not an admin only gets the read-only note
+              // here (unlike Lark above). Reuses the shared members note.
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.tab_body.integrations.members_note)}
+                </p>
+              );
+            }
+            if (!dingtalkConfigured) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {ts(($) => $.dingtalk.not_enabled_title)}
+                </p>
+              );
+            }
+            return <DingTalkAgentBindButton agentId={agent.id} agentName={agent.name} />;
+          })()}
         </div>
       </section>
 
@@ -275,24 +298,33 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="border-t px-4 py-3">
-          {!canManageWecom ? (
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.integrations.members_note)}
-            </p>
-          ) : !wecomConfigured ? (
-            <p className="text-caption text-muted-foreground">
-              {ts(($) => $.wecom.not_enabled_title)}
-            </p>
-          ) : !wecomInstallSupported && !wecomHasActiveInstall ? (
-            <div className="space-y-1">
-              <p className="text-caption font-medium">{ts(($) => $.wecom.preview_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {ts(($) => $.wecom.preview_description)}
-              </p>
-            </div>
-          ) : (
-            <WecomAgentBindButton agentId={agent.id} agentName={agent.name} />
-          )}
+          {(() => {
+            if (!canManageWecom) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.tab_body.integrations.members_note)}
+                </p>
+              );
+            }
+            if (!wecomConfigured) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {ts(($) => $.wecom.not_enabled_title)}
+                </p>
+              );
+            }
+            if (!wecomInstallSupported && !wecomHasActiveInstall) {
+              return (
+                <div className="space-y-1">
+                  <p className="text-caption font-medium">{ts(($) => $.wecom.preview_title)}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {ts(($) => $.wecom.preview_description)}
+                  </p>
+                </div>
+              );
+            }
+            return <WecomAgentBindButton agentId={agent.id} agentName={agent.name} />;
+          })()}
         </div>
       </section>
 
@@ -309,24 +341,33 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
           </div>
         </div>
         <div className="border-t px-4 py-3">
-          {!canManageTelegram ? (
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.integrations.members_note)}
-            </p>
-          ) : !telegramConfigured ? (
-            <p className="text-caption text-muted-foreground">
-              {ts(($) => $.telegram.not_enabled_title)}
-            </p>
-          ) : !telegramInstallSupported && !telegramHasActiveInstall ? (
-            <div className="space-y-1">
-              <p className="text-caption font-medium">{ts(($) => $.telegram.preview_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {ts(($) => $.telegram.preview_description)}
-              </p>
-            </div>
-          ) : (
-            <TelegramAgentBindButton agentId={agent.id} agentName={agent.name} />
-          )}
+          {(() => {
+            if (!canManageTelegram) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.tab_body.integrations.members_note)}
+                </p>
+              );
+            }
+            if (!telegramConfigured) {
+              return (
+                <p className="text-caption text-muted-foreground">
+                  {ts(($) => $.telegram.not_enabled_title)}
+                </p>
+              );
+            }
+            if (!telegramInstallSupported && !telegramHasActiveInstall) {
+              return (
+                <div className="space-y-1">
+                  <p className="text-caption font-medium">{ts(($) => $.telegram.preview_title)}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {ts(($) => $.telegram.preview_description)}
+                  </p>
+                </div>
+              );
+            }
+            return <TelegramAgentBindButton agentId={agent.id} agentName={agent.name} />;
+          })()}
         </div>
       </section>
     </div>

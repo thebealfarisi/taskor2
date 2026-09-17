@@ -251,55 +251,61 @@ export function ChatPage() {
           onArchive={handleArchive}
         />
       )}
-      {c.showSkeleton ? (
-        <ChatMessageSkeleton />
-      ) : c.hasMessages ? (
-        <ChatMessageList
-          key={c.activeSessionId}
-          messages={c.messages}
-          pendingTask={c.pendingTask}
-          availability={c.availability}
-          firstItemIndex={c.firstItemIndex}
-          hasOlderMessages={c.hasOlderMessages}
-          isFetchingOlderMessages={c.isFetchingOlderMessages}
-          onLoadOlderMessages={() => void c.fetchOlderMessages()}
-          onQuickAction={(action) => c.handleSend(action.prompt)}
-          quickActionsDisabled={
-            !!c.pendingTaskId ||
-            c.isSessionArchived ||
-            c.isAgentArchived ||
-            c.isAgentAccessRevoked ||
-            !c.isAgentRuntimeBound ||
-            c.noAgent
-          }
-          onRegenerateQuickActions={(message) =>
-            c.activeSessionId
-              ? regenerateQuickActions.mutateAsync({
-                  sessionId: c.activeSessionId,
-                  messageId: message.id,
-                })
-              : undefined
-          }
-          quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
-        />
-      ) : (
-        <EmptyState agent={c.activeAgent} />
-      )}
+      {(() => {
+        if (c.showSkeleton) return <ChatMessageSkeleton />;
+        if (c.hasMessages) {
+          return (
+            <ChatMessageList
+              key={c.activeSessionId}
+              messages={c.messages}
+              pendingTask={c.pendingTask}
+              availability={c.availability}
+              firstItemIndex={c.firstItemIndex}
+              hasOlderMessages={c.hasOlderMessages}
+              isFetchingOlderMessages={c.isFetchingOlderMessages}
+              onLoadOlderMessages={() => void c.fetchOlderMessages()}
+              onQuickAction={(action) => c.handleSend(action.prompt)}
+              quickActionsDisabled={
+                !!c.pendingTaskId ||
+                c.isSessionArchived ||
+                c.isAgentArchived ||
+                c.isAgentAccessRevoked ||
+                !c.isAgentRuntimeBound ||
+                c.noAgent
+              }
+              onRegenerateQuickActions={(message) =>
+                c.activeSessionId
+                  ? regenerateQuickActions.mutateAsync({
+                      sessionId: c.activeSessionId,
+                      messageId: message.id,
+                    })
+                  : undefined
+              }
+              quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+            />
+          );
+        }
+        return <EmptyState agent={c.activeAgent} />;
+      })()}
 
-      {c.isAgentAccessRevoked ? (
-        <AgentAccessRevokedBanner agentName={c.activeAgent?.name} />
-      ) : c.noAgent ? (
-        <NoAgentBanner />
-      ) : c.isAgentArchived ? (
-        <ArchivedAgentBanner agentName={c.activeAgent?.name} />
-      ) : !c.isAgentRuntimeBound && c.activeAgent ? (
-        <RuntimeRequiredBanner
-          agentId={c.activeAgent.id}
-          agentName={c.activeAgent.name}
-        />
-      ) : (
-        <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />
-      )}
+      {(() => {
+        if (c.isAgentAccessRevoked) {
+          return <AgentAccessRevokedBanner agentName={c.activeAgent?.name} />;
+        }
+        if (c.noAgent) return <NoAgentBanner />;
+        if (c.isAgentArchived) {
+          return <ArchivedAgentBanner agentName={c.activeAgent?.name} />;
+        }
+        if (!c.isAgentRuntimeBound && c.activeAgent) {
+          return (
+            <RuntimeRequiredBanner
+              agentId={c.activeAgent.id}
+              agentName={c.activeAgent.name}
+            />
+          );
+        }
+        return <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />;
+      })()}
 
       <ChatQueue
         tasks={queuedTasks}

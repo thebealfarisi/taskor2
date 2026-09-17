@@ -110,15 +110,11 @@ export function BuilderWorkspace({
   // `null` means discovery is not available yet (or failed), while `[]` is
   // an authoritative catalog with no selectable models. In both cases the
   // builder may preserve the user's current value but cannot invent one.
-  const builderModelCatalog = useMemo(
-    () =>
-      builderModelsQuery.isSuccess
-        ? builderModelsQuery.data.supported
-          ? builderModelsQuery.data.models
-          : []
-        : null,
-    [builderModelsQuery.data, builderModelsQuery.isSuccess],
-  );
+  const builderModelCatalog = useMemo(() => {
+    if (!builderModelsQuery.isSuccess) return null;
+    if (!builderModelsQuery.data.supported) return [];
+    return builderModelsQuery.data.models;
+  }, [builderModelsQuery.data, builderModelsQuery.isSuccess]);
   const validBuilderModelIds = useMemo(
     () =>
       builderModelCatalog === null

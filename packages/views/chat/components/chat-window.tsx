@@ -93,6 +93,17 @@ const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
 const CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX = 1_000_000;
 
+// Shared by both send-error catch blocks below so the reason → toast copy
+// mapping lives in one place instead of two nested ternaries.
+function sendErrorToastMessage(
+  reason: string | undefined,
+  t: ReturnType<typeof useT<"chat">>["t"],
+): string {
+  if (reason === "invocation_not_allowed") return t(($) => $.input.send_blocked_toast);
+  if (reason === "agent_runtime_required") return t(($) => $.input.runtime_required_toast);
+  return t(($) => $.input.send_failed_toast);
+}
+
 
 export function ChatWindow() {
   const { t } = useT("chat");
@@ -461,13 +472,7 @@ export function ChatWindow() {
       } catch (err) {
         apiLogger.error("sendChatMessage.ensureSession.error", err);
         const reason = dispatchReasonCode(err);
-        toast.error(
-          reason === "invocation_not_allowed"
-            ? t(($) => $.input.send_blocked_toast)
-            : reason === "agent_runtime_required"
-              ? t(($) => $.input.runtime_required_toast)
-              : t(($) => $.input.send_failed_toast),
-        );
+        toast.error(sendErrorToastMessage(reason, t));
         return false;
       }
       if (!sessionId) {
@@ -487,13 +492,7 @@ export function ChatWindow() {
       } catch (err) {
         apiLogger.error("sendChatMessage.error", { sessionId, err });
         const reason = dispatchReasonCode(err);
-        toast.error(
-          reason === "invocation_not_allowed"
-            ? t(($) => $.input.send_blocked_toast)
-            : reason === "agent_runtime_required"
-              ? t(($) => $.input.runtime_required_toast)
-              : t(($) => $.input.send_failed_toast),
-        );
+        toast.error(sendErrorToastMessage(reason, t));
         return false;
       }
       apiLogger.info("sendChatMessage.success", {
@@ -885,44 +884,48 @@ export function ChatWindow() {
       </div>
 
       {/* Messages / skeleton / empty state */}
-      {showSkeleton ? (
-        <ChatMessageSkeleton />
-      ) : hasMessages ? (
-        <ChatMessageList
-          key={activeSessionId}
-          messages={messages}
-          pendingTask={pendingTask}
-          availability={availability}
-          firstItemIndex={firstItemIndex}
-          hasOlderMessages={!!hasOlderMessages}
-          isFetchingOlderMessages={isFetchingOlderMessages}
-          onLoadOlderMessages={() => void fetchOlderMessages()}
-          onQuickAction={(action) => handleSend(action.prompt)}
-          quickActionsDisabled={
-            !!pendingTaskId ||
-            isSessionArchived ||
-            isAgentArchived ||
-            isAgentAccessRevoked ||
-            !activeAgentRuntimeBound ||
-            noAgent
-          }
-          onRegenerateQuickActions={(message) =>
-            activeSessionId
-              ? regenerateQuickActions.mutateAsync({
-                  sessionId: activeSessionId,
-                  messageId: message.id,
-                })
-              : undefined
-          }
-          quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
-        />
-      ) : (
-        <EmptyState
-          hasSessions={sessions.length > 0}
-          agentName={activeAgent?.name}
-          onPickPrompt={(text) => handleSend(text)}
-        />
-      )}
+      {(() => {
+        if (showSkeleton) return <ChatMessageSkeleton />;
+        if (hasMessages) {
+          return (
+            <ChatMessageList
+              key={activeSessionId}
+              messages={messages}
+              pendingTask={pendingTask}
+              availability={availability}
+              firstItemIndex={firstItemIndex}
+              hasOlderMessages={!!hasOlderMessages}
+              isFetchingOlderMessages={isFetchingOlderMessages}
+              onLoadOlderMessages={() => void fetchOlderMessages()}
+              onQuickAction={(action) => handleSend(action.prompt)}
+              quickActionsDisabled={
+                !!pendingTaskId ||
+                isSessionArchived ||
+                isAgentArchived ||
+                isAgentAccessRevoked ||
+                !activeAgentRuntimeBound ||
+                noAgent
+              }
+              onRegenerateQuickActions={(message) =>
+                activeSessionId
+                  ? regenerateQuickActions.mutateAsync({
+                      sessionId: activeSessionId,
+                      messageId: message.id,
+                    })
+                  : undefined
+              }
+              quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+            />
+          );
+        }
+        return (
+          <EmptyState
+            hasSessions={sessions.length > 0}
+            agentName={activeAgent?.name}
+            onPickPrompt={(text) => handleSend(text)}
+          />
+        );
+      })()}
 
       {/* Status banner above the input — single mutually-exclusive slot.
        *  Priority: no-agent > offline / unstable. Agent presence is the
@@ -933,20 +936,24 @@ export function ChatWindow() {
        *  We key off `noAgent` (the resolved-empty state) rather than
        *  `!activeAgent`, so the loading window between mount and the
        *  first agent-list response stays banner-free. */}
-      {noAgent ? (
-        <NoAgentBanner />
-      ) : isAgentAccessRevoked ? (
-        <AgentAccessRevokedBanner agentName={activeAgent?.name} />
-      ) : isAgentArchived ? (
-        <ArchivedAgentBanner agentName={activeAgent?.name} />
-      ) : !activeAgentRuntimeBound && activeAgent ? (
-        <RuntimeRequiredBanner
-          agentId={activeAgent.id}
-          agentName={activeAgent.name}
-        />
-      ) : (
-        <OfflineBanner agentName={activeAgent?.name} availability={availability} />
-      )}
+      {(() => {
+        if (noAgent) return <NoAgentBanner />;
+        if (isAgentAccessRevoked) {
+          return <AgentAccessRevokedBanner agentName={activeAgent?.name} />;
+        }
+        if (isAgentArchived) {
+          return <ArchivedAgentBanner agentName={activeAgent?.name} />;
+        }
+        if (!activeAgentRuntimeBound && activeAgent) {
+          return (
+            <RuntimeRequiredBanner
+              agentId={activeAgent.id}
+              agentName={activeAgent.name}
+            />
+          );
+        }
+        return <OfflineBanner agentName={activeAgent?.name} availability={availability} />;
+      })()}
 
       <ChatQueue
         tasks={queuedTasks}
@@ -1358,13 +1365,16 @@ function SessionDropdown({
     const isConfirmingStop = confirmingStopId === session.id && !!pendingTask;
     const isConfirmingAction = isConfirmingStop;
     const titleText = session.title?.trim() || t(($) => $.window.untitled);
-    const trailingStatus = isRunning
-      ? t(($) => $.session_history.row_subtitle.working)
-      : showCompleted
-        ? t(($) => $.session_history.row_subtitle.completed)
-        : showUnread
-          ? t(($) => $.session_history.row_subtitle.new_reply)
-          : formatTimeAgo(session.updated_at);
+    let trailingStatus: string;
+    if (isRunning) {
+      trailingStatus = t(($) => $.session_history.row_subtitle.working);
+    } else if (showCompleted) {
+      trailingStatus = t(($) => $.session_history.row_subtitle.completed);
+    } else if (showUnread) {
+      trailingStatus = t(($) => $.session_history.row_subtitle.new_reply);
+    } else {
+      trailingStatus = formatTimeAgo(session.updated_at);
+    }
 
     // One list drives both action surfaces — the compact menu without hover
     // and the hover strip with it — so they cannot drift.
@@ -1426,17 +1436,24 @@ function SessionDropdown({
           <span className="size-6 shrink-0" />
         )}
         <div className="min-w-0 flex-1">
-          {isRenaming ? (
-            <SessionRenameInput
-              initialValue={session.title ?? ""}
-              onSubmit={(value) => handleSubmitRename(session.id, value)}
-              onCancel={() => setRenamingId(null)}
-            />
-          ) : isConfirmingStop ? (
-            <div className="truncate text-body font-medium text-destructive">
-              {t(($) => $.session_history.stop_dialog.title)}
-            </div>
-          ) : (
+          {(() => {
+            if (isRenaming) {
+              return (
+                <SessionRenameInput
+                  initialValue={session.title ?? ""}
+                  onSubmit={(value) => handleSubmitRename(session.id, value)}
+                  onCancel={() => setRenamingId(null)}
+                />
+              );
+            }
+            if (isConfirmingStop) {
+              return (
+                <div className="truncate text-body font-medium text-destructive">
+                  {t(($) => $.session_history.stop_dialog.title)}
+                </div>
+              );
+            }
+            return (
             <div
               className={cn("truncate text-body", (showUnread || showCompleted) && !isRunning && "font-medium")}
               style={{
@@ -1446,7 +1463,8 @@ function SessionDropdown({
             >
               {titleText}
             </div>
-          )}
+            );
+          })()}
         </div>
         {!isRenaming && (
           isConfirmingStop && pendingTask ? (
@@ -1563,25 +1581,33 @@ function SessionDropdown({
             )}
             <ChevronDown className="size-3 text-muted-foreground shrink-0" />
           </PopoverTrigger>
-          {otherRunningCount > 0 ? (
-            <span
-              aria-label={t(($) => $.window.another_running)}
-              title={t(($) => $.window.another_running)}
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
-            >
-              <Loader2 className="size-3 animate-spin" />
-              {otherRunningCount > 1 && <span>{otherRunningCount}</span>}
-            </span>
-          ) : otherUnreadCount > 0 ? (
-            <span
-              aria-label={t(($) => $.window.another_unread)}
-              title={t(($) => $.window.another_unread)}
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
-            >
-              <span className="size-1.5 rounded-full bg-brand" />
-              {otherUnreadCount > 1 && <span>{otherUnreadCount}</span>}
-            </span>
-          ) : null}
+          {(() => {
+            if (otherRunningCount > 0) {
+              return (
+                <span
+                  aria-label={t(($) => $.window.another_running)}
+                  title={t(($) => $.window.another_running)}
+                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
+                >
+                  <Loader2 className="size-3 animate-spin" />
+                  {otherRunningCount > 1 && <span>{otherRunningCount}</span>}
+                </span>
+              );
+            }
+            if (otherUnreadCount > 0) {
+              return (
+                <span
+                  aria-label={t(($) => $.window.another_unread)}
+                  title={t(($) => $.window.another_unread)}
+                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
+                >
+                  <span className="size-1.5 rounded-full bg-brand" />
+                  {otherUnreadCount > 1 && <span>{otherUnreadCount}</span>}
+                </span>
+              );
+            }
+            return null;
+          })()}
         </div>
         <PopoverContent
           align="start"

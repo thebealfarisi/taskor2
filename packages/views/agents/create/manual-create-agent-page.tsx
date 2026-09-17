@@ -92,17 +92,20 @@ export function ManualCreateAgentPage() {
   const canCreate =
     form.draft.name.trim().length > 0 && form.draftReady && !submit.creating;
 
+  let title: string;
+  if (duplicateAgent) {
+    title = t(($) => $.creation_studio.duplicate_title, {
+      name: duplicateAgent.name,
+    });
+  } else if (squadId) {
+    title = t(($) => $.creation_studio.squad_title);
+  } else {
+    title = t(($) => $.creation_studio.title);
+  }
+
   return (
     <AgentCreateShell
-      title={
-        duplicateAgent
-          ? t(($) => $.creation_studio.duplicate_title, {
-              name: duplicateAgent.name,
-            })
-          : squadId
-            ? t(($) => $.creation_studio.squad_title)
-            : t(($) => $.creation_studio.title)
-      }
+      title={title}
       step={t(($) => $.creation_studio.step_configure)}
       // A duplicate arrives from the agents list, not from the chooser, so it
       // returns to where it came from instead of offering a method to pick.

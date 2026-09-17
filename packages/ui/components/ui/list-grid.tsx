@@ -98,16 +98,18 @@ function ListGridHeaderCell({
     );
   }
   const Arrow = sorted === "asc" ? ArrowUp : ArrowDown;
+  let ariaSort: "ascending" | "descending" | undefined;
+  if (sorted === "asc") {
+    ariaSort = "ascending";
+  } else if (sorted === "desc") {
+    ariaSort = "descending";
+  } else {
+    ariaSort = undefined;
+  }
   return (
     <div
       role="columnheader"
-      aria-sort={
-        sorted === "asc"
-          ? "ascending"
-          : sorted === "desc"
-            ? "descending"
-            : undefined
-      }
+      aria-sort={ariaSort}
       className={cn(
         "flex min-w-0 items-center px-2",
         align === "right" && "justify-end",

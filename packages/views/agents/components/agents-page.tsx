@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   Bot,
@@ -498,13 +498,11 @@ export function AccessCell({ row }: { row: AgentListRow }) {
       ),
     [row.agent.permission_mode, row.agent.invocation_targets],
   );
-  const label = t(($) =>
-    scope === "workspace"
-      ? $.access.scope_labels.workspace
-      : scope === "specific-people"
-        ? $.access.scope_labels.specific_people
-        : $.access.scope_labels.owner_only,
-  );
+  const label = t(($) => {
+    if (scope === "workspace") return $.access.scope_labels.workspace;
+    if (scope === "specific-people") return $.access.scope_labels.specific_people;
+    return $.access.scope_labels.owner_only;
+  });
   return (
     <ListGridCell className="hidden @2xl:flex">
       <span className="min-w-0 truncate text-caption text-muted-foreground">
@@ -688,6 +686,8 @@ function AgentListHeader({
   );
 }
 
+const SKELETON_ROW_KEYS = ["skeleton-row-1", "skeleton-row-2", "skeleton-row-3", "skeleton-row-4", "skeleton-row-5"];
+
 function LoadingSkeleton() {
   return (
     <ListGrid
@@ -723,8 +723,8 @@ function LoadingSkeleton() {
         <ListGridHeaderCell className="hidden px-0 @2xl:flex" />
         <span aria-hidden="true" />
       </ListGridHeader>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <ListGridRow key={i} className="h-16 hover:bg-transparent">
+      {SKELETON_ROW_KEYS.map((rowKey) => (
+        <ListGridRow key={rowKey} className="h-16 hover:bg-transparent">
           <span aria-hidden="true" className="hidden @2xl:inline" />
           <ListGridCell className="gap-3">
             <Skeleton className="size-8 rounded-full" />
@@ -1030,25 +1030,22 @@ export function AgentsPage(_props: AgentsPageProps = {}) {
     (!needsRunCounts || !runCountsPending) &&
     (!needsPresence || !presenceLoading);
 
-  return (
-    // relative: positioning anchor for the batch toolbar (page-centered,
-    // not viewport-centered).
-    <div className="relative flex flex-1 min-h-0 flex-col">
-      <PageHeaderBar
-        totalCount={totalCount}
-        onCreate={() => navigation.push(paths.newAgent())}
-      />
-
-      {isLoading || (!showEmpty && !listReady) ? (
-        <div className="flex-1 overflow-y-auto @container">
-          <LoadingSkeleton />
-        </div>
-      ) : showEmpty ? (
-        <div className="flex flex-1 items-center justify-center">
-          <EmptyState onCreate={() => navigation.push(paths.newAgent())} />
-        </div>
-      ) : (
-        <>
+  let mainContent: ReactNode;
+  if (isLoading || (!showEmpty && !listReady)) {
+    mainContent = (
+      <div className="flex-1 overflow-y-auto @container">
+        <LoadingSkeleton />
+      </div>
+    );
+  } else if (showEmpty) {
+    mainContent = (
+      <div className="flex flex-1 items-center justify-center">
+        <EmptyState onCreate={() => navigation.push(paths.newAgent())} />
+      </div>
+    );
+  } else {
+    mainContent = (
+      <>
           <AgentListToolbar
             scope={scope}
             onScopeChange={setScope}
@@ -1183,7 +1180,19 @@ export function AgentsPage(_props: AgentsPageProps = {}) {
             </ListGrid>
           </div>
         </>
-      )}
+    );
+  }
+
+  return (
+    // relative: positioning anchor for the batch toolbar (page-centered,
+    // not viewport-centered).
+    <div className="relative flex flex-1 min-h-0 flex-col">
+      <PageHeaderBar
+        totalCount={totalCount}
+        onCreate={() => navigation.push(paths.newAgent())}
+      />
+
+      {mainContent}
 
       <AgentBatchToolbar
         rows={selectedRows}

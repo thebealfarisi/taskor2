@@ -395,13 +395,11 @@ export function AgentListToolbar({
                   >
                     <HoverCheck checked={filters.access.includes(value)} />
                     <span className="min-w-0 truncate">
-                      {t(($) =>
-                        value === "workspace"
-                          ? $.access.scope_labels.workspace
-                          : value === "specific-people"
-                            ? $.access.scope_labels.specific_people
-                            : $.access.scope_labels.owner_only,
-                      )}
+                      {t(($) => {
+                        if (value === "workspace") return $.access.scope_labels.workspace;
+                        if (value === "specific-people") return $.access.scope_labels.specific_people;
+                        return $.access.scope_labels.owner_only;
+                      })}
                     </span>
                     {countBadge(accessCounts.get(value) ?? 0)}
                   </DropdownMenuCheckboxItem>

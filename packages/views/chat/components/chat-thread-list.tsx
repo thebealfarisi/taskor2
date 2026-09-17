@@ -387,33 +387,40 @@ export function ChatThreadList({
 
           {/* Line 2: preview + unread badge, or an inline confirm prompt */}
           <div className="mt-0.5 flex items-center gap-2">
-            {isConfirmingDelete ? (
-                <ConfirmRow
-                  label={t(($) => $.session_history.delete_dialog.title)}
-                  cancelText={t(($) => $.session_history.delete_dialog.cancel)}
-                  confirmText={
-                    deleteSession.isPending
-                      ? t(($) => $.session_history.delete_dialog.confirming)
-                      : t(($) => $.session_history.delete_dialog.confirm)
-                  }
-                  pending={deleteSession.isPending}
-                  onCancel={() => setConfirmingDeleteId(null)}
-                  onConfirm={() => handleConfirmDelete(session)}
-                />
-              ) : isConfirmingStop && pendingTask ? (
-                <ConfirmRow
-                  label={t(($) => $.session_history.stop_dialog.title)}
-                  cancelText={t(($) => $.session_history.stop_dialog.cancel)}
-                  confirmText={
-                    stoppingTaskId === pendingTask.task_id
-                      ? t(($) => $.session_history.stop_dialog.confirming)
-                      : t(($) => $.session_history.stop_dialog.confirm)
-                  }
-                  pending={stoppingTaskId === pendingTask.task_id}
-                  onCancel={() => setConfirmingStopId(null)}
-                  onConfirm={() => handleConfirmStop(session, pendingTask)}
-                />
-              ) : (
+            {(() => {
+              if (isConfirmingDelete) {
+                return (
+                  <ConfirmRow
+                    label={t(($) => $.session_history.delete_dialog.title)}
+                    cancelText={t(($) => $.session_history.delete_dialog.cancel)}
+                    confirmText={
+                      deleteSession.isPending
+                        ? t(($) => $.session_history.delete_dialog.confirming)
+                        : t(($) => $.session_history.delete_dialog.confirm)
+                    }
+                    pending={deleteSession.isPending}
+                    onCancel={() => setConfirmingDeleteId(null)}
+                    onConfirm={() => handleConfirmDelete(session)}
+                  />
+                );
+              }
+              if (isConfirmingStop && pendingTask) {
+                return (
+                  <ConfirmRow
+                    label={t(($) => $.session_history.stop_dialog.title)}
+                    cancelText={t(($) => $.session_history.stop_dialog.cancel)}
+                    confirmText={
+                      stoppingTaskId === pendingTask.task_id
+                        ? t(($) => $.session_history.stop_dialog.confirming)
+                        : t(($) => $.session_history.stop_dialog.confirm)
+                    }
+                    pending={stoppingTaskId === pendingTask.task_id}
+                    onCancel={() => setConfirmingStopId(null)}
+                    onConfirm={() => handleConfirmStop(session, pendingTask)}
+                  />
+                );
+              }
+              return (
                 <>
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-caption">
                     {agentName && (
@@ -439,7 +446,8 @@ export function ChatThreadList({
                     </span>
                   )}
                 </>
-              )}
+              );
+            })()}
             </div>
         </div>
 

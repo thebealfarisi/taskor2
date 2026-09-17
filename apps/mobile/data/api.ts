@@ -570,10 +570,8 @@ class ApiClient {
       }
     }
     const qs = search.toString();
-    const raw = await this.fetch<unknown>(
-      `/api/issues${qs ? `?${qs}` : ""}`,
-      { signal: opts?.signal },
-    );
+    const path = qs ? `/api/issues?${qs}` : "/api/issues";
+    const raw = await this.fetch<unknown>(path, { signal: opts?.signal });
     return parseWithFallback(raw, ListIssuesResponseSchema, EMPTY_LIST_ISSUES_RESPONSE, {
       endpoint: "GET /api/issues",
     });

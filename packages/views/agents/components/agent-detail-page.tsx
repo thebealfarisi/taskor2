@@ -253,6 +253,12 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
   // --- Not found / error ---
   if (!agent) {
     const loadError = detailError ?? agentsError;
+    let loadErrorMessage: string;
+    if (loadError instanceof Error) {
+      loadErrorMessage = loadError.message;
+    } else {
+      loadErrorMessage = t(($) => $.detail.load_failed_default);
+    }
     return (
       <div className="flex flex-1 min-h-0 flex-col">
         <BackHeader paths={paths.agents()} title={t(($) => $.detail.back_to_agents)} />
@@ -267,9 +273,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
             <p className="mt-1 text-caption text-muted-foreground">
               {isNotFound
                 ? t(($) => $.detail.not_found_default)
-                : loadError instanceof Error
-                  ? loadError.message
-                  : t(($) => $.detail.load_failed_default)}
+                : loadErrorMessage}
             </p>
           </div>
           <div className="flex items-center gap-2">

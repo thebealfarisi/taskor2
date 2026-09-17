@@ -214,7 +214,7 @@ interface InlineImageRef {
 // title never leaks into it; the optional <> wrapper is CommonMark's escape
 // for URLs containing spaces.
 const MARKDOWN_IMAGE_RE =
-  /!\[([^\]\n]*)\]\(\s*<([^>\n]*)>[^)]*\)|!\[([^\]\n]*)\]\(\s*([^)\s]+)[^)]*\)/g;
+  /!\[([^\]\n]*)\]\(\s*(?:<([^>\n]*)>|([^)\s]+))[^)]*\)/g;
 
 // Raw `<img src=...>` — reachable because the readonly renderer runs
 // rehypeRaw + rehypeSanitize, and the sanitize schema keeps img.
@@ -236,9 +236,9 @@ function extractInlineImageRefs(rawContent: string): InlineImageRef[] {
   const refs: InlineImageRef[] = [];
 
   for (const m of content.matchAll(MARKDOWN_IMAGE_RE)) {
-    // Two alternations: `<...>`-wrapped URL (groups 1/2) or bare (groups 3/4).
-    const alt = m[1] ?? m[3] ?? "";
-    const url = (m[2] ?? m[4] ?? "").trim();
+    // Group 1 is the alt text; the URL is `<...>`-wrapped (group 2) or bare (group 3).
+    const alt = m[1] ?? "";
+    const url = (m[2] ?? m[3] ?? "").trim();
     if (!url) continue;
     refs.push({
       index: m.index ?? 0,

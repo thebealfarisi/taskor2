@@ -90,111 +90,124 @@ vi.mock("@tanstack/react-query", async () => {
         // rank without the ties an equal-valued fixture would create. The
         // date-bucketed series stay on the small fixture below — the caps are
         // a property of the per-agent lists only.
-        const bulkRows =
-          !manyAgentsRef.current
-            ? null
-            : kind === "by-agent"
-              ? Array.from({ length: 12 }, (_, i) => ({
+        let bulkRows: unknown[] | null = null;
+        if (manyAgentsRef.current) {
+          switch (kind) {
+            case "by-agent":
+              bulkRows = Array.from({ length: 12 }, (_, i) => ({
+                agent_id: `bulk-${i}`,
+                provider: "anthropic",
+                model: "claude-sonnet-4-6",
+                input_tokens: (12 - i) * 1_000,
+                output_tokens: 0,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                task_count: 12 - i,
+              }));
+              break;
+            case "agent-runtime":
+              bulkRows = Array.from({ length: 12 }, (_, i) => ({
+                agent_id: `bulk-${i}`,
+                total_seconds: (12 - i) * 600,
+                task_count: 12 - i,
+                failed_count: 12 - i,
+              }));
+              break;
+            case "failures-by-agent":
+              bulkRows = Array.from({ length: 12 }, (_, i) => [
+                {
                   agent_id: `bulk-${i}`,
-                  provider: "anthropic",
-                  model: "claude-sonnet-4-6",
-                  input_tokens: (12 - i) * 1_000,
-                  output_tokens: 0,
-                  cache_read_tokens: 0,
-                  cache_write_tokens: 0,
+                  failure_reason: "",
+                  task_count: 100,
+                },
+                {
+                  agent_id: `bulk-${i}`,
+                  failure_reason: "timeout",
                   task_count: 12 - i,
-                }))
-              : kind === "agent-runtime"
-                ? Array.from({ length: 12 }, (_, i) => ({
-                    agent_id: `bulk-${i}`,
-                    total_seconds: (12 - i) * 600,
-                    task_count: 12 - i,
-                    failed_count: 12 - i,
-                  }))
-                : kind === "failures-by-agent"
-                  ? Array.from({ length: 12 }, (_, i) => [
-                      {
-                        agent_id: `bulk-${i}`,
-                        failure_reason: "",
-                        task_count: 100,
-                      },
-                      {
-                        agent_id: `bulk-${i}`,
-                        failure_reason: "timeout",
-                        task_count: 12 - i,
-                      },
-                    ]).flat()
-                  : null;
+                },
+              ]).flat();
+              break;
+            default:
+              bulkRows = null;
+          }
+        }
         if (bulkRows) {
           return { data: bulkRows, isLoading: false, isSuccess: true };
         }
-        const data =
-          kind === "daily"
-            ? [
-                {
-                  date: todayIso(),
-                  provider: "anthropic",
-                  model: "claude-sonnet-4-6",
-                  input_tokens: 1_000,
-                  output_tokens: 2_000,
-                  cache_read_tokens: 0,
-                  cache_write_tokens: 0,
-                  task_count: 2,
-                },
-              ]
-            : kind === "agent-runtime"
-              ? [
-                  {
-                    agent_id: "agent-1",
-                    total_seconds: 3 * 3_600 + 17 * 60,
-                    task_count: 12,
-                    failed_count: 1,
-                  },
-                ]
-              : kind === "runtime-daily"
-                ? [
-                    {
-                      date: todayIso(),
-                      total_seconds: 3 * 3_600 + 17 * 60,
-                      task_count: 12,
-                      failed_count: 1,
-                    },
-                  ]
-                : // `failure_reason: ""` is the succeeded bucket — the
-                  // denominator behind every rate the Errors surface shows.
-                  kind === "failures-daily"
-                  ? [
-                      { date: todayIso(), failure_reason: "", task_count: 6 },
-                      {
-                        date: todayIso(),
-                        failure_reason: "agent_error.provider_auth_or_access",
-                        task_count: 3,
-                      },
-                      { date: todayIso(), failure_reason: "timeout", task_count: 1 },
-                    ]
-                  : kind === "failures-by-agent"
-                    ? [
-                        { agent_id: "agent-1", failure_reason: "", task_count: 6 },
-                        {
-                          agent_id: "agent-1",
-                          failure_reason: "agent_error.provider_auth_or_access",
-                          task_count: 3,
-                        },
-                        {
-                          agent_id: "agent-1",
-                          failure_reason: "timeout",
-                          task_count: 1,
-                        },
-                        // Not in the agent list below — a private agent this
-                        // member cannot see, or a deleted one. The rollup
-                        // still returns it.
-                        {
-                          agent_id: "0f9d1c2e-private-agent-uuid",
-                          failure_reason: "agent_error.provider_auth_or_access",
-                          task_count: 2,
-                        },
-                      ]
-                    : [];
+        let data: unknown[];
+        switch (kind) {
+          case "daily":
+            data = [
+              {
+                date: todayIso(),
+                provider: "anthropic",
+                model: "claude-sonnet-4-6",
+                input_tokens: 1_000,
+                output_tokens: 2_000,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                task_count: 2,
+              },
+            ];
+            break;
+          case "agent-runtime":
+            data = [
+              {
+                agent_id: "agent-1",
+                total_seconds: 3 * 3_600 + 17 * 60,
+                task_count: 12,
+                failed_count: 1,
+              },
+            ];
+            break;
+          case "runtime-daily":
+            data = [
+              {
+                date: todayIso(),
+                total_seconds: 3 * 3_600 + 17 * 60,
+                task_count: 12,
+                failed_count: 1,
+              },
+            ];
+            break;
+          // `failure_reason: ""` is the succeeded bucket — the denominator
+          // behind every rate the Errors surface shows.
+          case "failures-daily":
+            data = [
+              { date: todayIso(), failure_reason: "", task_count: 6 },
+              {
+                date: todayIso(),
+                failure_reason: "agent_error.provider_auth_or_access",
+                task_count: 3,
+              },
+              { date: todayIso(), failure_reason: "timeout", task_count: 1 },
+            ];
+            break;
+          case "failures-by-agent":
+            data = [
+              { agent_id: "agent-1", failure_reason: "", task_count: 6 },
+              {
+                agent_id: "agent-1",
+                failure_reason: "agent_error.provider_auth_or_access",
+                task_count: 3,
+              },
+              {
+                agent_id: "agent-1",
+                failure_reason: "timeout",
+                task_count: 1,
+              },
+              // Not in the agent list below — a private agent this member
+              // cannot see, or a deleted one. The rollup still returns it.
+              {
+                agent_id: "0f9d1c2e-private-agent-uuid",
+                failure_reason: "agent_error.provider_auth_or_access",
+                task_count: 2,
+              },
+            ];
+            break;
+          default:
+            data = [];
+        }
         return {
           data: restrictedBucketRef.current
             ? [...data, ...(RESTRICTED_BUCKET_ROWS[kind as string] ?? [])]
