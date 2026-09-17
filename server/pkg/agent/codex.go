@@ -2308,7 +2308,7 @@ func (c *codexClient) request(ctx context.Context, method string, params any) (j
 		return nil, err
 	}
 	requestCtx := ctx
-	cancelRequest := func() {}
+	cancelRequest := func() { /* no-op: timeout not set */ }
 	if c.handshakeTimeout > 0 && isCodexHandshakeRPC(method) {
 		timeoutErr := &codexHandshakeTimeoutError{Method: method, Timeout: c.handshakeTimeout}
 		requestCtx, cancelRequest = context.WithTimeoutCause(ctx, c.handshakeTimeout, timeoutErr)

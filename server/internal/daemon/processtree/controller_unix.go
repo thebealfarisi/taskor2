@@ -75,4 +75,6 @@ func (c *controller) finish(cmd *exec.Cmd) error {
 	return fmt.Errorf("process group %d still active after %s", pid, processTreeFinishTimeout)
 }
 
-func (*controller) close() {}
+func (*controller) close() {
+	// no-op on Unix: no operating system process tree handles to release.
+}

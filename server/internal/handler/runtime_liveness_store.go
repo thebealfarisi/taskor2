@@ -62,7 +62,9 @@ func (noopLivenessStore) IsAliveBatch(_ context.Context, _ []string) (map[string
 	return nil, false
 }
 
-func (noopLivenessStore) Forget(_ context.Context, _ string) {}
+func (noopLivenessStore) Forget(_ context.Context, _ string) {
+	// no-op: no-op liveness store does not persist records.
+}
 
 // runtimeLivenessKeyPrefix is the Redis key prefix for runtime liveness
 // records. Mirrors the namespacing used by the other runtime stores

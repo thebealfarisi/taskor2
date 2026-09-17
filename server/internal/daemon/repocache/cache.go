@@ -761,7 +761,7 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 	// can't tolerate parallel fetch + worktree mutations on the same repo.
 	repoLock := c.lockForRepo(barePath)
 	lockCtx := ctx
-	cancel := func() {}
+	cancel := func() { /* no-op: timeout not set */ }
 	if params.LockWaitTimeout > 0 {
 		lockCtx, cancel = context.WithTimeout(ctx, params.LockWaitTimeout)
 	}

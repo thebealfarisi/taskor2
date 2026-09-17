@@ -13,4 +13,6 @@ func replaceBinary(tmpPath, exePath string) error {
 
 // CleanupStaleUpdateArtifacts is a no-op on Unix — there are no sidecar files
 // to reclaim.
-func CleanupStaleUpdateArtifacts() {}
+func CleanupStaleUpdateArtifacts() {
+	// no-op on Unix: no sidecar update artifacts exist to clean up.
+}

@@ -301,4 +301,6 @@ func (n *typingNotifier) OnIngested(ctx context.Context, inst engine.ResolvedIns
 	}
 }
 
-func (n *typingNotifier) OnSettled(ctx context.Context, sessionID pgtype.UUID) {}
+func (n *typingNotifier) OnSettled(ctx context.Context, sessionID pgtype.UUID) {
+	// no-op: Telegram typing indicator expires automatically on the client side.
+}

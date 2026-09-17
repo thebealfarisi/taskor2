@@ -11,7 +11,9 @@ import (
 )
 
 // hideAgentWindow is a no-op on non-Windows platforms.
-func hideAgentWindow(cmd *exec.Cmd) {}
+func hideAgentWindow(cmd *exec.Cmd) {
+	// no-op: console window hiding is Windows-specific.
+}
 
 // configureProcessGroup puts the child into its own process group (it becomes
 // the group leader, so the group id equals the child pid). This lets the
@@ -34,7 +36,9 @@ func startOwnedProcessTree(cmd *exec.Cmd, _ *slog.Logger) error { return cmd.Sta
 
 // releaseProcessGroup is a no-op on non-Windows platforms: a process group needs
 // no handle and is gone once its members are.
-func releaseProcessGroup(cmd *exec.Cmd) {}
+func releaseProcessGroup(cmd *exec.Cmd) {
+	// no-op: process groups on Unix require no resource handles to release.
+}
 
 func codexInitializeRetrySupported() bool { return true }
 
