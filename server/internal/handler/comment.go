@@ -740,321 +740,308 @@ type commentFetchError struct{ msg string }
 func (e *commentFetchError) Error() string { return e.msg }
 
 func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsArgs) (fetchCommentsResult, error) {
-	issue := args.Issue
-
 	// Thread-scoped read. Server resolves the anchor → root via recursive
 	// CTE, so we don't have to assume two-layer flat threads here.
 	if args.ThreadAnchor != "" {
-		anchor, err := util.ParseUUID(args.ThreadAnchor)
-		if err != nil {
-			return fetchCommentsResult{}, errCommentThreadBadID
-		}
-		// Tailed path: paged query that returns root + the @reply_limit
-		// most recent replies (per (created_at, id)). The thread root is
-		// always returned, so a reader can land on a long thread without
-		// dragging hundreds of replies into context. The reply-internal
-		// cursor (--before / --before-id under --thread + --tail) scrolls
-		// to older replies inside the same thread.
-		if args.ThreadTailSet {
-			// Probe for has-more by asking the SQL for one extra reply
-			// beyond what the caller wants. If we get back >tail replies
-			// there is at least one older reply still on disk; if we get
-			// back ≤tail the page is the tail of the thread and there is
-			// nothing older to scroll to (so we must NOT emit a cursor —
-			// otherwise the next page is wasted round-trip that returns
-			// just the root). This is the exact-boundary fix called out
-			// in the MUL-2421 review.
-			rows, err := h.Queries.ListThreadCommentsForIssuePaged(ctx, db.ListThreadCommentsForIssuePagedParams{
-				AnchorID:    anchor,
-				IssueID:     issue.ID,
-				WorkspaceID: issue.WorkspaceID,
-				HasCursor:   args.HasCursor,
-				BeforeAt:    args.BeforeAt,
-				BeforeID:    args.BeforeID,
-				ReplyLimit:  int32(args.ThreadTail) + 1,
-			})
-			if err != nil {
-				return fetchCommentsResult{}, err
-			}
-			if len(rows) == 0 {
-				return fetchCommentsResult{}, errCommentThreadNotFound
-			}
-			// Split the result into root + replies (ASC order preserved).
-			// Root is identified by parent_id IS NULL and is always
-			// present in the SQL output; we keep it out of the cursor /
-			// tail-trim logic so the user always sees thread context.
-			var rootComment *db.Comment
-			replies := make([]db.Comment, 0, len(rows))
-			for _, r := range rows {
-				c := db.Comment{
-					ID:             r.ID,
-					IssueID:        r.IssueID,
-					AuthorType:     r.AuthorType,
-					AuthorID:       r.AuthorID,
-					Content:        r.Content,
-					Type:           r.Type,
-					CreatedAt:      r.CreatedAt,
-					UpdatedAt:      r.UpdatedAt,
-					ParentID:       r.ParentID,
-					WorkspaceID:    r.WorkspaceID,
-					ResolvedAt:     r.ResolvedAt,
-					ResolvedByType: r.ResolvedByType,
-					ResolvedByID:   r.ResolvedByID,
-					SourceTaskID:   r.SourceTaskID,
-					QuickActionID:  r.QuickActionID,
-					Revision:       r.Revision,
-				}
-				if !r.ParentID.Valid {
-					root := c
-					rootComment = &root
-					continue
-				}
-				replies = append(replies, c)
-			}
-			// Trim the probe overflow back to the caller's tail. The SQL
-			// emits ASC, so the extra row is the oldest reply — dropping
-			// it from the head is what aligns "newest N" with the user's
-			// request.
-			hasMore := len(replies) > args.ThreadTail
-			if hasMore {
-				replies = replies[1:]
-			}
-			out := make([]db.Comment, 0, len(replies)+1)
-			if rootComment != nil {
-				out = append(out, *rootComment)
-			}
-			for _, r := range replies {
-				// since drops stale rows AFTER the tail / cursor cut.
-				// The root is exempt (already appended above): a reader
-				// who set --since to skip already-seen replies still
-				// needs the root context if the page only contained
-				// the root.
-				if args.Since.Valid && !r.CreatedAt.Time.After(args.Since.Time) {
-					continue
-				}
-				out = append(out, r)
-			}
-			// Emit a reply cursor only when we proved an older reply
-			// exists (hasMore). On an exact-boundary page (replyCount
-			// == tail with no overflow) hasMore is false and the cursor
-			// stays empty.
-			//
-			// Additionally suppress the cursor when `since` is set and
-			// the oldest retained reply on this page is already <= since.
-			// The next page walks replies strictly older than that one,
-			// so every older reply has created_at strictly less — if the
-			// cursor target itself can't satisfy `> since`, no older
-			// reply can either, and continuing to paginate would only
-			// return root-only pages until the agent walks the entire
-			// pre-`since` history. This mirrors the head-thread guard on
-			// the recent + since path. Flagged by Elon's second review on
-			// MUL-2421.
-			res := fetchCommentsResult{Comments: out}
-			emitCursor := hasMore && len(replies) > 0
-			if emitCursor && args.Since.Valid && !replies[0].CreatedAt.Time.After(args.Since.Time) {
-				emitCursor = false
-			}
-			if emitCursor {
-				oldest := replies[0]
-				res.NextBefore = oldest.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
-				res.NextBeforeID = uuidToString(oldest.ID)
-			}
-			return res, nil
-		}
-		// Untailed reads use the same newest-reply query as the paged path.
-		// Probe with commentHardCap replies: because the root is unconditional,
-		// 2000 replies proves the total thread exceeds the 2000-row response cap.
-		// We then drop the oldest reply and retain root + newest 1999 replies.
-		rows, err := h.Queries.ListThreadCommentsForIssuePaged(ctx, db.ListThreadCommentsForIssuePagedParams{
-			AnchorID:    anchor,
-			IssueID:     issue.ID,
-			WorkspaceID: issue.WorkspaceID,
-			ReplyLimit:  commentHardCap,
-		})
-		if err != nil {
-			return fetchCommentsResult{}, err
-		}
-		if len(rows) == 0 {
-			return fetchCommentsResult{}, errCommentThreadNotFound
-		}
-		var rootComment *db.Comment
-		replies := make([]db.Comment, 0, len(rows))
-		for _, r := range rows {
-			c := db.Comment{
-				ID:             r.ID,
-				IssueID:        r.IssueID,
-				AuthorType:     r.AuthorType,
-				AuthorID:       r.AuthorID,
-				Content:        r.Content,
-				Type:           r.Type,
-				CreatedAt:      r.CreatedAt,
-				UpdatedAt:      r.UpdatedAt,
-				ParentID:       r.ParentID,
-				WorkspaceID:    r.WorkspaceID,
-				ResolvedAt:     r.ResolvedAt,
-				ResolvedByType: r.ResolvedByType,
-				ResolvedByID:   r.ResolvedByID,
-				SourceTaskID:   r.SourceTaskID,
-				QuickActionID:  r.QuickActionID,
-				Revision:       r.Revision,
-			}
-			if !r.ParentID.Valid {
-				root := c
-				rootComment = &root
-				continue
-			}
-			replies = append(replies, c)
-		}
-		truncated := len(replies) >= commentHardCap
-		if truncated {
-			replies = replies[1:]
-		}
-		out := make([]db.Comment, 0, len(replies)+1)
-		if rootComment != nil && (!args.Since.Valid || rootComment.CreatedAt.Time.After(args.Since.Time)) {
-			out = append(out, *rootComment)
-		}
-		for _, reply := range replies {
-			if args.Since.Valid && !reply.CreatedAt.Time.After(args.Since.Time) {
-				continue
-			}
-			out = append(out, reply)
-		}
-		return fetchCommentsResult{
-			Comments:          out,
-			CommentsTruncated: truncated,
-			FoldUnsafe:        truncated,
-		}, nil
+		return h.fetchThreadComments(ctx, args)
 	}
 
 	// Thread-grouped recent read: N most recently active threads.
 	if args.RecentN > 0 {
-		rows, err := h.Queries.ListRecentThreadCommentsForIssue(ctx, db.ListRecentThreadCommentsForIssueParams{
-			IssueID:     issue.ID,
-			WorkspaceID: issue.WorkspaceID,
-			HasCursor:   args.HasCursor,
-			BeforeAt:    args.BeforeAt,
-			BeforeID:    args.BeforeID,
-			ThreadLimit: int32(args.RecentN),
-		})
-		if err != nil {
-			return fetchCommentsResult{}, err
-		}
-
-		// The SQL already orders rows by (last_activity_at ASC, root_id ASC,
-		// created_at ASC, id ASC), so the OLDEST-active thread sits at the
-		// head and the FRESHEST thread at the tail. Walk the rows once to:
-		//   1. Strip the thread-metadata columns down to db.Comment for the
-		//      caller (uniform shape across paths).
-		//   2. Count distinct threads in the page so we know whether a "next
-		//      older page" is likely to exist.
-		//   3. Capture the head thread's (last_activity_at, root_id) — that
-		//      is the cursor for the next page (next page = threads strictly
-		//      less recent than this one).
-		comments := make([]db.Comment, 0, len(rows))
-		var headRoot pgtype.UUID
-		var headLast pgtype.Timestamptz
-		seenRoot := map[string]struct{}{}
-		for _, r := range rows {
-			if !headRoot.Valid {
-				headRoot = r.ThreadRootID
-				headLast = r.ThreadLastActivityAt
-			}
-			seenRoot[uuidToString(r.ThreadRootID)] = struct{}{}
-			// Since filter on the recent path: drop comments older than
-			// `since`. Done in-memory so we keep the thread-grouped
-			// semantics from the query (don't pre-filter rows before the
-			// MAX(created_at) ranking — that would silently downgrade a
-			// thread whose most recent activity falls inside the window).
-			if args.Since.Valid && !r.CreatedAt.Time.After(args.Since.Time) {
-				continue
-			}
-			comments = append(comments, db.Comment{
-				ID:             r.ID,
-				IssueID:        r.IssueID,
-				AuthorType:     r.AuthorType,
-				AuthorID:       r.AuthorID,
-				Content:        r.Content,
-				Type:           r.Type,
-				CreatedAt:      r.CreatedAt,
-				UpdatedAt:      r.UpdatedAt,
-				ParentID:       r.ParentID,
-				WorkspaceID:    r.WorkspaceID,
-				ResolvedAt:     r.ResolvedAt,
-				ResolvedByType: r.ResolvedByType,
-				ResolvedByID:   r.ResolvedByID,
-				SourceTaskID:   r.SourceTaskID,
-				QuickActionID:  r.QuickActionID,
-				Revision:       r.Revision,
-			})
-		}
-
-		// Only emit a cursor when the page is full. Fewer threads than
-		// requested ⇒ the SELECT exhausted matching threads, so there is
-		// no older page to scroll to.
-		//
-		// Additionally suppress the cursor when `since` is set and the head
-		// thread's last_activity_at is already <= since. The pagination
-		// walks threads in strictly decreasing last_activity_at, so every
-		// older page has last_activity_at strictly less than the head's —
-		// if the head itself can't satisfy `> since`, no older thread can
-		// either. Predicating on the head (not on whether `comments` is
-		// empty) also catches the mixed case where this page keeps rows
-		// from fresher threads but the head thread is already past `since`.
-		// Flagged by Elon in #2787's second review (MUL-2340 nit).
-		out := fetchCommentsResult{Comments: comments}
-		emitCursor := len(seenRoot) >= args.RecentN && headRoot.Valid && headLast.Valid
-		if emitCursor && args.Since.Valid && !headLast.Time.After(args.Since.Time) {
-			emitCursor = false
-		}
-		if emitCursor {
-			out.NextBefore = headLast.Time.UTC().Format(time.RFC3339Nano)
-			out.NextBeforeID = uuidToString(headRoot)
-		}
-		return out, nil
+		return h.fetchRecentThreadComments(ctx, args)
 	}
 
 	if args.RootsOnly {
-		// Root-only read for issue-level orientation. This intentionally
-		// stays separate from thread/recent modes: callers get the global
-		// top-level discussion first, then fetch a specific thread only when
-		// they need reply context. Each root carries reply_count +
-		// last_activity_at so the reader can triage which thread to drill into.
-		stats := map[string]rootStat{}
-		if args.Since.Valid {
-			rows, err := h.Queries.ListRootCommentsSinceForIssue(ctx, db.ListRootCommentsSinceForIssueParams{
-				IssueID:     issue.ID,
-				WorkspaceID: issue.WorkspaceID,
-				Since:       args.Since,
-				RowLimit:    commentProbeLimit,
-			})
-			if err != nil {
-				return fetchCommentsResult{}, err
-			}
-			truncated := len(rows) > commentHardCap
-			if truncated {
-				// Since is an incremental stream: keep the first page after the
-				// cursor so callers can advance without skipping a gap.
-				rows = rows[:commentHardCap]
-			}
-			comments := make([]db.Comment, len(rows))
-			for i, r := range rows {
-				comments[i] = db.Comment{
-					ID: r.ID, IssueID: r.IssueID, AuthorType: r.AuthorType, AuthorID: r.AuthorID,
-					Content: r.Content, Type: r.Type, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
-					ParentID: r.ParentID, WorkspaceID: r.WorkspaceID, ResolvedAt: r.ResolvedAt,
-					ResolvedByType: r.ResolvedByType, ResolvedByID: r.ResolvedByID,
-					SourceTaskID: r.SourceTaskID, QuickActionID: r.QuickActionID, Revision: r.Revision,
-				}
-				stats[uuidToString(r.ID)] = rootStat{ReplyCount: int(r.ReplyCount), LastActivityAt: r.LastActivityAt}
-			}
-			return fetchCommentsResult{
-				Comments: comments, RootStats: stats, CommentsTruncated: truncated,
-			}, nil
-		}
+		return h.fetchRootComments(ctx, args)
+	}
 
-		rows, err := h.Queries.ListRootCommentsForIssue(ctx, db.ListRootCommentsForIssueParams{
+	return h.fetchFlatComments(ctx, args)
+}
+
+func (h *Handler) fetchThreadComments(ctx context.Context, args fetchCommentsArgs) (fetchCommentsResult, error) {
+	anchor, err := util.ParseUUID(args.ThreadAnchor)
+	if err != nil {
+		return fetchCommentsResult{}, errCommentThreadBadID
+	}
+	if args.ThreadTailSet {
+		return h.fetchThreadCommentsPagedTail(ctx, args, anchor)
+	}
+	return h.fetchThreadCommentsUntailed(ctx, args, anchor)
+}
+
+func (h *Handler) fetchThreadCommentsPagedTail(ctx context.Context, args fetchCommentsArgs, anchor pgtype.UUID) (fetchCommentsResult, error) {
+	issue := args.Issue
+	// Probe for has-more by asking the SQL for one extra reply
+	// beyond what the caller wants. If we get back >tail replies
+	// there is at least one older reply still on disk; if we get
+	// back ≤tail the page is the tail of the thread and there is
+	// nothing older to scroll to (so we must NOT emit a cursor —
+	// otherwise the next page is wasted round-trip that returns
+	// just the root). This is the exact-boundary fix called out
+	// in the MUL-2421 review.
+	rows, err := h.Queries.ListThreadCommentsForIssuePaged(ctx, db.ListThreadCommentsForIssuePagedParams{
+		AnchorID:    anchor,
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		HasCursor:   args.HasCursor,
+		BeforeAt:    args.BeforeAt,
+		BeforeID:    args.BeforeID,
+		ReplyLimit:  int32(args.ThreadTail) + 1,
+	})
+	if err != nil {
+		return fetchCommentsResult{}, err
+	}
+	if len(rows) == 0 {
+		return fetchCommentsResult{}, errCommentThreadNotFound
+	}
+	// Split the result into root + replies (ASC order preserved).
+	// Root is identified by parent_id IS NULL and is always
+	// present in the SQL output; we keep it out of the cursor /
+	// tail-trim logic so the user always sees thread context.
+	var rootComment *db.Comment
+	replies := make([]db.Comment, 0, len(rows))
+	for _, r := range rows {
+		c := db.Comment{
+			ID:             r.ID,
+			IssueID:        r.IssueID,
+			AuthorType:     r.AuthorType,
+			AuthorID:       r.AuthorID,
+			Content:        r.Content,
+			Type:           r.Type,
+			CreatedAt:      r.CreatedAt,
+			UpdatedAt:      r.UpdatedAt,
+			ParentID:       r.ParentID,
+			WorkspaceID:    r.WorkspaceID,
+			ResolvedAt:     r.ResolvedAt,
+			ResolvedByType: r.ResolvedByType,
+			ResolvedByID:   r.ResolvedByID,
+			SourceTaskID:   r.SourceTaskID,
+			QuickActionID:  r.QuickActionID,
+			Revision:       r.Revision,
+		}
+		if !r.ParentID.Valid {
+			root := c
+			rootComment = &root
+			continue
+		}
+		replies = append(replies, c)
+	}
+	// Trim the probe overflow back to the caller's tail. The SQL
+	// emits ASC, so the extra row is the oldest reply — dropping
+	// it from the head is what aligns "newest N" with the user's
+	// request.
+	hasMore := len(replies) > args.ThreadTail
+	if hasMore {
+		replies = replies[1:]
+	}
+	out := make([]db.Comment, 0, len(replies)+1)
+	if rootComment != nil {
+		out = append(out, *rootComment)
+	}
+	for _, r := range replies {
+		// since drops stale rows AFTER the tail / cursor cut.
+		// The root is exempt (already appended above): a reader
+		// who set --since to skip already-seen replies still
+		// needs the root context if the page only contained
+		// the root.
+		if args.Since.Valid && !r.CreatedAt.Time.After(args.Since.Time) {
+			continue
+		}
+		out = append(out, r)
+	}
+	// Emit a reply cursor only when we proved an older reply
+	// exists (hasMore). On an exact-boundary page (replyCount
+	// == tail with no overflow) hasMore is false and the cursor
+	// stays empty.
+	//
+	// Additionally suppress the cursor when `since` is set and
+	// the oldest retained reply on this page is already <= since.
+	// The next page walks replies strictly older than that one,
+	// so every older reply has created_at strictly less — if the
+	// cursor target itself can't satisfy `> since`, no older
+	// reply can either, and continuing to paginate would only
+	// return root-only pages until the agent walks the entire
+	// pre-`since` history. This mirrors the head-thread guard on
+	// the recent + since path. Flagged by Elon's second review on
+	// MUL-2421.
+	res := fetchCommentsResult{Comments: out}
+	emitCursor := hasMore && len(replies) > 0
+	if emitCursor && args.Since.Valid && !replies[0].CreatedAt.Time.After(args.Since.Time) {
+		emitCursor = false
+	}
+	if emitCursor {
+		oldest := replies[0]
+		res.NextBefore = oldest.CreatedAt.Time.UTC().Format(time.RFC3339Nano)
+		res.NextBeforeID = uuidToString(oldest.ID)
+	}
+	return res, nil
+}
+
+func (h *Handler) fetchThreadCommentsUntailed(ctx context.Context, args fetchCommentsArgs, anchor pgtype.UUID) (fetchCommentsResult, error) {
+	issue := args.Issue
+	// Untailed reads use the same newest-reply query as the paged path.
+	// Probe with commentHardCap replies: because the root is unconditional,
+	// 2000 replies proves the total thread exceeds the 2000-row response cap.
+	// We then drop the oldest reply and retain root + newest 1999 replies.
+	rows, err := h.Queries.ListThreadCommentsForIssuePaged(ctx, db.ListThreadCommentsForIssuePagedParams{
+		AnchorID:    anchor,
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		ReplyLimit:  commentHardCap,
+	})
+	if err != nil {
+		return fetchCommentsResult{}, err
+	}
+	if len(rows) == 0 {
+		return fetchCommentsResult{}, errCommentThreadNotFound
+	}
+	var rootComment *db.Comment
+	replies := make([]db.Comment, 0, len(rows))
+	for _, r := range rows {
+		c := db.Comment{
+			ID:             r.ID,
+			IssueID:        r.IssueID,
+			AuthorType:     r.AuthorType,
+			AuthorID:       r.AuthorID,
+			Content:        r.Content,
+			Type:           r.Type,
+			CreatedAt:      r.CreatedAt,
+			UpdatedAt:      r.UpdatedAt,
+			ParentID:       r.ParentID,
+			WorkspaceID:    r.WorkspaceID,
+			ResolvedAt:     r.ResolvedAt,
+			ResolvedByType: r.ResolvedByType,
+			ResolvedByID:   r.ResolvedByID,
+			SourceTaskID:   r.SourceTaskID,
+			QuickActionID:  r.QuickActionID,
+			Revision:       r.Revision,
+		}
+		if !r.ParentID.Valid {
+			root := c
+			rootComment = &root
+			continue
+		}
+		replies = append(replies, c)
+	}
+	truncated := len(replies) >= commentHardCap
+	if truncated {
+		replies = replies[1:]
+	}
+	out := make([]db.Comment, 0, len(replies)+1)
+	if rootComment != nil && (!args.Since.Valid || rootComment.CreatedAt.Time.After(args.Since.Time)) {
+		out = append(out, *rootComment)
+	}
+	for _, reply := range replies {
+		if args.Since.Valid && !reply.CreatedAt.Time.After(args.Since.Time) {
+			continue
+		}
+		out = append(out, reply)
+	}
+	return fetchCommentsResult{
+		Comments:          out,
+		CommentsTruncated: truncated,
+		FoldUnsafe:        truncated,
+	}, nil
+}
+
+func (h *Handler) fetchRecentThreadComments(ctx context.Context, args fetchCommentsArgs) (fetchCommentsResult, error) {
+	issue := args.Issue
+	rows, err := h.Queries.ListRecentThreadCommentsForIssue(ctx, db.ListRecentThreadCommentsForIssueParams{
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		HasCursor:   args.HasCursor,
+		BeforeAt:    args.BeforeAt,
+		BeforeID:    args.BeforeID,
+		ThreadLimit: int32(args.RecentN),
+	})
+	if err != nil {
+		return fetchCommentsResult{}, err
+	}
+	// The SQL already orders rows by (last_activity_at ASC, root_id ASC,
+	// created_at ASC, id ASC), so the OLDEST-active thread sits at the
+	// head and the FRESHEST thread at the tail. Walk the rows once to:
+	//   1. Strip the thread-metadata columns down to db.Comment for the
+	//      caller (uniform shape across paths).
+	//   2. Count distinct threads in the page so we know whether a "next
+	//      older page" is likely to exist.
+	//   3. Capture the head thread's (last_activity_at, root_id) — that
+	//      is the cursor for the next page (next page = threads strictly
+	//      less recent than this one).
+	comments := make([]db.Comment, 0, len(rows))
+	var headRoot pgtype.UUID
+	var headLast pgtype.Timestamptz
+	seenRoot := map[string]struct{}{}
+	for _, r := range rows {
+		if !headRoot.Valid {
+			headRoot = r.ThreadRootID
+			headLast = r.ThreadLastActivityAt
+		}
+		seenRoot[uuidToString(r.ThreadRootID)] = struct{}{}
+		// Since filter on the recent path: drop comments older than
+		// `since`. Done in-memory so we keep the thread-grouped
+		// semantics from the query (don't pre-filter rows before the
+		// MAX(created_at) ranking — that would silently downgrade a
+		// thread whose most recent activity falls inside the window).
+		if args.Since.Valid && !r.CreatedAt.Time.After(args.Since.Time) {
+			continue
+		}
+		comments = append(comments, db.Comment{
+			ID:             r.ID,
+			IssueID:        r.IssueID,
+			AuthorType:     r.AuthorType,
+			AuthorID:       r.AuthorID,
+			Content:        r.Content,
+			Type:           r.Type,
+			CreatedAt:      r.CreatedAt,
+			UpdatedAt:      r.UpdatedAt,
+			ParentID:       r.ParentID,
+			WorkspaceID:    r.WorkspaceID,
+			ResolvedAt:     r.ResolvedAt,
+			ResolvedByType: r.ResolvedByType,
+			ResolvedByID:   r.ResolvedByID,
+			SourceTaskID:   r.SourceTaskID,
+			QuickActionID:  r.QuickActionID,
+			Revision:       r.Revision,
+		})
+	}
+	// Only emit a cursor when the page is full. Fewer threads than
+	// requested ⇒ the SELECT exhausted matching threads, so there is
+	// no older page to scroll to.
+	//
+	// Additionally suppress the cursor when `since` is set and the head
+	// thread's last_activity_at is already <= since. The pagination
+	// walks threads in strictly decreasing last_activity_at, so every
+	// older page has last_activity_at strictly less than the head's —
+	// if the head itself can't satisfy `> since`, no older thread can
+	// either. Predicating on the head (not on whether `comments` is
+	// empty) also catches the mixed case where this page keeps rows
+	// from fresher threads but the head thread is already past `since`.
+	// Flagged by Elon in #2787's second review (MUL-2340 nit).
+	out := fetchCommentsResult{Comments: comments}
+	emitCursor := len(seenRoot) >= args.RecentN && headRoot.Valid && headLast.Valid
+	if emitCursor && args.Since.Valid && !headLast.Time.After(args.Since.Time) {
+		emitCursor = false
+	}
+	if emitCursor {
+		out.NextBefore = headLast.Time.UTC().Format(time.RFC3339Nano)
+		out.NextBeforeID = uuidToString(headRoot)
+	}
+	return out, nil
+}
+
+func (h *Handler) fetchRootComments(ctx context.Context, args fetchCommentsArgs) (fetchCommentsResult, error) {
+	issue := args.Issue
+	// Root-only read for issue-level orientation. This intentionally
+	// stays separate from thread/recent modes: callers get the global
+	// top-level discussion first, then fetch a specific thread only when
+	// they need reply context. Each root carries reply_count +
+	// last_activity_at so the reader can triage which thread to drill into.
+	stats := map[string]rootStat{}
+	if args.Since.Valid {
+		rows, err := h.Queries.ListRootCommentsSinceForIssue(ctx, db.ListRootCommentsSinceForIssueParams{
 			IssueID:     issue.ID,
 			WorkspaceID: issue.WorkspaceID,
+			Since:       args.Since,
 			RowLimit:    commentProbeLimit,
 		})
 		if err != nil {
@@ -1062,9 +1049,9 @@ func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsAr
 		}
 		truncated := len(rows) > commentHardCap
 		if truncated {
-			// The SQL returns selected roots chronologically after taking the
-			// newest probe window, so the overflow row is the oldest.
-			rows = rows[1:]
+			// Since is an incremental stream: keep the first page after the
+			// cursor so callers can advance without skipping a gap.
+			rows = rows[:commentHardCap]
 		}
 		comments := make([]db.Comment, len(rows))
 		for i, r := range rows {
@@ -1081,7 +1068,38 @@ func (h *Handler) fetchCommentsForList(ctx context.Context, args fetchCommentsAr
 			Comments: comments, RootStats: stats, CommentsTruncated: truncated,
 		}, nil
 	}
+	rows, err := h.Queries.ListRootCommentsForIssue(ctx, db.ListRootCommentsForIssueParams{
+		IssueID:     issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+		RowLimit:    commentProbeLimit,
+	})
+	if err != nil {
+		return fetchCommentsResult{}, err
+	}
+	truncated := len(rows) > commentHardCap
+	if truncated {
+		// The SQL returns selected roots chronologically after taking the
+		// newest probe window, so the overflow row is the oldest.
+		rows = rows[1:]
+	}
+	comments := make([]db.Comment, len(rows))
+	for i, r := range rows {
+		comments[i] = db.Comment{
+			ID: r.ID, IssueID: r.IssueID, AuthorType: r.AuthorType, AuthorID: r.AuthorID,
+			Content: r.Content, Type: r.Type, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+			ParentID: r.ParentID, WorkspaceID: r.WorkspaceID, ResolvedAt: r.ResolvedAt,
+			ResolvedByType: r.ResolvedByType, ResolvedByID: r.ResolvedByID,
+			SourceTaskID: r.SourceTaskID, QuickActionID: r.QuickActionID, Revision: r.Revision,
+		}
+		stats[uuidToString(r.ID)] = rootStat{ReplyCount: int(r.ReplyCount), LastActivityAt: r.LastActivityAt}
+	}
+	return fetchCommentsResult{
+		Comments: comments, RootStats: stats, CommentsTruncated: truncated,
+	}, nil
+}
 
+func (h *Handler) fetchFlatComments(ctx context.Context, args fetchCommentsArgs) (fetchCommentsResult, error) {
+	issue := args.Issue
 	// Since reads keep their chronological page shape. A probe makes the cap
 	// visible without skipping the next page of the incremental stream.
 	if args.Since.Valid {

@@ -237,15 +237,14 @@ graph TD
      - `server/cmd/server/router_integrations.go`: Setup integrasi platform eksternal (`initServerIntegrations`: Lark, WeCom, DingTalk, Slack, Telegram, Composio).
      - `server/cmd/server/router_routes.go`: Pendaftaran rute HTTP modular (`mountAllRoutes`, `mountPublicAndHealthRoutes`, `mountDaemonAPIRoutes`, `mountPluginAPIRoutes`, `mountProtectedRoutes`, `mountUserScopedRoutes`, `mountWorkspaceScopedRoutes`, `mountWorkspaceIssueRoutes`, `mountWorkspaceProjectAndSquadRoutes`, `mountWorkspaceAgentAndChatRoutes`, `mountWorkspaceInboxAndCommentRoutes`), masing-masing berbobot skor kompleksitas 0.
 
-##### Sub-wave P5.1.B: Issue & Agent Handlers (`server/internal/handler/`) — [STATUS: IN PROGRESS]
-| Skor | Lokasi File & Baris | Fungsi Utama | Strategi Dekomposisi |
-|:---:|---|---|---|
-| **164** | `server/internal/handler/issue.go (3856)` | Bulk Issue Mutation (`BatchUpdateIssues`) | Ekstrak pipeline mutasi per-field (status, assignee, priority, labels). |
-| **137** | `server/internal/handler/issue.go (1014)` | Issue Query Filters (`ListIssues`) | Gunakan builder pola filter query terpisah. |
-| **133** | `server/internal/handler/agent.go (1580)` | Agent Prompt Compilation (`UpdateAgent`) | Pisahkan parsing template prompt dari resolusi dependensi skill. |
-| **129** | `server/internal/handler/issue.go (3238)` | Issue Detail Aggregator (`UpdateIssue`) | Pisahkan query komentar, reaksi, dan metadata ke helper terpisah. |
-| **122** | `server/internal/handler/issue.go (1702)` | Issue Update Transaction (`ListGroupedIssues`) | Pisahkan logika side-effect notifikasi dari transaksi database. |
-| **106** | `server/internal/handler/comment.go` | Comment Thread Fetching (`fetchCommentsForList`) | Ekstrak loader komentar dan perakit reaksi ke sub-fungsi mandiri. |
+##### Sub-wave P5.1.B: Issue, Comment & Agent Handlers (`server/internal/handler/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil didekomposisi pada 3 file handler utama (`agent.go`, `comment.go`, `issue.go`); diverifikasi dengan kompilasi `go build -ldflags "-s -w" ./cmd/server` dan suite test `go test ./cmd/server`.
+- **Daftar Fungsi Refactor:**
+  1. `server/internal/handler/comment.go (742)`: `fetchCommentsForList` (skor awal: **106** -> skor baru: **6**). Didekomposisi menjadi 6 helper functions modular: `fetchThreadComments`, `fetchThreadCommentsPagedTail`, `fetchThreadCommentsUntailed`, `fetchRecentThreadComments`, `fetchRootComments`, `fetchFlatComments`.
+  2. `server/internal/handler/agent.go (1580)`: `UpdateAgent` (skor awal: **133** -> skor baru: **~87**). Didekomposisi menjadi helper terisolasi: `resolveUpdateAgentRuntime`, `handleAgentPermissionUpdate`, `validateAgentThinkingLevel`, `validateAgentServiceTier`, `handleAgentComposioAllowlist`, `clearAgentNullableOverrides`.
+  3. `server/internal/handler/issue.go (3856)`: `BatchUpdateIssues` (skor awal: **164** -> skor baru: **~80**). Didekomposisi menjadi: `applyBatchParentIssue`, `applyBatchSingleIssueParams`, `executeBatchIssueUpdate`, `dispatchBatchIssueNotifications`.
+  4. `server/internal/handler/issue.go (3238)`: `UpdateIssue` (skor awal: **129** -> skor baru: **~35**). Didekomposisi menjadi: `validateAndUpdateIssueParent`, `buildUpdateIssueParams`, `publishIssueUpdateAndDispatch`.
+  5. `server/internal/handler/issue.go (1014 & 1702)`: `ListIssues` (skor awal: **137**) & `ListGroupedIssues` (skor awal: **122**). Didekomposisi dengan helper bersama: `parseIssueSortConfig` (mengeliminasi 112 baris duplikasi sort), `listOpenIssuesOnly` (ekstraksi full mode `open_only`), dan `buildAssigneeGroupsFromRows`.
 
 ##### Sub-wave P5.1.C: Daemon Lifecycle & LLM Stream Parser — [STATUS: PENDING]
 | Skor | Lokasi File & Baris | Fungsi Utama | Strategi Dekomposisi |

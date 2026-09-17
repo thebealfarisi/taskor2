@@ -1011,6 +1011,136 @@ func (h *Handler) QueryIssues(w http.ResponseWriter, r *http.Request) {
 	h.ListIssues(w, r)
 }
 
+type issueSortConfig struct {
+	Col        string
+	Dir        string
+	IsExpr     bool
+	IsProperty bool
+}
+
+func (h *Handler) parseIssueSortConfig(r *http.Request, workspaceID string) (issueSortConfig, bool, int, string) {
+	sortCol := "position"
+	sortIsExpr := false
+	sortIsProperty := false
+	if s := r.URL.Query().Get("sort"); s != "" {
+		switch s {
+		case "position", "title", "created_at", "updated_at", "start_date", "due_date":
+			sortCol = s
+		case "last_activity":
+			sortCol = "last_activity_at"
+		case "status":
+			sortCol = "CASE i.status WHEN 'backlog' THEN 0 WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'in_review' THEN 3 WHEN 'done' THEN 4 WHEN 'blocked' THEN 5 WHEN 'cancelled' THEN 6 ELSE 7 END"
+			sortIsExpr = true
+		case "priority":
+			sortCol = "CASE i.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
+			sortIsExpr = true
+		default:
+			expr, handled, sortErr := h.propertySortExpr(r, workspaceID, s)
+			if !handled {
+				return issueSortConfig{}, false, http.StatusBadRequest, errMsgInvalidSortValue
+			}
+			if sortErr != nil {
+				if sortErr.Error() == errMsgInvalidSortValue || sortErr.Error() == "invalid workspace id" {
+					return issueSortConfig{}, false, http.StatusBadRequest, sortErr.Error()
+				}
+				slog.Warn("propertySortExpr failed", append(logger.RequestAttrs(r), "error", sortErr)...)
+				return issueSortConfig{}, false, http.StatusInternalServerError, "failed to resolve sort"
+			}
+			if expr != "" {
+				sortCol = expr
+				sortIsExpr = true
+				sortIsProperty = true
+			}
+		}
+	}
+	sortDir := "ASC"
+	if sortCol == "last_activity_at" {
+		sortDir = "DESC"
+	}
+	if sortCol != "position" {
+		if d := r.URL.Query().Get("direction"); d != "" {
+			switch strings.ToLower(d) {
+			case "asc":
+				sortDir = "ASC"
+			case "desc":
+				sortDir = "DESC"
+			default:
+				return issueSortConfig{}, false, http.StatusBadRequest, "invalid direction value"
+			}
+		}
+	}
+	return issueSortConfig{
+		Col:        sortCol,
+		Dir:        sortDir,
+		IsExpr:     sortIsExpr,
+		IsProperty: sortIsProperty,
+	}, true, 0, ""
+}
+
+func (h *Handler) listOpenIssuesOnly(
+	w http.ResponseWriter,
+	r *http.Request,
+	wsUUID pgtype.UUID,
+	priorityFilter pgtype.Text,
+	assigneeFilter pgtype.UUID,
+	assigneeIdsFilter []pgtype.UUID,
+	creatorFilter pgtype.UUID,
+	projectFilter pgtype.UUID,
+	involvesUserFilter pgtype.UUID,
+	metadataFilter []byte,
+	propertiesFilter [][]json.RawMessage,
+) bool {
+	ctx := r.Context()
+	var openPropertiesFilter []byte
+	if len(propertiesFilter) > 0 {
+		marshaled, marshalErr := json.Marshal(propertiesFilter)
+		if marshalErr != nil {
+			writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
+			return false
+		}
+		openPropertiesFilter = marshaled
+	}
+	issues, err := h.Queries.ListOpenIssues(ctx, db.ListOpenIssuesParams{
+		WorkspaceID:      wsUUID,
+		Priority:         priorityFilter,
+		AssigneeID:       assigneeFilter,
+		AssigneeIds:      assigneeIdsFilter,
+		CreatorID:        creatorFilter,
+		ProjectID:        projectFilter,
+		InvolvesUserID:   involvesUserFilter,
+		MetadataFilter:   metadataFilter,
+		PropertiesFilter: openPropertiesFilter,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
+		return false
+	}
+
+	prefix := h.getIssuePrefix(ctx, wsUUID)
+	ids := make([]pgtype.UUID, len(issues))
+	for i, issue := range issues {
+		ids[i] = issue.ID
+	}
+	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+	fillOpen := h.newStatusCategoryFiller(ctx, wsUUID)
+	resp := make([]IssueResponse, len(issues))
+	for i, issue := range issues {
+		resp[i] = openIssueRowToResponse(issue, prefix)
+		fillOpen(&resp[i])
+		labels := labelsMap[resp[i].ID]
+		if labels == nil {
+			labels = []LabelResponse{}
+		}
+		resp[i].Labels = &labels
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issues": resp,
+		"total":  len(resp),
+	})
+	return true
+}
+
 func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -1020,9 +1150,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional filter params. Malformed UUIDs in filters return 400 —
-	// silently coercing them to a zero UUID would mask a client bug and let
-	// the query return an empty result set (or worse, match a NULL row).
 	var priorityFilter pgtype.Text
 	if p := r.URL.Query().Get("priority"); p != "" {
 		priorityFilter = pgtype.Text{String: p, Valid: true}
@@ -1063,11 +1190,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		}
 		projectFilter = id
 	}
-	// involves_user_id widens the assignee filter to surface issues where the
-	// user is the indirect assignee (their owned agent, or a squad they belong
-	// to / lead / have an agent inside). Direct member-assignment is excluded
-	// by design — that is the meaning of `assignee_id` (tab 1), and tab 3 must
-	// be disjoint from tab 1.
 	var involvesUserFilter pgtype.UUID
 	if u := r.URL.Query().Get("involves_user_id"); u != "" {
 		id, ok := parseUUIDOrBadRequest(w, u, "involves_user_id")
@@ -1090,57 +1212,8 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// open_only=true returns all non-done/cancelled issues (no limit).
 	if r.URL.Query().Get("open_only") == "true" {
-		// Serialize the parsed AND-of-ORs groups into the single jsonb param
-		// the static query unrolls (see properties_filter in ListOpenIssues).
-		var openPropertiesFilter []byte
-		if len(propertiesFilter) > 0 {
-			marshaled, marshalErr := json.Marshal(propertiesFilter)
-			if marshalErr != nil {
-				writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
-				return
-			}
-			openPropertiesFilter = marshaled
-		}
-		issues, err := h.Queries.ListOpenIssues(ctx, db.ListOpenIssuesParams{
-			WorkspaceID:      wsUUID,
-			Priority:         priorityFilter,
-			AssigneeID:       assigneeFilter,
-			AssigneeIds:      assigneeIdsFilter,
-			CreatorID:        creatorFilter,
-			ProjectID:        projectFilter,
-			InvolvesUserID:   involvesUserFilter,
-			MetadataFilter:   metadataFilter,
-			PropertiesFilter: openPropertiesFilter,
-		})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
-			return
-		}
-
-		prefix := h.getIssuePrefix(ctx, wsUUID)
-		ids := make([]pgtype.UUID, len(issues))
-		for i, issue := range issues {
-			ids[i] = issue.ID
-		}
-		labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
-		fillOpen := h.newStatusCategoryFiller(ctx, wsUUID)
-		resp := make([]IssueResponse, len(issues))
-		for i, issue := range issues {
-			resp[i] = openIssueRowToResponse(issue, prefix)
-			fillOpen(&resp[i])
-			labels := labelsMap[resp[i].ID]
-			if labels == nil {
-				labels = []LabelResponse{}
-			}
-			resp[i].Labels = &labels
-		}
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"issues": resp,
-			"total":  len(resp),
-		})
+		h.listOpenIssuesOnly(w, r, wsUUID, priorityFilter, assigneeFilter, assigneeIdsFilter, creatorFilter, projectFilter, involvesUserFilter, metadataFilter, propertiesFilter)
 		return
 	}
 
@@ -1164,10 +1237,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	if len(statusesFilter) == 0 {
 		statusesFilter = splitCommaParam(r.URL.Query().Get("status"))
 	}
-	// status_category filters by BEHAVIOR rather than by exact key, so one
-	// board column can hold a category's canonical status plus every custom
-	// status that inherits it. Without this the board would need one column —
-	// and one request — per status. (MUL-6243)
 	statusCategoriesFilter := splitCommaParam(r.URL.Query().Get("status_categories"))
 	if len(statusCategoriesFilter) == 0 {
 		statusCategoriesFilter = splitCommaParam(r.URL.Query().Get("status_category"))
@@ -1177,10 +1246,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		prioritiesFilter = splitCommaParam(r.URL.Query().Get("priority"))
 	}
 
-	// assignee_types narrows the list to issues assigned to the given actor
-	// kinds (member / agent / squad). Mirrors the same param on
-	// ListGroupedIssues so the workspace Members/Agents tabs can filter
-	// server-side instead of post-filtering loaded pages on the client.
 	assigneeTypesFilter := splitCommaParam(r.URL.Query().Get("assignee_types"))
 	for _, assigneeType := range assigneeTypesFilter {
 		if !isIssueActorType(assigneeType) {
@@ -1189,77 +1254,17 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// scheduled=true restricts the result to issues that have at least one of
-	// start_date / due_date set. Used by the Project Gantt view, which only
-	// renders schedulable rows and shouldn't pay for the full project list.
 	var scheduledFilter pgtype.Bool
 	if r.URL.Query().Get("scheduled") == "true" {
 		scheduledFilter = pgtype.Bool{Bool: true, Valid: true}
 	}
 
-	// Parse sort and direction params for dynamic ORDER BY.
-	// Manual sort (position) is always ASC — direction is ignored because
-	// the user defines order through drag-and-drop, reversing it has no
-	// product meaning.
-	sortCol := "position"
-	sortIsExpr := false
-	sortIsProperty := false
-	if s := r.URL.Query().Get("sort"); s != "" {
-		switch s {
-		case "position", "title", "created_at", "updated_at", "start_date", "due_date":
-			sortCol = s
-		case "last_activity":
-			sortCol = "last_activity_at"
-		case "status":
-			sortCol = "CASE i.status WHEN 'backlog' THEN 0 WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'in_review' THEN 3 WHEN 'done' THEN 4 WHEN 'blocked' THEN 5 WHEN 'cancelled' THEN 6 ELSE 7 END"
-			sortIsExpr = true
-		case "priority":
-			sortCol = "CASE i.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
-			sortIsExpr = true
-		default:
-			// property:<definitionId> sorts by the custom-property value
-			// (typed expression); unknown/archived definitions degrade to
-			// position order instead of erroring stale clients.
-			expr, handled, sortErr := h.propertySortExpr(r, workspaceID, s)
-			if !handled {
-				writeError(w, http.StatusBadRequest, errMsgInvalidSortValue)
-				return
-			}
-			if sortErr != nil {
-				if sortErr.Error() == errMsgInvalidSortValue || sortErr.Error() == "invalid workspace id" {
-					writeError(w, http.StatusBadRequest, sortErr.Error())
-					return
-				}
-				slog.Warn("propertySortExpr failed", append(logger.RequestAttrs(r), "error", sortErr)...)
-				writeError(w, http.StatusInternalServerError, "failed to resolve sort")
-				return
-			}
-			if expr != "" {
-				sortCol = expr
-				sortIsExpr = true
-				sortIsProperty = true
-			}
-		}
-	}
-	sortDir := "ASC"
-	if sortCol == "last_activity_at" {
-		sortDir = "DESC"
-	}
-	if sortCol != "position" {
-		if d := r.URL.Query().Get("direction"); d != "" {
-			switch strings.ToLower(d) {
-			case "asc":
-				sortDir = "ASC"
-			case "desc":
-				sortDir = "DESC"
-			default:
-				writeError(w, http.StatusBadRequest, "invalid direction value")
-				return
-			}
-		}
+	sortCfg, ok, errStatus, errMsg := h.parseIssueSortConfig(r, workspaceID)
+	if !ok {
+		writeError(w, errStatus, errMsg)
+		return
 	}
 
-	// Build dynamic SQL — same approach as ListGroupedIssues.
 	where := []string{"i.workspace_id = $1"}
 	args := []any{wsUUID}
 	addArg := func(v any) string {
@@ -1268,10 +1273,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(statusCategoriesFilter) > 0 {
-		// Expanded to concrete status keys rather than filtered through
-		// issue_effective_status(): wrapping the column in a function makes the
-		// (workspace_id, status) index unusable and turns a two-page index read
-		// into a full workspace scan. (MUL-6243)
 		keys, err := issuestatus.ExpandCategories(r.Context(), h.Queries, wsUUID, statusCategoriesFilter)
 		if err != nil {
 			slog.Warn("expand status categories failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -1302,9 +1303,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		where = append(where, fmt.Sprintf("i.project_id = %s::uuid", addArg(projectFilter)))
 	}
 
-	// Table facets must be part of the server window. Applying them after
-	// LIMIT/OFFSET hides matches that live on later pages and makes `total`
-	// disagree with the rows the user sees/exports.
 	assigneeFilters, ok := parseActorFilterList(w, r.URL.Query().Get("assignee_filters"), "assignee_filters")
 	if !ok {
 		return
@@ -1367,10 +1365,6 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			addArg(labelIDs),
 		))
 	}
-	// ids restricts the window to an explicit id set (the table's
-	// agents-working facet sends the live running-issue ids). Presence with an
-	// EMPTY list is meaningful — it must yield an empty window, not degrade to
-	// the unrestricted one, so gate on Has() rather than the parsed length.
 	if r.URL.Query().Has("ids") {
 		idsFilter, ok := parseUUIDParamList(w, r.URL.Query().Get("ids"), "ids")
 		if !ok {
@@ -1432,21 +1426,15 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 
 	whereSql := strings.Join(where, " AND ")
 
-	// Build ORDER BY clause.
-	orderBy := sortCol
-	if !sortIsExpr {
-		orderBy = "i." + sortCol
+	orderBy := sortCfg.Col
+	if !sortCfg.IsExpr {
+		orderBy = "i." + sortCfg.Col
 	}
-	orderBy += " " + sortDir
-	if sortCol == "start_date" || sortCol == "due_date" || sortCol == "last_activity_at" || sortIsProperty {
-		// Property values are sparse: issues without one sort last in both
-		// directions (mirrors the client comparator).
+	orderBy += " " + sortCfg.Dir
+	if sortCfg.Col == "start_date" || sortCfg.Col == "due_date" || sortCfg.Col == "last_activity_at" || sortCfg.IsProperty {
 		orderBy += " NULLS LAST"
 	}
-	// created_at alone is not unique (bulk imports share timestamps); without
-	// a unique final key the database may reorder ties between two
-	// LIMIT/OFFSET requests, duplicating or dropping rows at page boundaries.
-	if sortCol == "last_activity_at" {
+	if sortCfg.Col == "last_activity_at" {
 		orderBy += ", i.id DESC"
 	} else {
 		orderBy += ", i.created_at DESC, i.id DESC"
@@ -1512,9 +1500,7 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 		return
 	}
 
-	// Get the true total count for pagination awareness.
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM issue i WHERE %s`, whereSql)
-	// Count query uses the same args minus the OFFSET and LIMIT params (last two added).
 	countArgs := args[:len(args)-2]
 	var total int64
 	if err := h.DB.QueryRow(ctx, countQuery, countArgs...).Scan(&total); err != nil {
@@ -1699,6 +1685,48 @@ func parseActorFilterList(w http.ResponseWriter, raw, fieldName string) ([]issue
 	return filters, true
 }
 
+func (h *Handler) buildAssigneeGroupsFromRows(
+	ctx context.Context,
+	wsUUID pgtype.UUID,
+	groupedRows []groupedIssueRow,
+) []IssueAssigneeGroupResponse {
+	ids := make([]pgtype.UUID, len(groupedRows))
+	for i, row := range groupedRows {
+		ids[i] = row.ID
+	}
+	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+	prefix := h.getIssuePrefix(ctx, wsUUID)
+	fillGrouped := h.newStatusCategoryFiller(ctx, wsUUID)
+
+	groups := []IssueAssigneeGroupResponse{}
+	groupIndex := map[string]int{}
+	for _, row := range groupedRows {
+		groupID := assigneeGroupID(row.AssigneeType, row.AssigneeID)
+		idx, exists := groupIndex[groupID]
+		if !exists {
+			idx = len(groups)
+			groupIndex[groupID] = idx
+			groups = append(groups, IssueAssigneeGroupResponse{
+				ID:           groupID,
+				AssigneeType: textToPtr(row.AssigneeType),
+				AssigneeID:   uuidToPtr(row.AssigneeID),
+				Issues:       []IssueResponse{},
+				Total:        row.GroupTotal,
+			})
+		}
+
+		issue := issueListRowToResponse(row.ListIssuesRow, prefix)
+		fillGrouped(&issue)
+		labels := labelsMap[issue.ID]
+		if labels == nil {
+			labels = []LabelResponse{}
+		}
+		issue.Labels = &labels
+		groups[idx].Issues = append(groups[idx].Issues, issue)
+	}
+	return groups
+}
+
 func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if h.DB == nil {
@@ -1751,15 +1779,11 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	if len(statuses) > 0 {
 		where = append(where, fmt.Sprintf(sqlStatusAny, addArg(statuses)))
 	}
-	// See ListIssues: category filtering is what lets the board keep a fixed
-	// column count as a workspace adds custom statuses. (MUL-6243)
 	statusCategories := splitCommaParam(r.URL.Query().Get("status_categories"))
 	if len(statusCategories) == 0 {
 		statusCategories = splitCommaParam(r.URL.Query().Get("status_category"))
 	}
 	if len(statusCategories) > 0 {
-		// See ListIssues: expanded to keys so the (workspace_id, status) index
-		// still drives the scan. (MUL-6243)
 		keys, err := issuestatus.ExpandCategories(r.Context(), h.Queries, wsUUID, statusCategories)
 		if err != nil {
 			slog.Warn("expand status categories failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -1828,12 +1852,6 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	} else if filter != nil {
 		where = append(where, propertiesFilterPredicate(filter, addArg))
 	}
-	// Mirror the involves_user_id 4-branch UNION from sqlc's ListIssues /
-	// ListOpenIssues / CountIssues. ListGroupedIssues is a hand-written dynamic
-	// SQL builder that does not share parameters with sqlc, so the fragment is
-	// re-implemented here in lock-step. Member-direct assignment is excluded by
-	// design: that semantics belongs to tab 1 (`assignee_id`), and tab 3 must
-	// stay disjoint from tab 1.
 	if raw := r.URL.Query().Get("involves_user_id"); raw != "" {
 		id, ok := parseUUIDOrBadRequest(w, raw, "involves_user_id")
 		if !ok {
@@ -1967,75 +1985,21 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sortCol := "position"
-	sortIsExpr := false
-	sortIsProperty := false
-	if s := r.URL.Query().Get("sort"); s != "" {
-		switch s {
-		case "position", "title", "created_at", "updated_at", "start_date", "due_date":
-			sortCol = s
-		case "last_activity":
-			sortCol = "last_activity_at"
-		case "status":
-			sortCol = "CASE i.status WHEN 'backlog' THEN 0 WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'in_review' THEN 3 WHEN 'done' THEN 4 WHEN 'blocked' THEN 5 WHEN 'cancelled' THEN 6 ELSE 7 END"
-			sortIsExpr = true
-		case "priority":
-			sortCol = "CASE i.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
-			sortIsExpr = true
-		default:
-			// property:<definitionId> sorts by the custom-property value
-			// (typed expression); unknown/archived definitions degrade to
-			// position order instead of erroring stale clients.
-			expr, handled, sortErr := h.propertySortExpr(r, workspaceID, s)
-			if !handled {
-				writeError(w, http.StatusBadRequest, errMsgInvalidSortValue)
-				return
-			}
-			if sortErr != nil {
-				if sortErr.Error() == errMsgInvalidSortValue || sortErr.Error() == "invalid workspace id" {
-					writeError(w, http.StatusBadRequest, sortErr.Error())
-					return
-				}
-				slog.Warn("propertySortExpr failed", append(logger.RequestAttrs(r), "error", sortErr)...)
-				writeError(w, http.StatusInternalServerError, "failed to resolve sort")
-				return
-			}
-			if expr != "" {
-				sortCol = expr
-				sortIsExpr = true
-				sortIsProperty = true
-			}
-		}
-	}
-	sortDir := "ASC"
-	if sortCol == "last_activity_at" {
-		sortDir = "DESC"
-	}
-	if sortCol != "position" {
-		if d := r.URL.Query().Get("direction"); d != "" {
-			switch strings.ToLower(d) {
-			case "asc":
-				sortDir = "ASC"
-			case "desc":
-				sortDir = "DESC"
-			default:
-				writeError(w, http.StatusBadRequest, "invalid direction value")
-				return
-			}
-		}
+	sortCfg, ok, errStatus, errMsg := h.parseIssueSortConfig(r, workspaceID)
+	if !ok {
+		writeError(w, errStatus, errMsg)
+		return
 	}
 
-	intraGroupOrder := sortCol
-	if !sortIsExpr {
-		intraGroupOrder = "i." + sortCol
+	intraGroupOrder := sortCfg.Col
+	if !sortCfg.IsExpr {
+		intraGroupOrder = "i." + sortCfg.Col
 	}
-	intraGroupOrder += " " + sortDir
-	if sortCol == "start_date" || sortCol == "due_date" || sortCol == "last_activity_at" || sortIsProperty {
+	intraGroupOrder += " " + sortCfg.Dir
+	if sortCfg.Col == "start_date" || sortCfg.Col == "due_date" || sortCfg.Col == "last_activity_at" || sortCfg.IsProperty {
 		intraGroupOrder += " NULLS LAST"
 	}
-	// Unique final key — see ListIssues: created_at ties would otherwise make
-	// ROW_NUMBER() unstable across per-group offset pages.
-	if sortCol == "last_activity_at" {
+	if sortCfg.Col == "last_activity_at" {
 		intraGroupOrder += ", i.id DESC"
 	} else {
 		intraGroupOrder += ", i.created_at DESC, i.id DESC"
@@ -2125,43 +2089,7 @@ ORDER BY
 		return
 	}
 
-	ids := make([]pgtype.UUID, len(groupedRows))
-	for i, row := range groupedRows {
-		ids[i] = row.ID
-	}
-	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
-	prefix := h.getIssuePrefix(ctx, wsUUID)
-	// One Resolver for the whole page — a per-row filler would query the
-	// catalog once per custom-status row. (MUL-6243)
-	fillGrouped := h.newStatusCategoryFiller(ctx, wsUUID)
-
-	groups := []IssueAssigneeGroupResponse{}
-	groupIndex := map[string]int{}
-	for _, row := range groupedRows {
-		groupID := assigneeGroupID(row.AssigneeType, row.AssigneeID)
-		idx, exists := groupIndex[groupID]
-		if !exists {
-			idx = len(groups)
-			groupIndex[groupID] = idx
-			groups = append(groups, IssueAssigneeGroupResponse{
-				ID:           groupID,
-				AssigneeType: textToPtr(row.AssigneeType),
-				AssigneeID:   uuidToPtr(row.AssigneeID),
-				Issues:       []IssueResponse{},
-				Total:        row.GroupTotal,
-			})
-		}
-
-		issue := issueListRowToResponse(row.ListIssuesRow, prefix)
-		fillGrouped(&issue)
-		labels := labelsMap[issue.ID]
-		if labels == nil {
-			labels = []LabelResponse{}
-		}
-		issue.Labels = &labels
-		groups[idx].Issues = append(groups[idx].Issues, issue)
-	}
-
+	groups := h.buildAssigneeGroupsFromRows(ctx, wsUUID, groupedRows)
 	writeJSON(w, http.StatusOK, GroupedIssuesResponse{Groups: groups})
 }
 
@@ -3244,7 +3172,6 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	userID := requestUserID(r)
 	workspaceID := uuidToString(prevIssue.WorkspaceID)
 
-	// Read body as raw bytes so we can detect which fields were explicitly sent.
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "failed to read request body")
@@ -3257,189 +3184,12 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Track which fields were explicitly present in JSON (even if null)
 	var rawFields map[string]json.RawMessage
 	json.Unmarshal(bodyBytes, &rawFields)
 
-	// Pre-fill nullable fields (bare sqlc.narg) with current values
-	params := db.UpdateIssueParams{
-		ID:            prevIssue.ID,
-		AssigneeType:  prevIssue.AssigneeType,
-		AssigneeID:    prevIssue.AssigneeID,
-		StartDate:     prevIssue.StartDate,
-		DueDate:       prevIssue.DueDate,
-		ParentIssueID: prevIssue.ParentIssueID,
-		ProjectID:     prevIssue.ProjectID,
-		Stage:         prevIssue.Stage,
-	}
-	if req.ExpectedRevision != nil {
-		if *req.ExpectedRevision < 1 {
-			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
-			return
-		}
-		if prevIssue.Revision != *req.ExpectedRevision {
-			writeRevisionConflict(w, "issue", prevIssue.ID, *req.ExpectedRevision, prevIssue.Revision)
-			return
-		}
-		params.ExpectedRevision = pgtype.Int8{Int64: *req.ExpectedRevision, Valid: true}
-	}
-
-	// COALESCE fields — only set when explicitly provided
-	if req.Title != nil {
-		params.Title = pgtype.Text{String: *req.Title, Valid: true}
-	}
-	if req.Description != nil {
-		params.Description = pgtype.Text{String: *req.Description, Valid: true}
-	}
-	// statusKeyForGuard is the resolved key when this request sets a status, and
-	// empty otherwise. Empty means "this write does not touch status", which the
-	// guard treats as nothing to protect.
-	statusKeyForGuard := ""
-	if req.Status != nil {
-		statusKey, _, ok := h.resolveIssueStatusKeyKind(w, r, prevIssue.WorkspaceID, *req.Status)
-		if !ok {
-			return
-		}
-		statusKeyForGuard = statusKey
-		params.Status = pgtype.Text{String: statusKey, Valid: true}
-	}
-	if req.Priority != nil {
-		if !validateIssueEnum(w, "priority", *req.Priority, validIssuePriorities) {
-			return
-		}
-		params.Priority = pgtype.Text{String: *req.Priority, Valid: true}
-	}
-	if req.Position != nil {
-		params.Position = pgtype.Float8{Float64: *req.Position, Valid: true}
-	}
-	// Nullable fields — only override when explicitly present in JSON
-	if _, ok := rawFields["assignee_type"]; ok {
-		if req.AssigneeType != nil {
-			params.AssigneeType = pgtype.Text{String: *req.AssigneeType, Valid: true}
-		} else {
-			params.AssigneeType = pgtype.Text{Valid: false} // explicit null = unassign
-		}
-	}
-	if _, ok := rawFields["assignee_id"]; ok {
-		if req.AssigneeID != nil {
-			id, ok := parseUUIDOrBadRequest(w, *req.AssigneeID, "assignee_id")
-			if !ok {
-				return
-			}
-			params.AssigneeID = id
-		} else {
-			params.AssigneeID = pgtype.UUID{Valid: false} // explicit null = unassign
-		}
-	}
-	if _, ok := rawFields["start_date"]; ok {
-		if req.StartDate != nil && *req.StartDate != "" {
-			d, err := util.ParseCalendarDate(*req.StartDate)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid start_date format, expected YYYY-MM-DD")
-				return
-			}
-			params.StartDate = d
-		} else {
-			params.StartDate = pgtype.Date{Valid: false} // explicit null = clear date
-		}
-	}
-	if _, ok := rawFields["due_date"]; ok {
-		if req.DueDate != nil && *req.DueDate != "" {
-			d, err := util.ParseCalendarDate(*req.DueDate)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, errMsgInvalidDueDateFormat)
-				return
-			}
-			params.DueDate = d
-		} else {
-			params.DueDate = pgtype.Date{Valid: false} // explicit null = clear date
-		}
-	}
-	if _, ok := rawFields["parent_issue_id"]; ok {
-		if req.ParentIssueID != nil {
-			newParentID, ok := parseUUIDOrBadRequest(w, *req.ParentIssueID, "parent_issue_id")
-			if !ok {
-				return
-			}
-			// Cannot set self as parent. Compare against prevIssue.ID (the
-			// resolved entity), not the raw URL string — `id` may be an
-			// identifier like "MUL-7".
-			if newParentID == prevIssue.ID {
-				writeError(w, http.StatusBadRequest, "an issue cannot be its own parent")
-				return
-			}
-			// Validate parent exists in the same workspace.
-			if _, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
-				ID:          newParentID,
-				WorkspaceID: prevIssue.WorkspaceID,
-			}); err != nil {
-				writeError(w, http.StatusBadRequest, errMsgParentIssueNotFoundInWorkspace)
-				return
-			}
-			// Cycle detection: walk up from the new parent to ensure we don't reach this issue.
-			cursor := newParentID
-			for depth := 0; depth < 10; depth++ {
-				ancestor, err := h.Queries.GetIssue(r.Context(), cursor)
-				if err != nil || !ancestor.ParentIssueID.Valid {
-					break
-				}
-				if ancestor.ParentIssueID == prevIssue.ID {
-					writeError(w, http.StatusBadRequest, "circular parent relationship detected")
-					return
-				}
-				cursor = ancestor.ParentIssueID
-			}
-			params.ParentIssueID = newParentID
-		} else {
-			params.ParentIssueID = pgtype.UUID{Valid: false} // explicit null = remove parent
-		}
-	}
-	if _, ok := rawFields["project_id"]; ok {
-		if req.ProjectID != nil {
-			projectUUID, ok := parseUUIDOrBadRequest(w, *req.ProjectID, "project_id")
-			if !ok {
-				return
-			}
-			if _, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{
-				ID:          projectUUID,
-				WorkspaceID: prevIssue.WorkspaceID,
-			}); err != nil {
-				if !isNotFound(err) {
-					slog.Error("update issue: validate project scope",
-						append(logger.RequestAttrs(r), "project_id", uuidToString(projectUUID), "error", err)...)
-					writeError(w, http.StatusInternalServerError, "failed to validate project")
-					return
-				}
-				writeError(w, http.StatusBadRequest, errMsgProjectNotFoundInWorkspace)
-				return
-			}
-			params.ProjectID = projectUUID
-		} else {
-			params.ProjectID = pgtype.UUID{Valid: false}
-		}
-	}
-	if _, ok := rawFields["stage"]; ok {
-		if req.Stage != nil {
-			if *req.Stage < 1 {
-				writeError(w, http.StatusBadRequest, "stage must be >= 1")
-				return
-			}
-			params.Stage = pgtype.Int4{Int32: *req.Stage, Valid: true}
-		} else {
-			params.Stage = pgtype.Int4{Valid: false} // explicit null = unstage
-		}
-	}
-
-	// Validate the resulting (assignee_type, assignee_id) pair when the caller
-	// touches either field. Existing data on the issue is left alone if the
-	// caller is not changing it.
-	_, touchedType := rawFields["assignee_type"]
-	_, touchedID := rawFields["assignee_id"]
-	if touchedType || touchedID {
-		if status, msg := h.validateAssigneePair(r.Context(), r, workspaceID, params.AssigneeType, params.AssigneeID); status != 0 {
-			writeError(w, status, msg)
-			return
-		}
+	params, statusKeyForGuard, ok := h.buildUpdateIssueParams(w, r, prevIssue, req, rawFields)
+	if !ok {
+		return
 	}
 
 	attachmentIDs, ok := parseUUIDSliceOrBadRequest(w, req.AttachmentIDs, "attachment_ids")
@@ -3484,22 +3234,225 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine actor identity: agent (via X-Agent-ID header) or member.
-	actorType, actorID := h.resolveActor(r, userID, workspaceID)
-
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
 	h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
+	h.publishIssueUpdateAndDispatch(r, userID, workspaceID, req, prevIssue, issue, attachmentsChanged, resp)
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) validateAndUpdateIssueParent(
+	w http.ResponseWriter,
+	r *http.Request,
+	prevIssue db.Issue,
+	req UpdateIssueRequest,
+	rawFields map[string]json.RawMessage,
+	params *db.UpdateIssueParams,
+) bool {
+	if _, ok := rawFields["parent_issue_id"]; !ok {
+		return true
+	}
+	if req.ParentIssueID == nil {
+		params.ParentIssueID = pgtype.UUID{Valid: false}
+		return true
+	}
+
+	newParentID, ok := parseUUIDOrBadRequest(w, *req.ParentIssueID, "parent_issue_id")
+	if !ok {
+		return false
+	}
+	if newParentID == prevIssue.ID {
+		writeError(w, http.StatusBadRequest, "an issue cannot be its own parent")
+		return false
+	}
+	if _, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
+		ID:          newParentID,
+		WorkspaceID: prevIssue.WorkspaceID,
+	}); err != nil {
+		writeError(w, http.StatusBadRequest, errMsgParentIssueNotFoundInWorkspace)
+		return false
+	}
+	cursor := newParentID
+	for depth := 0; depth < 10; depth++ {
+		ancestor, err := h.Queries.GetIssue(r.Context(), cursor)
+		if err != nil || !ancestor.ParentIssueID.Valid {
+			break
+		}
+		if ancestor.ParentIssueID == prevIssue.ID {
+			writeError(w, http.StatusBadRequest, "circular parent relationship detected")
+			return false
+		}
+		cursor = ancestor.ParentIssueID
+	}
+	params.ParentIssueID = newParentID
+	return true
+}
+
+func (h *Handler) buildUpdateIssueParams(
+	w http.ResponseWriter,
+	r *http.Request,
+	prevIssue db.Issue,
+	req UpdateIssueRequest,
+	rawFields map[string]json.RawMessage,
+) (params db.UpdateIssueParams, statusKeyForGuard string, ok bool) {
+	params = db.UpdateIssueParams{
+		ID:            prevIssue.ID,
+		AssigneeType:  prevIssue.AssigneeType,
+		AssigneeID:    prevIssue.AssigneeID,
+		StartDate:     prevIssue.StartDate,
+		DueDate:       prevIssue.DueDate,
+		ParentIssueID: prevIssue.ParentIssueID,
+		ProjectID:     prevIssue.ProjectID,
+		Stage:         prevIssue.Stage,
+	}
+
+	if req.ExpectedRevision != nil {
+		if *req.ExpectedRevision < 1 {
+			writeError(w, http.StatusBadRequest, "expected_revision must be a positive integer")
+			return params, "", false
+		}
+		if prevIssue.Revision != *req.ExpectedRevision {
+			writeRevisionConflict(w, "issue", prevIssue.ID, *req.ExpectedRevision, prevIssue.Revision)
+			return params, "", false
+		}
+		params.ExpectedRevision = pgtype.Int8{Int64: *req.ExpectedRevision, Valid: true}
+	}
+
+	if req.Title != nil {
+		params.Title = pgtype.Text{String: *req.Title, Valid: true}
+	}
+	if req.Description != nil {
+		params.Description = pgtype.Text{String: *req.Description, Valid: true}
+	}
+	if req.Status != nil {
+		statusKey, _, resolved := h.resolveIssueStatusKeyKind(w, r, prevIssue.WorkspaceID, *req.Status)
+		if !resolved {
+			return params, "", false
+		}
+		statusKeyForGuard = statusKey
+		params.Status = pgtype.Text{String: statusKey, Valid: true}
+	}
+	if req.Priority != nil {
+		if !validateIssueEnum(w, "priority", *req.Priority, validIssuePriorities) {
+			return params, "", false
+		}
+		params.Priority = pgtype.Text{String: *req.Priority, Valid: true}
+	}
+	if req.Position != nil {
+		params.Position = pgtype.Float8{Float64: *req.Position, Valid: true}
+	}
+	if _, ok := rawFields["assignee_type"]; ok {
+		if req.AssigneeType != nil {
+			params.AssigneeType = pgtype.Text{String: *req.AssigneeType, Valid: true}
+		} else {
+			params.AssigneeType = pgtype.Text{Valid: false}
+		}
+	}
+	if _, ok := rawFields["assignee_id"]; ok {
+		if req.AssigneeID != nil {
+			id, ok := parseUUIDOrBadRequest(w, *req.AssigneeID, "assignee_id")
+			if !ok {
+				return params, "", false
+			}
+			params.AssigneeID = id
+		} else {
+			params.AssigneeID = pgtype.UUID{Valid: false}
+		}
+	}
+	if _, ok := rawFields["start_date"]; ok {
+		if req.StartDate != nil && *req.StartDate != "" {
+			d, err := util.ParseCalendarDate(*req.StartDate)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid start_date format, expected YYYY-MM-DD")
+				return params, "", false
+			}
+			params.StartDate = d
+		} else {
+			params.StartDate = pgtype.Date{Valid: false}
+		}
+	}
+	if _, ok := rawFields["due_date"]; ok {
+		if req.DueDate != nil && *req.DueDate != "" {
+			d, err := util.ParseCalendarDate(*req.DueDate)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, errMsgInvalidDueDateFormat)
+				return params, "", false
+			}
+			params.DueDate = d
+		} else {
+			params.DueDate = pgtype.Date{Valid: false}
+		}
+	}
+
+	if !h.validateAndUpdateIssueParent(w, r, prevIssue, req, rawFields, &params) {
+		return params, "", false
+	}
+
+	if _, ok := rawFields["project_id"]; ok {
+		if req.ProjectID != nil {
+			projectUUID, ok := parseUUIDOrBadRequest(w, *req.ProjectID, "project_id")
+			if !ok {
+				return params, "", false
+			}
+			if _, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{
+				ID:          projectUUID,
+				WorkspaceID: prevIssue.WorkspaceID,
+			}); err != nil {
+				if !isNotFound(err) {
+					slog.Error("update issue: validate project scope",
+						append(logger.RequestAttrs(r), "project_id", uuidToString(projectUUID), "error", err)...)
+					writeError(w, http.StatusInternalServerError, "failed to validate project")
+					return params, "", false
+				}
+				writeError(w, http.StatusBadRequest, errMsgProjectNotFoundInWorkspace)
+				return params, "", false
+			}
+			params.ProjectID = projectUUID
+		} else {
+			params.ProjectID = pgtype.UUID{Valid: false}
+		}
+	}
+	if _, ok := rawFields["stage"]; ok {
+		if req.Stage != nil {
+			if *req.Stage < 1 {
+				writeError(w, http.StatusBadRequest, "stage must be >= 1")
+				return params, "", false
+			}
+			params.Stage = pgtype.Int4{Int32: *req.Stage, Valid: true}
+		} else {
+			params.Stage = pgtype.Int4{Valid: false}
+		}
+	}
+
+	_, touchedType := rawFields["assignee_type"]
+	_, touchedID := rawFields["assignee_id"]
+	if touchedType || touchedID {
+		if status, msg := h.validateAssigneePair(r.Context(), r, uuidToString(prevIssue.WorkspaceID), params.AssigneeType, params.AssigneeID); status != 0 {
+			writeError(w, status, msg)
+			return params, "", false
+		}
+	}
+
+	return params, statusKeyForGuard, true
+}
+
+func (h *Handler) publishIssueUpdateAndDispatch(
+	r *http.Request,
+	userID, workspaceID string,
+	req UpdateIssueRequest,
+	prevIssue, issue db.Issue,
+	attachmentsChanged bool,
+	resp IssueResponse,
+) {
+	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+
 	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&
 		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
 	statusChanged := req.Status != nil && prevIssue.Status != issue.Status
 	priorityChanged := req.Priority != nil && prevIssue.Priority != issue.Priority
-	// project_changed gates the client's per-project issue-list refetch the way
-	// status/assignee flags gate theirs. Without it the client must diff
-	// project_id against its own cache, which breaks once an optimistic local
-	// move has overwritten the cached value (MUL-3669 / #4548).
 	projectChanged := req.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)
 	descriptionChanged := req.Description != nil && textToPtr(prevIssue.Description) != resp.Description
 	titleChanged := req.Title != nil && prevIssue.Title != issue.Title
@@ -3532,32 +3485,12 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		"creator_id":          uuidToString(prevIssue.CreatorID),
 	})
 	if attachmentsChanged {
-		// The full owner snapshot must be admitted before an auxiliary event at
-		// the same revision. Otherwise clients advance only the revision here and
-		// reject issue:updated as non-increasing, stranding the old issue fields.
 		h.publish(protocol.EventIssueAttachmentsChanged, workspaceID, actorType, actorID, map[string]any{
 			"issue_id":       uuidToString(issue.ID),
 			"issue_revision": issue.Revision,
 		})
 	}
 
-	// Reconcile the task queue. Whether this write starts an agent run — and
-	// for whom (agent assignee or squad leader) — is decided by the single
-	// WillEnqueueRun predicate, shared verbatim with the preview endpoint so
-	// the two never drift (MUL-3375).
-	//
-	// A reassignment intentionally does NOT cancel existing tasks on the issue
-	// (#4963 / MUL-4113). The previous "cancel every active task on the issue"
-	// was too coarse: it silently dropped unrelated in-flight work (a
-	// mention-triggered run for another agent, a squad task) with no requeue,
-	// and it self-cancelled a run that reassigned the issue from inside itself.
-	// Ownership handoff no longer implies interruption; the new assignee's run,
-	// if any, is enqueued by WillEnqueueRun below and runs alongside whatever
-	// was already in flight. No status change — not even → cancelled — cancels
-	// active tasks: a user clicking "cancel" on an issue has no expectation that
-	// it stops in-flight agent runs, so that implicit coupling is gone
-	// (MUL-4465). Deleting an issue still cancels its tasks (see DeleteIssue),
-	// because the tasks' owning issue ceases to exist.
 	if trigger, ok := h.IssueService.WillEnqueueRun(r.Context(),
 		service.IssueTriggerInput{
 			Issue:           issue,
@@ -3570,16 +3503,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.HandoffNote)
 	}
 
-	// Platform-driven parent notification: when this issue transitions into
-	// `done` and has a parent, post a top-level system comment on the parent
-	// (MUL-2538 — replaces the agent-prompt rule that caused self-mention
-	// loops in PR #2918). The helper guards on transition + parent state and
-	// fails best-effort.
 	if statusChanged {
 		h.notifyParentOfChildDone(r.Context(), prevIssue, issue)
 	}
-
-	writeJSON(w, http.StatusOK, resp)
 }
 
 // validateAssigneePair verifies the (assignee_type, assignee_id) pair refers
@@ -3884,14 +3810,6 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(raw, &rawUpdates)
 	}
 
-	// Short-circuit when no mutation field is present in `updates`. Without
-	// this, the loop below runs N no-op UPDATEs (every if-guard skips, every
-	// COALESCE preserves the existing value) and reports `{"updated": N}` —
-	// the response cheerfully claims success while nothing changed. Most
-	// real-world cases that hit this path are caller mistakes (status placed
-	// at the top level, "update" misspelled as singular). Telling the truth
-	// here — `{"updated": 0}` — keeps the wire shape stable while making the
-	// count match reality. See multica-ai/multica#1660.
 	hasMutation := req.Updates.Title != nil ||
 		req.Updates.Description != nil ||
 		req.Updates.Status != nil ||
@@ -3920,10 +3838,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Status is validated against this workspace's catalog, so it has to wait
-	// for wsUUID above. One check for the whole batch — every issue in it
-	// shares the workspace — and a rejection rather than a silent skip, so a
-	// bad status cannot report `{"updated": N}`. (MUL-6243)
+
 	batchStatusKey := ""
 	if req.Updates.Status != nil {
 		batchStatusKey, _, ok = h.resolveIssueStatusKeyKind(w, r, wsUUID, *req.Updates.Status)
@@ -3931,9 +3846,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// The batch shares one project_id, so it is checked once here rather than
-	// per issue, and rejected instead of skipped like the per-item guards in
-	// the loop: a foreign project invalidates the whole request.
+
 	batchProjectID := pgtype.UUID{Valid: false}
 	if _, ok := rawUpdates["project_id"]; ok && req.Updates.ProjectID != nil {
 		projectUUID, ok := parseUUIDOrBadRequest(w, *req.Updates.ProjectID, "project_id")
@@ -3957,12 +3870,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated := 0
-	// One Resolver for the whole batch — a per-issue filler would query the
-	// catalog once per custom-status row. (MUL-6243)
 	fillBatch := h.newStatusCategoryFiller(r.Context(), wsUUID)
-	// Children that transitioned into a terminal status this batch, collected so
-	// the parent/stage notification is evaluated once against the final state
-	// after the loop (MUL-4155) rather than per-child mid-batch.
 	var childDoneCompleted []db.Issue
 	for _, issueID := range req.IssueIDs {
 		issueUUID, err := util.ParseUUID(issueID)
@@ -3977,220 +3885,25 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		params := db.UpdateIssueParams{
-			ID:            prevIssue.ID,
-			AssigneeType:  prevIssue.AssigneeType,
-			AssigneeID:    prevIssue.AssigneeID,
-			StartDate:     prevIssue.StartDate,
-			DueDate:       prevIssue.DueDate,
-			ParentIssueID: prevIssue.ParentIssueID,
-			ProjectID:     prevIssue.ProjectID,
-			Stage:         prevIssue.Stage,
+		params, ok := h.applyBatchSingleIssueParams(r.Context(), r, workspaceID, prevIssue, req, rawUpdates, batchStatusKey, batchProjectID)
+		if !ok {
+			continue
 		}
 
-		if req.Updates.Title != nil {
-			params.Title = pgtype.Text{String: *req.Updates.Title, Valid: true}
-		}
-		if req.Updates.Description != nil {
-			params.Description = pgtype.Text{String: *req.Updates.Description, Valid: true}
-		}
-		if req.Updates.Status != nil {
-			params.Status = pgtype.Text{String: batchStatusKey, Valid: true}
-		}
-		if req.Updates.Priority != nil {
-			params.Priority = pgtype.Text{String: *req.Updates.Priority, Valid: true}
-		}
-		if req.Updates.Position != nil {
-			params.Position = pgtype.Float8{Float64: *req.Updates.Position, Valid: true}
-		}
-		if _, ok := rawUpdates["assignee_type"]; ok {
-			if req.Updates.AssigneeType != nil {
-				params.AssigneeType = pgtype.Text{String: *req.Updates.AssigneeType, Valid: true}
-			} else {
-				params.AssigneeType = pgtype.Text{Valid: false}
-			}
-		}
-		if _, ok := rawUpdates["assignee_id"]; ok {
-			if req.Updates.AssigneeID != nil {
-				assigneeUUID, err := util.ParseUUID(*req.Updates.AssigneeID)
-				if err != nil {
-					continue
-				}
-				params.AssigneeID = assigneeUUID
-			} else {
-				params.AssigneeID = pgtype.UUID{Valid: false}
-			}
-		}
-		if _, ok := rawUpdates["start_date"]; ok {
-			if req.Updates.StartDate != nil && *req.Updates.StartDate != "" {
-				d, err := util.ParseCalendarDate(*req.Updates.StartDate)
-				if err != nil {
-					continue
-				}
-				params.StartDate = d
-			} else {
-				params.StartDate = pgtype.Date{Valid: false}
-			}
-		}
-		if _, ok := rawUpdates["due_date"]; ok {
-			if req.Updates.DueDate != nil && *req.Updates.DueDate != "" {
-				d, err := util.ParseCalendarDate(*req.Updates.DueDate)
-				if err != nil {
-					continue
-				}
-				params.DueDate = d
-			} else {
-				params.DueDate = pgtype.Date{Valid: false}
-			}
-		}
-
-		if _, ok := rawUpdates["parent_issue_id"]; ok {
-			if req.Updates.ParentIssueID != nil {
-				newParentID, err := util.ParseUUID(*req.Updates.ParentIssueID)
-				if err != nil {
-					continue
-				}
-				// Cannot set self as parent.
-				if newParentID == prevIssue.ID {
-					continue
-				}
-				// Validate parent exists in the same workspace.
-				if _, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
-					ID:          newParentID,
-					WorkspaceID: prevIssue.WorkspaceID,
-				}); err != nil {
-					continue
-				}
-				// Cycle detection: walk up from the new parent to ensure we don't reach this issue.
-				cycleDetected := false
-				cursor := newParentID
-				for depth := 0; depth < 10; depth++ {
-					ancestor, err := h.Queries.GetIssue(r.Context(), cursor)
-					if err != nil || !ancestor.ParentIssueID.Valid {
-						break
-					}
-					if ancestor.ParentIssueID == prevIssue.ID {
-						cycleDetected = true
-						break
-					}
-					cursor = ancestor.ParentIssueID
-				}
-				if cycleDetected {
-					continue
-				}
-				params.ParentIssueID = newParentID
-			} else {
-				params.ParentIssueID = pgtype.UUID{Valid: false}
-			}
-		}
-		if _, ok := rawUpdates["project_id"]; ok {
-			// Resolved before the loop; an explicit null stays invalid and clears.
-			params.ProjectID = batchProjectID
-		}
-		if _, ok := rawUpdates["stage"]; ok {
-			if req.Updates.Stage != nil {
-				if *req.Updates.Stage < 1 {
-					continue
-				}
-				params.Stage = pgtype.Int4{Int32: *req.Updates.Stage, Valid: true}
-			} else {
-				params.Stage = pgtype.Int4{Valid: false} // explicit null = unstage
-			}
-		}
-
-		// Validate the resulting assignee pair when this batch update touches
-		// either assignee field. Skip the issue silently on failure.
-		_, batchTouchedType := rawUpdates["assignee_type"]
-		_, batchTouchedID := rawUpdates["assignee_id"]
-		if batchTouchedType || batchTouchedID {
-			if status, _ := h.validateAssigneePair(r.Context(), r, workspaceID, params.AssigneeType, params.AssigneeID); status != 0 {
-				continue
-			}
-		}
-
-		var issue db.Issue
-		if req.Updates.Description != nil {
-			// One batch-level base cannot describe multiple issue documents.
-			// Preserve every marked channel-media block conservatively, matching
-			// legacy single-update clients that omit description_base.
-			var lockedPrev db.Issue
-			issue, lockedPrev, _, err = h.updateIssueAtomically(
-				r.Context(), prevIssue.WorkspaceID, params, rawUpdates, nil, nil, nil, batchStatusKey,
-			)
-			if err == nil {
-				prevIssue = lockedPrev
-			}
-		} else {
-			err = h.runWithIssueStatusGuard(r.Context(), wsUUID, batchStatusKey, func(q *db.Queries) error {
-				var innerErr error
-				issue, innerErr = q.UpdateIssue(r.Context(), params)
-				return innerErr
-			})
-		}
+		issue, lockedPrev, err := h.executeBatchIssueUpdate(r, wsUUID, prevIssue, params, rawUpdates, batchStatusKey, req.Updates.Description != nil)
 		if err != nil {
-			// The archive race is a property of the batch's shared target
-			// status, not of one issue, so every remaining item would fail the
-			// same way. Abort with 409 instead of reporting a partial update.
 			if writeIssueStatusRaceError(w, err) {
 				return
 			}
 			slog.Warn("batch update issue failed", "issue_id", issueID, "error", err)
 			continue
 		}
-
-		prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
-		resp := issueToResponse(issue, prefix)
-		actorType, actorID := h.resolveActor(r, userID, workspaceID)
-
-		fillBatch(&resp)
-		assigneeChanged := (req.Updates.AssigneeType != nil || req.Updates.AssigneeID != nil) &&
-			(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
-		statusChanged := req.Updates.Status != nil && prevIssue.Status != issue.Status
-		priorityChanged := req.Updates.Priority != nil && prevIssue.Priority != issue.Priority
-		projectChanged := req.Updates.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)
-
-		h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
-			"issue":            resp,
-			"assignee_changed": assigneeChanged,
-			"status_changed":   statusChanged,
-			"priority_changed": priorityChanged,
-			"project_changed":  projectChanged,
-		})
-
-		// Reassignment does not cancel existing tasks (#4963 / MUL-4113) —
-		// mirrors UpdateIssue. See that handler for the rationale.
-		//
-		// Same single predicate as UpdateIssue — batch must not grow its own
-		// copy of the enqueue rule (the historical source of four-entry-point
-		// drift, MUL-3375). suppress_run applies batch-wide.
-		if trigger, ok := h.IssueService.WillEnqueueRun(r.Context(),
-			service.IssueTriggerInput{
-				Issue:           issue,
-				PrevStatus:      prevIssue.Status,
-				AssigneeChanged: assigneeChanged,
-				StatusChanged:   statusChanged,
-			},
-			h.issueTriggerWriteProbe(r, actorType, actorID, issue),
-		); ok && !req.Updates.SuppressRun {
-			h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.Updates.HandoffNote)
+		if req.Updates.Description != nil {
+			prevIssue = lockedPrev
 		}
 
-		// No status change — not even → cancelled — cancels active tasks here,
-		// mirroring UpdateIssue (MUL-4465). See that handler for the rationale.
+		_, statusChanged := h.dispatchBatchIssueNotifications(r, userID, workspaceID, req, prevIssue, issue, fillBatch)
 
-		// Platform-driven parent notification, mirrored from UpdateIssue
-		// (MUL-2538) but DEFERRED to after the loop. Evaluating the stage
-		// barrier here, per-child, would read a mid-batch sibling snapshot and
-		// fire a stale "advance Stage N+1" wake when one batch closes several
-		// stages at once (MUL-4155). Collect the terminal transitions and let
-		// notifyParentsOfBatchChildDone below evaluate each parent once against
-		// the batch's final committed state. Same transition guard as
-		// notifyParentOfChildDone: a non-terminal -> terminal move on a child.
-		// Resolve both sides to the canonical status they inherit before the
-		// terminal test, so a batch that moves the last child onto a CUSTOM
-		// done/cancelled status still enters the stage barrier below. A literal
-		// comparison here left childDoneCompleted empty and silently skipped
-		// notifyParentsOfBatchChildDone entirely. (MUL-6243)
 		if statusChanged && issue.ParentIssueID.Valid {
 			prevTerminal := isTerminalChildStatus(
 				issuestatus.Effective(r.Context(), h.Queries, prevIssue.WorkspaceID, prevIssue.Status))
@@ -4204,14 +3917,223 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		updated++
 	}
 
-	// Aggregate parent/stage notification over the whole batch's final state so
-	// each affected parent gets at most one accurate comment + wake, independent
-	// of issue_ids order (MUL-4155). Best-effort; failure does not abort the
-	// batch. Single-issue UpdateIssue is unchanged and still notifies inline.
 	h.notifyParentsOfBatchChildDone(r.Context(), childDoneCompleted)
 
 	slog.Info("batch update issues", append(logger.RequestAttrs(r), "count", updated)...)
 	writeJSON(w, http.StatusOK, map[string]any{"updated": updated})
+}
+
+func (h *Handler) applyBatchParentIssue(
+	ctx context.Context,
+	prevIssue db.Issue,
+	req BatchUpdateIssuesRequest,
+	rawUpdates map[string]json.RawMessage,
+	params *db.UpdateIssueParams,
+) bool {
+	if _, ok := rawUpdates["parent_issue_id"]; !ok {
+		return true
+	}
+	if req.Updates.ParentIssueID == nil {
+		params.ParentIssueID = pgtype.UUID{Valid: false}
+		return true
+	}
+
+	newParentID, err := util.ParseUUID(*req.Updates.ParentIssueID)
+	if err != nil {
+		return false
+	}
+	if newParentID == prevIssue.ID {
+		return false
+	}
+	if _, err := h.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+		ID:          newParentID,
+		WorkspaceID: prevIssue.WorkspaceID,
+	}); err != nil {
+		return false
+	}
+	cursor := newParentID
+	for depth := 0; depth < 10; depth++ {
+		ancestor, err := h.Queries.GetIssue(ctx, cursor)
+		if err != nil || !ancestor.ParentIssueID.Valid {
+			break
+		}
+		if ancestor.ParentIssueID == prevIssue.ID {
+			return false
+		}
+		cursor = ancestor.ParentIssueID
+	}
+	params.ParentIssueID = newParentID
+	return true
+}
+
+func (h *Handler) applyBatchSingleIssueParams(
+	ctx context.Context,
+	r *http.Request,
+	workspaceID string,
+	prevIssue db.Issue,
+	req BatchUpdateIssuesRequest,
+	rawUpdates map[string]json.RawMessage,
+	batchStatusKey string,
+	batchProjectID pgtype.UUID,
+) (db.UpdateIssueParams, bool) {
+	params := db.UpdateIssueParams{
+		ID:            prevIssue.ID,
+		AssigneeType:  prevIssue.AssigneeType,
+		AssigneeID:    prevIssue.AssigneeID,
+		StartDate:     prevIssue.StartDate,
+		DueDate:       prevIssue.DueDate,
+		ParentIssueID: prevIssue.ParentIssueID,
+		ProjectID:     prevIssue.ProjectID,
+		Stage:         prevIssue.Stage,
+	}
+
+	if req.Updates.Title != nil {
+		params.Title = pgtype.Text{String: *req.Updates.Title, Valid: true}
+	}
+	if req.Updates.Description != nil {
+		params.Description = pgtype.Text{String: *req.Updates.Description, Valid: true}
+	}
+	if req.Updates.Status != nil {
+		params.Status = pgtype.Text{String: batchStatusKey, Valid: true}
+	}
+	if req.Updates.Priority != nil {
+		params.Priority = pgtype.Text{String: *req.Updates.Priority, Valid: true}
+	}
+	if req.Updates.Position != nil {
+		params.Position = pgtype.Float8{Float64: *req.Updates.Position, Valid: true}
+	}
+	if _, ok := rawUpdates["assignee_type"]; ok {
+		if req.Updates.AssigneeType != nil {
+			params.AssigneeType = pgtype.Text{String: *req.Updates.AssigneeType, Valid: true}
+		} else {
+			params.AssigneeType = pgtype.Text{Valid: false}
+		}
+	}
+	if _, ok := rawUpdates["assignee_id"]; ok {
+		if req.Updates.AssigneeID != nil {
+			assigneeUUID, err := util.ParseUUID(*req.Updates.AssigneeID)
+			if err != nil {
+				return params, false
+			}
+			params.AssigneeID = assigneeUUID
+		} else {
+			params.AssigneeID = pgtype.UUID{Valid: false}
+		}
+	}
+	if _, ok := rawUpdates["start_date"]; ok {
+		if req.Updates.StartDate != nil && *req.Updates.StartDate != "" {
+			d, err := util.ParseCalendarDate(*req.Updates.StartDate)
+			if err != nil {
+				return params, false
+			}
+			params.StartDate = d
+		} else {
+			params.StartDate = pgtype.Date{Valid: false}
+		}
+	}
+	if _, ok := rawUpdates["due_date"]; ok {
+		if req.Updates.DueDate != nil && *req.Updates.DueDate != "" {
+			d, err := util.ParseCalendarDate(*req.Updates.DueDate)
+			if err != nil {
+				return params, false
+			}
+			params.DueDate = d
+		} else {
+			params.DueDate = pgtype.Date{Valid: false}
+		}
+	}
+
+	if !h.applyBatchParentIssue(ctx, prevIssue, req, rawUpdates, &params) {
+		return params, false
+	}
+
+	if _, ok := rawUpdates["project_id"]; ok {
+		params.ProjectID = batchProjectID
+	}
+	if _, ok := rawUpdates["stage"]; ok {
+		if req.Updates.Stage != nil {
+			if *req.Updates.Stage < 1 {
+				return params, false
+			}
+			params.Stage = pgtype.Int4{Int32: *req.Updates.Stage, Valid: true}
+		} else {
+			params.Stage = pgtype.Int4{Valid: false}
+		}
+	}
+
+	_, batchTouchedType := rawUpdates["assignee_type"]
+	_, batchTouchedID := rawUpdates["assignee_id"]
+	if batchTouchedType || batchTouchedID {
+		if status, _ := h.validateAssigneePair(ctx, r, workspaceID, params.AssigneeType, params.AssigneeID); status != 0 {
+			return params, false
+		}
+	}
+
+	return params, true
+}
+
+func (h *Handler) executeBatchIssueUpdate(
+	r *http.Request,
+	wsUUID pgtype.UUID,
+	prevIssue db.Issue,
+	params db.UpdateIssueParams,
+	rawUpdates map[string]json.RawMessage,
+	batchStatusKey string,
+	hasDescriptionUpdate bool,
+) (issue db.Issue, lockedPrev db.Issue, err error) {
+	if hasDescriptionUpdate {
+		issue, lockedPrev, _, err = h.updateIssueAtomically(
+			r.Context(), prevIssue.WorkspaceID, params, rawUpdates, nil, nil, nil, batchStatusKey,
+		)
+	} else {
+		lockedPrev = prevIssue
+		err = h.runWithIssueStatusGuard(r.Context(), wsUUID, batchStatusKey, func(q *db.Queries) error {
+			var innerErr error
+			issue, innerErr = q.UpdateIssue(r.Context(), params)
+			return innerErr
+		})
+	}
+	return issue, lockedPrev, err
+}
+
+func (h *Handler) dispatchBatchIssueNotifications(
+	r *http.Request,
+	userID, workspaceID string,
+	req BatchUpdateIssuesRequest,
+	prevIssue, issue db.Issue,
+	fillBatch func(*IssueResponse),
+) (assigneeChanged, statusChanged bool) {
+	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
+	resp := issueToResponse(issue, prefix)
+	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+
+	fillBatch(&resp)
+	assigneeChanged = (req.Updates.AssigneeType != nil || req.Updates.AssigneeID != nil) &&
+		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
+	statusChanged = req.Updates.Status != nil && prevIssue.Status != issue.Status
+	priorityChanged := req.Updates.Priority != nil && prevIssue.Priority != issue.Priority
+	projectChanged := req.Updates.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)
+
+	h.publish(protocol.EventIssueUpdated, workspaceID, actorType, actorID, map[string]any{
+		"issue":            resp,
+		"assignee_changed": assigneeChanged,
+		"status_changed":   statusChanged,
+		"priority_changed": priorityChanged,
+		"project_changed":  projectChanged,
+	})
+
+	if trigger, ok := h.IssueService.WillEnqueueRun(r.Context(),
+		service.IssueTriggerInput{
+			Issue:           issue,
+			PrevStatus:      prevIssue.Status,
+			AssigneeChanged: assigneeChanged,
+			StatusChanged:   statusChanged,
+		},
+		h.issueTriggerWriteProbe(r, actorType, actorID, issue),
+	); ok && !req.Updates.SuppressRun {
+		h.dispatchIssueRun(r.Context(), issue, trigger, actorType, actorID, req.Updates.HandoffNote)
+	}
+	return assigneeChanged, statusChanged
 }
 
 type BatchDeleteIssuesRequest struct {
