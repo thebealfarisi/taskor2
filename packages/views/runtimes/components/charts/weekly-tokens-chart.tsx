@@ -26,6 +26,33 @@ export const weeklyTokenStackConfig = {
 
 export function WeeklyTokensChart({ data }: { data: WeeklyTokenData[] }) {
   const { t } = useT("runtimes");
+
+  const formatTooltipValue = (
+    value: string | number | readonly (string | number)[] | undefined,
+    name: string | number | undefined,
+  ) => {
+    const label = name == null ? "" : String(name);
+    if (typeof value === "number") {
+      return `${formatTokens(value)} ${label}`;
+    }
+    if (typeof value === "string") {
+      return `${value} ${label}`;
+    }
+    return `${String(value ?? "")} ${label}`;
+  };
+
+  const getTooltipTotal = (
+    payload: ReadonlyArray<{ value?: string | number | readonly (string | number)[] | undefined }>,
+  ) => {
+    let total = 0;
+    for (const item of payload) {
+      if (typeof item.value === "number") {
+        total += item.value;
+      }
+    }
+    return total;
+  };
+
   return (
     <ChartContainer config={weeklyTokenStackConfig} className="aspect-[3/1] w-full">
       <BarChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
@@ -58,17 +85,9 @@ export function WeeklyTokensChart({ data }: { data: WeeklyTokenData[] }) {
                     })
                   : row.rangeLabel;
               }}
-              formatter={(value, name) =>
-                typeof value === "number"
-                  ? `${formatTokens(value)} ${name}`
-                  : `${value} ${name}`
-              }
+              formatter={(value, name) => formatTooltipValue(value, name)}
               footer={(payload) => {
-                const total = payload.reduce(
-                  (sum, item) =>
-                    sum + (typeof item.value === "number" ? item.value : 0),
-                  0,
-                );
+                const total = getTooltipTotal(payload);
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>

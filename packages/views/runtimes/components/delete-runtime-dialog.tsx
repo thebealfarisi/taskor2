@@ -534,14 +534,15 @@ function PresenceCell({ presence }: { presence: AgentPresenceDetail | undefined 
   }
   const av = availabilityConfig[presence.availability];
   const wl = workloadConfig[presence.workload];
-  const counts =
-    presence.workload === "working"
-      ? presence.queuedCount > 0
+  let counts: string | null = null;
+  if (presence.workload === "working") {
+    counts =
+      presence.queuedCount > 0
         ? `${presence.runningCount} +${presence.queuedCount}q`
-        : `${presence.runningCount}`
-      : presence.workload === "queued"
-        ? `${presence.queuedCount}`
-        : null;
+        : `${presence.runningCount}`;
+  } else if (presence.workload === "queued") {
+    counts = `${presence.queuedCount}`;
+  }
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
       <span className={`size-1.5 shrink-0 rounded-full ${av.dotClass}`} />

@@ -140,14 +140,22 @@ export function parseCommandLine(input: string): ParsedCommandLine {
       tokenStarted = true;
       continue;
     }
-    if (quote === '"' && ch === "\\" && next) {
-      token += next;
-      tokenStarted = true;
-      i += 1;
-      continue;
-    }
-    if (quote === '"' && ch === "\\") {
-      return { ok: false, error: "trailing_escape" };
+    if (quote === '"') {
+      if (ch === "\\" && next) {
+        token += next;
+        tokenStarted = true;
+        i += 1;
+        continue;
+      }
+      if (ch === "\\") {
+        return { ok: false, error: "trailing_escape" };
+      }
+      if (ch === "`" || ch === "$") {
+        return {
+          ok: false,
+          error: ch === "$" ? "shell_expansion" : "shell_syntax",
+        };
+      }
     }
     if (quote !== "'" && (ch === "`" || ch === "$")) {
       return {

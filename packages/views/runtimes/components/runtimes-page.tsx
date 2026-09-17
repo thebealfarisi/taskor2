@@ -577,17 +577,27 @@ function RuntimesPageSkeleton() {
       </PageHeader>
       <div className="mx-auto w-full max-w-[1440px] p-6">
         <div className="overflow-hidden rounded-lg border">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="flex h-[76px] items-center gap-3 border-b px-4 last:border-b-0">
-              <Skeleton className="h-10 w-10 rounded-lg" />
-              <div className="flex-1">
-                <Skeleton className="h-4 w-44" />
-                <Skeleton className="mt-2 h-3 w-28" />
+          {Array.from({ length: 5 }, (_, index) => {
+            const isLast = index === 4;
+            return (
+              <div
+                key={index}
+                className={
+                  isLast
+                    ? "flex h-[76px] items-center gap-3 px-4"
+                    : "flex h-[76px] items-center gap-3 border-b px-4"
+                }
+              >
+                <Skeleton className="h-10 w-10 rounded-lg" />
+                <div className="flex-1">
+                  <Skeleton className="h-4 w-44" />
+                  <Skeleton className="mt-2 h-3 w-28" />
+                </div>
+                <Skeleton className="hidden h-4 w-24 md:block" />
+                <Skeleton className="hidden h-4 w-28 lg:block" />
               </div>
-              <Skeleton className="hidden h-4 w-24 md:block" />
-              <Skeleton className="hidden h-4 w-28 lg:block" />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

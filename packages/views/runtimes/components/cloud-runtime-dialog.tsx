@@ -63,6 +63,13 @@ export function CloudRuntimeDialog({ onClose }: { onClose: () => void }) {
     [nodesQuery.data],
   );
 
+  const getNodesErrorMessage = () => {
+    if (nodesQuery.error instanceof Error) {
+      return nodesQuery.error.message;
+    }
+    return t(($) => $.cloud_runtime.nodes_failed_hint);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const diskSize = diskSizeGB.trim()
@@ -177,9 +184,7 @@ export function CloudRuntimeDialog({ onClose }: { onClose: () => void }) {
                     {t(($) => $.cloud_runtime.nodes_failed)}
                   </p>
                   <p className="mt-1 text-caption text-muted-foreground">
-                    {nodesQuery.error instanceof Error
-                      ? nodesQuery.error.message
-                      : t(($) => $.cloud_runtime.nodes_failed_hint)}
+                    {getNodesErrorMessage()}
                   </p>
                 </div>
               ) : sortedNodes.length === 0 ? (

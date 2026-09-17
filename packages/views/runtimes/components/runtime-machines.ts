@@ -248,6 +248,13 @@ function finalizeRuntimeMachine(
     { runningCount: 0, queuedCount: 0 },
   );
 
+  let section: RuntimeMachineSection = "remote";
+  if (isCurrent) {
+    section = "local";
+  } else if (draft.mode === "cloud") {
+    section = "cloud";
+  }
+
   return {
     id: draft.id,
     daemonId: draft.daemonId,
@@ -257,7 +264,7 @@ function finalizeRuntimeMachine(
     cliVersion: currentMachineMetadata(runtimes, "cli_version"),
     launchedBy: currentMachineMetadata(runtimes, "launched_by"),
     mode: draft.mode,
-    section: isCurrent ? "local" : draft.mode === "cloud" ? "cloud" : "remote",
+    section,
     isCurrent,
     health,
     runtimes,

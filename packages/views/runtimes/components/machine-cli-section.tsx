@@ -15,11 +15,17 @@ export function machineUpdateRuntime(
 ): AgentRuntime | null {
   if (machine.mode !== "local") return null;
 
-  const manageable = canManageAnyRuntime
-    ? machine.runtimes
-    : currentUserId
-      ? machine.runtimes.filter((runtime) => runtime.owner_id === currentUserId)
-      : [];
+  let manageable: AgentRuntime[];
+  if (canManageAnyRuntime) {
+    manageable = machine.runtimes;
+  } else if (currentUserId) {
+    manageable = machine.runtimes.filter(
+      (runtime) => runtime.owner_id === currentUserId,
+    );
+  } else {
+    manageable = [];
+  }
+
   return (
     manageable.find((runtime) => runtime.status === "online") ??
     manageable[0] ??

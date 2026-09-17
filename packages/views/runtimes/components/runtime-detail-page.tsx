@@ -384,9 +384,15 @@ function MachineDetailSkeleton() {
         <Skeleton className="h-4 w-24" />
         <Skeleton className="mt-2 h-3 w-72" />
         <div className="mt-4 overflow-hidden rounded-lg border">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-14 w-full rounded-none border-b last:border-b-0" />
-          ))}
+          {Array.from({ length: 4 }, (_, index) => {
+            const isLast = index === 3;
+            return (
+              <Skeleton
+                key={index}
+                className={isLast ? "h-14 w-full rounded-none" : "h-14 w-full rounded-none border-b"}
+              />
+            );
+          })}
         </div>
       </div>
     </div>

@@ -183,12 +183,13 @@ export function KpiCard({
   hint?: React.ReactNode;
   accent?: "brand" | "success" | "default";
 }) {
-  const valueClass =
-    accent === "brand"
-      ? "text-brand"
-      : accent === "success"
-        ? "text-success"
-        : "";
+  let valueClass = "";
+  if (accent === "brand") {
+    valueClass = "text-brand";
+  } else if (accent === "success") {
+    valueClass = "text-success";
+  }
+
   return (
     <div className="flex flex-col gap-2 p-5">
       <div className="text-micro font-medium uppercase tracking-wider text-muted-foreground">

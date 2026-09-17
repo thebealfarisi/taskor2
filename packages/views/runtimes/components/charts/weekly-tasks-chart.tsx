@@ -39,6 +39,19 @@ export interface WeeklyTasksData {
 export function WeeklyTasksChart({ data }: { data: WeeklyTasksData[] }) {
   const { t } = useT("usage");
   const { t: tRuntimes } = useT("runtimes");
+
+  const getTooltipTotal = (
+    payload: ReadonlyArray<{ value?: string | number | readonly (string | number)[] | undefined }>,
+  ) => {
+    let total = 0;
+    for (const item of payload) {
+      if (typeof item.value === "number") {
+        total += item.value;
+      }
+    }
+    return total;
+  };
+
   return (
     <ChartContainer
       config={weeklyTasksChartConfig}
@@ -76,12 +89,7 @@ export function WeeklyTasksChart({ data }: { data: WeeklyTasksData[] }) {
               }}
               formatter={(value, name) => `${value} ${name}`}
               footer={(payload) => {
-                const total = payload.reduce(
-                  (sum, item) =>
-                    sum +
-                    (typeof item.value === "number" ? item.value : 0),
-                  0,
-                );
+                const total = getTooltipTotal(payload);
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{tRuntimes(($) => $.charts.tooltip_total)}</span>

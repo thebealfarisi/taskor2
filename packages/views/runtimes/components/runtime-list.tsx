@@ -397,20 +397,24 @@ export function CostCell({ runtimeId }: { runtimeId: string }) {
     );
   }
   const fmt = cost7d >= 100 ? `$${cost7d.toFixed(0)}` : `$${cost7d.toFixed(2)}`;
-  const deltaTone =
-    delta == null
-      ? "text-muted-foreground"
-      : delta > 0
-        ? "text-warning"
-        : delta < 0
-          ? "text-success"
-          : "text-muted-foreground";
-  const deltaLabel =
-    delta == null
-      ? null
-      : delta === 0
-        ? t(($) => $.list.cost_delta_flat)
-        : `${delta > 0 ? "↑" : "↓"}${Math.abs(delta)}%`;
+  let deltaTone = "text-muted-foreground";
+  if (delta != null) {
+    if (delta > 0) {
+      deltaTone = "text-warning";
+    } else if (delta < 0) {
+      deltaTone = "text-success";
+    }
+  }
+
+  let deltaLabel: string | null = null;
+  if (delta != null) {
+    if (delta === 0) {
+      deltaLabel = t(($) => $.list.cost_delta_flat);
+    } else {
+      deltaLabel = `${delta > 0 ? "↑" : "↓"}${Math.abs(delta)}%`;
+    }
+  }
+
   return (
     <div className="flex w-full flex-col items-end leading-tight">
       <CurrencyNumberFlow

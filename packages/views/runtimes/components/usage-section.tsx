@@ -235,22 +235,23 @@ export function UsageSection({ runtime }: { runtime: AgentRuntime }) {
             />
           }
           hint={
-            costDelta == null ? undefined : (
-              <span
-                className={
-                  costDelta > 0
-                    ? "text-warning"
-                    : costDelta < 0
-                      ? "text-success"
-                      : ""
-                }
-              >
-                {t(($) => $.usage.kpi_cost_delta, {
-                  sign: costDelta > 0 ? "+" : "",
-                  pct: costDelta,
-                })}
-              </span>
-            )
+            costDelta == null ? undefined : (() => {
+              let deltaClass = "";
+              if (costDelta > 0) {
+                deltaClass = "text-warning";
+              } else if (costDelta < 0) {
+                deltaClass = "text-success";
+              }
+
+              return (
+                <span className={deltaClass}>
+                  {t(($) => $.usage.kpi_cost_delta, {
+                    sign: costDelta > 0 ? "+" : "",
+                    pct: costDelta,
+                  })}
+                </span>
+              );
+            })()
           }
         />
         <KpiCard

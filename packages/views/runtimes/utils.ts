@@ -1020,12 +1020,19 @@ export function aggregateByWeek(
     const partial = today < weekEnd;
     // Inclusive count of how many days of this week have actually elapsed.
     // Sits at 7 for closed weeks, 1..6 for the current week.
+    let referenceDay = weekStart;
+    if (today >= weekStart && today < weekEnd) {
+      referenceDay = today;
+    } else if (today >= weekEnd) {
+      referenceDay = weekEnd;
+    }
+
     const elapsedDays = Math.min(
       7,
       Math.max(
         1,
         // Day index of `today` within [weekStart, weekEnd] + 1.
-        diffDaysIso(weekStart, today < weekStart ? weekStart : today < weekEnd ? today : weekEnd) + 1,
+        diffDaysIso(weekStart, referenceDay) + 1,
       ),
     );
     return {
