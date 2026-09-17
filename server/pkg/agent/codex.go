@@ -933,119 +933,32 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	return &Session{Messages: msgCh, Result: resCh}, nil
 }
 
+type codexSessionState struct {
+	outputMu             sync.Mutex
+	finalAnswer          string
+	lastAgentMessage     string
+	semanticObserved     atomic.Bool
+	turnNotificationGate codexTurnNotificationGate
+	firstItemWait        codexFirstItemWaitObservation
+	turnDone             chan bool
+	msgCh                chan Message
+	resCh                chan Result
+	semanticActivityCh   chan string
+}
+
+type codexTurnOutcome struct {
+	finalStatus               string
+	finalError                string
+	timeoutDiagnostic         codexTimeoutDiagnostic
+	firstTurnProgressObserved bool
+	processExitErr            error
+}
+
 func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts ExecOptions, attempt int) (*Session, error) {
-	execPath := b.cfg.ExecutablePath
-	if execPath == "" {
-		execPath = "codex"
+	cmd, runCtx, cancel, _, semanticInactivityTimeout, handshakeTimeout, err := b.prepareCodexCommand(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := exec.LookPath(execPath); err != nil {
-		return nil, fmt.Errorf("codex executable not found at %q: %w", execPath, err)
-	}
-
-	timeout := opts.Timeout
-	semanticInactivityTimeout := opts.SemanticInactivityTimeout
-	if semanticInactivityTimeout == 0 {
-		semanticInactivityTimeout = defaultCodexSemanticInactivityTimeout
-	}
-	handshakeTimeout := opts.HandshakeTimeout
-	if handshakeTimeout <= 0 {
-		handshakeTimeout = defaultCodexHandshakeTimeout
-	}
-	runCtx, cancel := runContext(ctx, timeout)
-
-	// Materialise the agent's MCP config into the per-task
-	// `$CODEX_HOME/config.toml`. Argv would be the simpler path, but
-	// `mcp_servers.<id>.env` is allowed to carry secrets (Codex docs:
-	// https://developers.openai.com/codex/mcp#configure-with-configtoml)
-	// and our UI already treats mcp_config as a redacted-for-non-admins
-	// field. Process argv ends up in OS-level `ps` listings; daemon command
-	// logs redact values, but log redaction cannot protect the process list.
-	// Writing through config.toml at 0o600 keeps the secret values out of argv
-	// entirely.
-	codexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
-	if codexHome != "" {
-		if err := ensureCodexMcpConfig(filepath.Join(codexHome, "config.toml"), opts.McpConfig, b.cfg.Logger); err != nil {
-			// Fail closed when we can't materialise the managed config.
-			// Warning-and-launching would silently fall back to the
-			// user's global `~/.codex/config.toml` MCP servers and
-			// look indistinguishable from "the saved config was
-			// applied", which is exactly the surprise the MCP Tab is
-			// supposed to remove.
-			cancel()
-			return nil, fmt.Errorf("apply codex mcp_config: %w", err)
-		}
-	} else if hasManagedCodexMcpConfig(opts.McpConfig) {
-		// Managed mcp_config saved but no CODEX_HOME to anchor it.
-		// Same reasoning as above: silently launching would inherit
-		// whatever MCP setup the host user has, which is the wrong
-		// shape of failure.
-		cancel()
-		return nil, fmt.Errorf("codex: mcp_config is set but CODEX_HOME env var is not configured; cannot apply managed MCP")
-	}
-
-	// A custom runtime profile's fixed_args reach codex as the launch prefix.
-	// Being first does not protect the daemon's managed config from them: a
-	// `-c key=value` override wins over the task-local config.toml from any
-	// argv position, so the prefix needs the same two removals ExtraArgs and
-	// CustomArgs get below.
-	runtimeCmd := b.cfg.commandAt(execPath)
-	if codexHome != "" {
-		// The daemon owns shell_environment_policy in the task-local config.
-		// Codex -c/--config overrides are last-wins, so remove user-provided
-		// root or profile policy overrides before building the final argv.
-		opts.ExtraArgs = filterCodexShellEnvConfigOverrides(opts.ExtraArgs, b.cfg.Logger)
-		opts.CustomArgs = filterCodexShellEnvConfigOverrides(opts.CustomArgs, b.cfg.Logger)
-		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
-			return filterCodexShellEnvConfigOverrides(prefix, b.cfg.Logger)
-		})
-	}
-	if hasManagedCodexMcpConfig(opts.McpConfig) {
-		// Mirrors NormalizeCodexLaunchArgs, which applies this to ExtraArgs and
-		// CustomArgs once an agent has a managed mcp_config.
-		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
-			return filterCodexCustomConfigOverrides(prefix, b.cfg.Logger)
-		})
-	}
-	if opts.ServiceTier == codexFastServiceTier {
-		// Mirrors enforceCodexFastMode, which buildCodexArgs applies to the
-		// managed args. The enable itself is appended there, once; the prefix
-		// only needs the conflicting disable/config overrides removed.
-		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
-			return stripCodexFastModeConflicts(prefix, b.cfg.Logger)
-		})
-	}
-	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
-	cmd := runtimeCmd.exec(runCtx, codexArgs...)
-	hideAgentWindow(cmd)
-	// Run codex in its own process group so a cancel-on-stuck cleanup
-	// reaches the whole tree — the codex Node wrapper plus the native
-	// Rust app-server it spawns — not just the direct child. Without
-	// this, killing the leader leaves grandchildren as orphans that
-	// keep consuming memory until the OS reaps them; see #4520, where a
-	// scanner overflow during thread/resume otherwise leaked Codex
-	// processes indefinitely. configureProcessGroup is a no-op on
-	// Windows.
-	configureProcessGroup(cmd)
-	// Override the default exec.CommandContext cancel behaviour. The
-	// default sends SIGKILL only to cmd.Process (the leader); we instead
-	// signal the whole process group so descendants die too. Returning
-	// nil keeps exec from logging a spurious error; cmd.WaitDelay below
-	// still backstops cmd.Wait() if the kill leaves an open pipe.
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			signalProcessGroup(cmd, syscall.SIGKILL)
-		}
-		return nil
-	}
-	// Bound the wait after the context is cancelled so a stuck child (or an
-	// open pipe held by a grandchild) can't hang cmd.Wait() forever. Matches
-	// the other long-lived backends (claude, copilot, cursor, …).
-	cmd.WaitDelay = codexProcessWaitDelay()
-	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(codexArgs, trustAgentCommandPositional(0, "app-server")))
-	if opts.Cwd != "" {
-		cmd.Dir = opts.Cwd
-	}
-	cmd.Env = buildEnv(b.cfg.Env)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1057,18 +970,9 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		cancel()
 		return nil, fmt.Errorf("codex stdin pipe: %w", err)
 	}
-	// Codex stderr can contain auth/provider diagnostics. Capture a bounded
-	// tail and emit it only through the sanitizer in the cleanup event.
 	stderrBuf := newStderrTail(io.Discard, codexStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	// Start and take ownership of the process tree in one step. On Windows the
-	// child is created suspended and placed in a Job Object before it runs, so
-	// the cleanup below reaches the Node wrapper, the native app-server, and the
-	// sandbox helpers underneath them rather than just the direct child. On Unix
-	// the process group configured above already covers that and this is a plain
-	// Start. Ownership that cannot be taken is logged, not fatal; a child that
-	// cannot be resumed is killed and reported here.
 	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start codex: %w", err)
@@ -1088,79 +992,170 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 
 	b.cfg.Logger.Info(logCodexLifecycle, "phase", "spawn", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "process_group", cmd.Process.Pid, "cwd", opts.Cwd, "attempt", attempt, "active_launches", activeLaunches, "codex_version", codexVersion, "daemon_version", b.cfg.DaemonVersion)
 
-	msgCh := make(chan Message, 256)
-	resCh := make(chan Result, 1)
-	semanticActivityCh := make(chan string, 256)
+	state := &codexSessionState{
+		msgCh:              make(chan Message, 256),
+		resCh:              make(chan Result, 1),
+		semanticActivityCh: make(chan string, 256),
+		turnDone:           make(chan bool, 1),
+	}
 
-	var outputMu sync.Mutex
-	// Result.Output is "final user-facing output selected by the backend"
-	// (agent.go), so it holds the deliverable only. finalAnswer is the text the
-	// app-server labelled `phase: "final_answer"`; lastAgentMessage is the
-	// fallback for the legacy `agent_message` protocol, which carries no phase.
-	// Every agent message still flows to msgCh, so the transcript is unchanged —
-	// only what the daemon forwards to a chat/channel reply narrows (GH #6006).
-	var finalAnswer, lastAgentMessage string
-	var semanticObserved atomic.Bool
-	turnNotificationGate := &codexTurnNotificationGate{}
-	firstItemWait := &codexFirstItemWaitObservation{}
+	c := b.newCodexClient(cmd.Process.Pid, attempt, activeLaunches, handshakeTimeout, stdin, state)
+	readerDone := startCodexStdoutReader(stdout, c)
+	drainAndWait, getCleanupConfirmed := b.createCodexDrainer(cmd, stdin, readerDone, cancel, launchStarted, attempt, stderrBuf)
 
-	// turnDone is set before starting the reader goroutine so there is no
-	// race between the lifecycle goroutine writing and the reader reading.
-	turnDone := make(chan bool, 1) // true = aborted
+	execPath := b.cfg.ExecutablePath
+	if execPath == "" {
+		execPath = "codex"
+	}
 
-	c := &codexClient{
+	go b.runCodexSessionLifecycle(
+		runCtx,
+		opts,
+		prompt,
+		attempt,
+		activeLaunches,
+		codexVersion,
+		semanticInactivityTimeout,
+		handshakeTimeout,
+		execPath,
+		cmd,
+		c,
+		state,
+		stderrBuf,
+		drainAndWait,
+		getCleanupConfirmed,
+	)
+
+	return &Session{Messages: state.msgCh, Result: state.resCh}, nil
+}
+
+func (b *codexBackend) prepareCodexCommand(ctx context.Context, opts ExecOptions) (*exec.Cmd, context.Context, context.CancelFunc, string, time.Duration, time.Duration, error) {
+	execPath := b.cfg.ExecutablePath
+	if execPath == "" {
+		execPath = "codex"
+	}
+	if _, err := exec.LookPath(execPath); err != nil {
+		return nil, nil, nil, "", 0, 0, fmt.Errorf("codex executable not found at %q: %w", execPath, err)
+	}
+
+	timeout := opts.Timeout
+	semanticInactivityTimeout := opts.SemanticInactivityTimeout
+	if semanticInactivityTimeout == 0 {
+		semanticInactivityTimeout = defaultCodexSemanticInactivityTimeout
+	}
+	handshakeTimeout := opts.HandshakeTimeout
+	if handshakeTimeout <= 0 {
+		handshakeTimeout = defaultCodexHandshakeTimeout
+	}
+	runCtx, cancel := runContext(ctx, timeout)
+
+	codexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
+	if codexHome != "" {
+		if err := ensureCodexMcpConfig(filepath.Join(codexHome, "config.toml"), opts.McpConfig, b.cfg.Logger); err != nil {
+			cancel()
+			return nil, nil, nil, "", 0, 0, fmt.Errorf("apply codex mcp_config: %w", err)
+		}
+	} else if hasManagedCodexMcpConfig(opts.McpConfig) {
+		cancel()
+		return nil, nil, nil, "", 0, 0, fmt.Errorf("codex: mcp_config is set but CODEX_HOME env var is not configured; cannot apply managed MCP")
+	}
+
+	runtimeCmd := b.cfg.commandAt(execPath)
+	if codexHome != "" {
+		opts.ExtraArgs = filterCodexShellEnvConfigOverrides(opts.ExtraArgs, b.cfg.Logger)
+		opts.CustomArgs = filterCodexShellEnvConfigOverrides(opts.CustomArgs, b.cfg.Logger)
+		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
+			return filterCodexShellEnvConfigOverrides(prefix, b.cfg.Logger)
+		})
+	}
+	if hasManagedCodexMcpConfig(opts.McpConfig) {
+		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
+			return filterCodexCustomConfigOverrides(prefix, b.cfg.Logger)
+		})
+	}
+	if opts.ServiceTier == codexFastServiceTier {
+		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
+			return stripCodexFastModeConflicts(prefix, b.cfg.Logger)
+		})
+	}
+	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
+	cmd := runtimeCmd.exec(runCtx, codexArgs...)
+	hideAgentWindow(cmd)
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			signalProcessGroup(cmd, syscall.SIGKILL)
+		}
+		return nil
+	}
+	cmd.WaitDelay = codexProcessWaitDelay()
+	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(codexArgs, trustAgentCommandPositional(0, "app-server")))
+	if opts.Cwd != "" {
+		cmd.Dir = opts.Cwd
+	}
+	cmd.Env = buildEnv(b.cfg.Env)
+	return cmd, runCtx, cancel, codexHome, semanticInactivityTimeout, handshakeTimeout, nil
+}
+
+func (b *codexBackend) newCodexClient(
+	pid int,
+	attempt int,
+	activeLaunches int64,
+	handshakeTimeout time.Duration,
+	stdin io.WriteCloser,
+	state *codexSessionState,
+) *codexClient {
+	return &codexClient{
 		cfg:                  b.cfg,
 		stdin:                stdin,
 		pending:              make(map[int]*pendingRPC),
 		processDone:          make(chan struct{}),
 		handshakeTimeout:     handshakeTimeout,
-		pid:                  cmd.Process.Pid,
+		pid:                  pid,
 		attempt:              attempt,
 		activeLaunches:       activeLaunches,
 		notificationProtocol: "unknown",
-		acceptNotification:   turnNotificationGate.accept,
+		acceptNotification:   state.turnNotificationGate.accept,
 		onDiscardedNotification: func(string, map[string]any) {
-			// Any app-server notification proves the process made semantic
-			// progress, even when it is intentionally excluded from the active
-			// turn. Preserve initialize-retry safety without replaying content.
-			semanticObserved.Store(true)
+			state.semanticObserved.Store(true)
 		},
 		onMessage: func(msg Message) {
 			logCodexAgentMessage(b.cfg.Logger, msg)
 			if msg.Type == MessageText {
-				outputMu.Lock()
-				lastAgentMessage = msg.Content
-				outputMu.Unlock()
+				state.outputMu.Lock()
+				state.lastAgentMessage = msg.Content
+				state.outputMu.Unlock()
 			}
 			activity := describeCodexSemanticActivity(msg)
 			if activity == statusRunningPrefix {
-				firstItemWait.start(time.Now())
+				state.firstItemWait.start(time.Now())
 			}
-			trySend(msgCh, msg)
-			trySendString(semanticActivityCh, activity)
+			trySend(state.msgCh, msg)
+			trySendString(state.semanticActivityCh, activity)
 			if activity != "" {
-				semanticObserved.Store(true)
+				state.semanticObserved.Store(true)
 			}
 		},
 		onFinalAnswer: func(text string) {
-			outputMu.Lock()
-			finalAnswer = text
-			outputMu.Unlock()
+			state.outputMu.Lock()
+			state.finalAnswer = text
+			state.outputMu.Unlock()
 		},
 		onSemanticActivity: func(description string) {
-			semanticObserved.Store(true)
+			state.semanticObserved.Store(true)
 			b.cfg.Logger.Debug("codex semantic activity observed", "activity", description)
-			trySendString(semanticActivityCh, description)
+			trySendString(state.semanticActivityCh, description)
 		},
 		onTurnDone: func(aborted bool) {
 			select {
-			case turnDone <- aborted:
+			case state.turnDone <- aborted:
 			default:
 			}
 		},
 	}
+}
 
-	// Start reading stdout in background
+func startCodexStdoutReader(stdout io.Reader, c *codexClient) <-chan struct{} {
 	readerDone := make(chan struct{})
 	go func() {
 		defer close(readerDone)
@@ -1173,64 +1168,29 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			c.handleLine(line)
 		}
 		if err := scanner.Err(); err != nil {
-			// %w on BOTH: callers match errCodexProcessExited to decide the
-			// process is gone, and bufio.ErrTooLong to tell "we could not read
-			// the response" apart from "codex died". startOrResumeThread needs
-			// that distinction to report an oversized resume as a rejected
-			// resume rather than a crash (MUL-5722).
 			c.markProcessExited(fmt.Errorf("%w: %w", errCodexProcessExited, err))
 			return
 		}
 		c.markProcessExited(errCodexProcessExited)
 	}()
+	return readerDone
+}
 
-	// drainAndWait closes stdin so codex shuts down, then joins cmd.Wait().
-	// cmd.Wait() is the only Go-stdlib-documented synchronization point for
-	// os/exec's internal stderr/stdout copy goroutines — until it returns,
-	// stderrBuf may not have observed every byte codex wrote before it
-	// exited, and stderrBuf.Tail() can come back empty or truncated. Any
-	// code that reads stderrBuf.Tail() must call drainAndWait() first.
-	// sync.Once makes it safe to call from both error paths and the deferred
-	// cleanup.
-	//
-	// drainAndWait is also the cleanup safety net for the scanner-overflow
-	// path (#4520). When codex emits a single stdout line larger than the
-	// scanner's MaxScanTokenSize, the reader goroutine returns with
-	// scanner.Err() set, fails all in-flight RPCs via markProcessExited, and
-	// closes readerDone — but the codex child process is still alive and is
-	// now blocked trying to write the rest of the oversized line into a
-	// stdout pipe nobody is reading. A naive stdin.Close()+cmd.Wait() then
-	// hangs forever: codex never reaches its stdin-read syscall, so it never
-	// sees EOF, never exits, and cmd.Wait() never returns. The lifecycle
-	// goroutine therefore never sends a failed Result, the outer daemon
-	// blocks on its result channel, and the higher-level fresh-session
-	// fallback never fires.
-	//
-	// To stay correct under both clean shutdown and the stuck-child case,
-	// drainAndWait runs in two bounded phases:
-	//
-	//  1. Close stdin and wait for the reader goroutine to finish, capped by
-	//     codexGracefulShutdownTimeout. The reader exits when codex closes
-	//     stdout on its own (clean shutdown — gives OTEL batch exporters a
-	//     chance to flush) OR when the scanner errors out (overflow case —
-	//     readerDone is already closed and the select returns immediately).
-	//     Per os/exec docs, calling cmd.Wait() while reads are still
-	//     in-flight on a StdoutPipe-returned pipe is incorrect because Wait
-	//     closes the pipe and turns pending reads into spurious errors, so
-	//     we must wait for the reader first.
-	//
-	//  2. Wait for cmd.Wait() to return, capped by another
-	//     codexGracefulShutdownTimeout. Normally this returns immediately
-	//     because the process has already exited. In the stuck-child case
-	//     the process is still alive — we cancel the runCtx, which fires
-	//     cmd.Cancel (the group-SIGKILL helper installed above), and
-	//     cmd.WaitDelay then guarantees cmd.Wait() returns even if pipes
-	//     stay open.
+func (b *codexBackend) createCodexDrainer(
+	cmd *exec.Cmd,
+	stdin io.WriteCloser,
+	readerDone <-chan struct{},
+	cancel context.CancelFunc,
+	launchStarted time.Time,
+	attempt int,
+	stderrBuf *stderrTail,
+) (drainAndWait func(), getCleanupConfirmed func() bool) {
 	var waitOnce sync.Once
 	var cleanupConfirmed bool
 	var waitReturned bool
 	var cleanupWaitErr error
-	drainAndWait := func() {
+
+	drainAndWait = func() {
 		waitOnce.Do(func() {
 			stdin.Close()
 
@@ -1249,23 +1209,12 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			// Phase 1: let the reader finish before invoking cmd.Wait().
 			select {
 			case <-readerDone:
-				// reader drained cleanly (codex shutdown closed stdout)
-				// or aborted early (e.g. scanner overflow). Either way it
-				// is now safe to call cmd.Wait().
 			case <-time.After(grace):
-				// codex did not close stdout within the grace window. Force
-				// the shutdown via context cancellation — cmd.Cancel
-				// group-kills the tree, the reader unblocks when stdout
-				// EOFs, and we proceed to phase 2.
 				b.cfg.Logger.Warn("codex did not close stdout after stdin EOF; forcing shutdown",
 					"pid", cmd.Process.Pid,
 					"grace", grace.String(),
 				)
 				cancel()
-				// On Windows, Cancel terminates only the direct child. A
-				// descendant may keep inherited stdout open indefinitely. Start
-				// Wait now so os/exec's WaitDelay closes the pipe after its
-				// bounded deadline and lets the reader finish.
 				startProcessWait()
 				<-waitCh
 				select {
@@ -1279,29 +1228,20 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 
 			// Phase 2: bound cmd.Wait() in case the process is still alive
-			// (scanner-overflow case: reader exited early on its own while
-			// codex stayed blocked writing into a full stdout pipe).
 			startProcessWait()
 			select {
 			case <-waitCh:
 				waitReturned = true
-				// reaped cleanly.
 			case <-time.After(grace):
 				b.cfg.Logger.Warn("codex process still alive after reader exited; forcing shutdown",
 					"pid", cmd.Process.Pid,
 					"grace", grace.String(),
 				)
 				cancel()
-				// WaitDelay (10s) is the final backstop: even if the
-				// group-kill races with an open pipe held by a
-				// descendant, cmd.Wait() returns within WaitDelay of the
-				// cancel.
 				<-waitCh
 				waitReturned = true
 			}
-			// Wait returning with a ProcessState is the os/exec reap boundary.
-			// On Unix, ProcessState.Exited reports false for a process terminated
-			// by SIGKILL even though Wait successfully reaped it.
+
 			cleanupConfirmed = waitReturned && cmd.ProcessState != nil && waitProcessGroupGone(cmd, grace)
 			if codexCleanupConfirmationOverride.Load() < 0 {
 				cleanupConfirmed = false
@@ -1320,446 +1260,526 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				"stderr_bytes", stderrBuf.TotalBytes(),
 				"stderr_truncated", stderrBuf.TotalBytes() > codexStderrTailBytes,
 			)
-			// The tree has been reaped and observed; drop ownership. This is
-			// the only safe point to do so on Windows, where releasing kills
-			// whatever is still inside the job — which is precisely what should
-			// happen to anything that outlived the reap above. waitOnce makes it
-			// exactly-once per launch attempt.
 			releaseProcessGroup(cmd)
 		})
 	}
 
-	// Drive the session lifecycle in a goroutine.
-	// Shutdown sequence: lifecycle goroutine closes stdin + cancels context →
-	// codex process exits → reader goroutine's scanner.Scan() returns false →
-	// readerDone closes → lifecycle goroutine collects final output and sends Result.
-	go func() {
-		defer activeCodexLaunches.Add(-1)
-		defer cancel()
-		defer close(msgCh)
-		defer close(resCh)
-		defer drainAndWait()
+	getCleanupConfirmed = func() bool {
+		return cleanupConfirmed
+	}
 
-		startTime := time.Now()
-		finalStatus := "completed"
-		var finalError string
+	return drainAndWait, getCleanupConfirmed
+}
 
-		// 1. Initialize handshake
-		initializeStarted := time.Now()
-		b.cfg.Logger.Info(logCodexLifecycle, "phase", "initialize_sent", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "active_launches", activeLaunches)
-		_, err := c.request(runCtx, "initialize", map[string]any{
-			"clientInfo": map[string]any{
-				"name":    "multica-agent-sdk",
-				"title":   "Multica Agent SDK",
-				"version": "0.2.0",
-			},
-			"capabilities": map[string]any{
-				"experimentalApi": true,
-			},
-		})
-		if err != nil {
-			initializeLatency := time.Since(initializeStarted)
-			var handshakeErr *codexHandshakeTimeoutError
-			timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == "initialize"
-			if timedOut {
-				// A timed-out initialize may still complete after the host gives up.
-				// Kill the whole process group before waiting so a leader that exits
-				// on stdin EOF cannot leave detached-stdio descendants behind.
-				signalProcessGroup(cmd, syscall.SIGKILL)
-			}
-			drainAndWait() // flush os/exec stderr goroutine before sampling Tail
-			finalStatus = "failed"
-			finalError = fmt.Sprintf("codex initialize failed: %v", err)
-			contextEnded := errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
-			if !timedOut && !contextEnded {
-				// Timeout stderr is untrusted provider output and may echo opaque
-				// Config.Env/auth values that pattern sanitization cannot identify.
-				// The same applies when the parent task deadline/cancellation wins
-				// the race against the per-RPC handshake timeout.
-				// Keep it out of persisted/user-visible Results; cleanup lifecycle
-				// still records bounded byte/truncation metadata.
-				finalError = withAgentStderr(finalError, "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
-			}
-			retrySafe := timedOut && !semanticObserved.Load() && cleanupConfirmed && codexInitializeRetrySupported()
-			if timedOut && !cleanupConfirmed {
-				finalError += "; retry suppressed: process cleanup/reap not confirmed"
-			} else if timedOut && cleanupConfirmed && !codexInitializeRetrySupported() {
-				finalError += "; retry suppressed: process-tree cleanup cannot be confirmed on this platform"
-			}
-			b.cfg.Logger.Warn(logCodexLifecycle, "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
-			resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe}
+func (b *codexBackend) handleInitializeError(
+	err error,
+	cmd *exec.Cmd,
+	initializeStarted time.Time,
+	startTime time.Time,
+	attempt int,
+	activeLaunches int64,
+	semanticObserved *atomic.Bool,
+	getCleanupConfirmed func() bool,
+	drainAndWait func(),
+	stderrBuf *stderrTail,
+	resCh chan<- Result,
+) {
+	initializeLatency := time.Since(initializeStarted)
+	var handshakeErr *codexHandshakeTimeoutError
+	timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == "initialize"
+	if timedOut {
+		signalProcessGroup(cmd, syscall.SIGKILL)
+	}
+	drainAndWait()
+	cleanupConfirmed := getCleanupConfirmed()
+	finalStatus := "failed"
+	finalError := fmt.Sprintf("codex initialize failed: %v", err)
+	contextEnded := errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+	if !timedOut && !contextEnded {
+		finalError = withAgentStderr(finalError, "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
+	}
+	retrySafe := timedOut && !semanticObserved.Load() && cleanupConfirmed && codexInitializeRetrySupported()
+	if timedOut && !cleanupConfirmed {
+		finalError += "; retry suppressed: process cleanup/reap not confirmed"
+	} else if timedOut && cleanupConfirmed && !codexInitializeRetrySupported() {
+		finalError += "; retry suppressed: process-tree cleanup cannot be confirmed on this platform"
+	}
+	b.cfg.Logger.Warn(logCodexLifecycle, "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
+	resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe}
+}
+
+func (b *codexBackend) handleThreadStartError(
+	err error,
+	cmd *exec.Cmd,
+	attempt int,
+	activeLaunches int64,
+	getCleanupConfirmed func() bool,
+	startTime time.Time,
+	opts ExecOptions,
+	c *codexClient,
+	drainAndWait func(),
+	stderrBuf *stderrTail,
+	resCh chan<- Result,
+) {
+	var handshakeErr *codexHandshakeTimeoutError
+	timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == methodThreadStart
+	if timedOut {
+		signalProcessGroup(cmd, syscall.SIGKILL)
+	}
+	drainAndWait()
+	cleanupConfirmed := getCleanupConfirmed()
+	finalStatus := "failed"
+	stderrTail := sanitizeCodexDiagnostic(stderrBuf.Tail())
+	finalError := err.Error()
+	if c.threadStartSent {
+		classification := classifyCodexStartupStderr(stderrTail, timedOut)
+		b.cfg.Logger.Warn(logCodexLifecycle,
+			"phase", "thread_start_failure",
+			"task_id", b.cfg.TaskID,
+			"runtime_id", b.cfg.RuntimeID,
+			"pid", cmd.Process.Pid,
+			"attempt", attempt,
+			"active_launches", activeLaunches,
+			"method", methodThreadStart,
+			"latency", time.Since(c.threadStartStarted).Round(time.Millisecond).String(),
+			"latency_ms", time.Since(c.threadStartStarted).Milliseconds(),
+			"cleanup_confirmed", cleanupConfirmed,
+			"reaped", cleanupConfirmed,
+			"retry_safe", false,
+			"retry_attempted", false,
+			"stderr_model_refresh_failure_count", classification.modelRefreshFailure,
+			"stderr_model_refresh_timeout_count", classification.modelRefreshTimeout,
+			"stderr_mcp_init_transport_count", classification.mcpInitTransport,
+			"stderr_bare_timeout_count", classification.bareTimeout,
+		)
+	}
+	resCh <- Result{
+		Status:         finalStatus,
+		Error:          finalError,
+		DurationMs:     time.Since(startTime).Milliseconds(),
+		ResumeRejected: isCodexResumeOverflow(opts, err),
+	}
+}
+
+func (b *codexBackend) waitForTurnExecution(
+	runCtx context.Context,
+	c *codexClient,
+	turnDone chan bool,
+	semanticActivityCh chan string,
+	timeout time.Duration,
+	semanticInactivityTimeout time.Duration,
+	configuredFirstTurnTimeout time.Duration,
+	threadID string,
+	opts ExecOptions,
+	firstItemWait *codexFirstItemWaitObservation,
+	pid int,
+	stderrBuf *stderrTail,
+) codexTurnOutcome {
+	lastSemanticActivity := time.Now()
+	lastSemanticActivityDescription := methodTurnStart
+	semanticTimer := time.NewTimer(semanticInactivityTimeout)
+	defer semanticTimer.Stop()
+
+	firstTurnNoProgressTimeout := codexFirstTurnNoProgressTimeout(semanticInactivityTimeout, configuredFirstTurnTimeout)
+	var firstTurnNoProgressTimer *time.Timer
+	var firstTurnNoProgressTimerC <-chan time.Time
+	firstTurnStarted := false
+	firstTurnProgressObserved := false
+	stopFirstTurnNoProgressTimer := func() {
+		if firstTurnNoProgressTimer == nil {
 			return
 		}
-		b.cfg.Logger.Info(logCodexLifecycle, "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
-		c.notify("initialized")
+		stopTimer(firstTurnNoProgressTimer)
+		firstTurnNoProgressTimerC = nil
+	}
+	defer stopFirstTurnNoProgressTimer()
 
-		// 2. Start a new thread, or resume the prior one for this issue. When
-		// resume fails (thread GCed on the server, schema drift, etc.) we fall
-		// back to a fresh thread so the task still makes progress.
-		threadID, resumed, err := c.startOrResumeThread(runCtx, opts, b.cfg.Logger)
-		if err != nil {
-			var handshakeErr *codexHandshakeTimeoutError
-			timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == methodThreadStart
-			if timedOut {
-				// A timed-out thread/start has an uncertain provider outcome. Kill
-				// the whole process group before waiting so a leader that exits on
-				// EOF cannot leave detached-stdio descendants behind.
-				signalProcessGroup(cmd, syscall.SIGKILL)
+	var outcome codexTurnOutcome
+	waitingForTurn := true
+
+	finishFirstItemWait := func(o string) {
+		firstItemWait.finish(
+			time.Now(),
+			o,
+			classifyCodexStartupStderr(stderrBuf.Tail(), strings.HasSuffix(o, "_timeout")),
+		)
+	}
+	finishTurn := func(aborted bool) {
+		waitingForTurn = false
+		switch {
+		case aborted:
+			finishFirstItemWait("turn_aborted")
+			outcome.finalStatus = "aborted"
+			if errMsg := c.getTurnError(); errMsg != "" {
+				outcome.finalError = errMsg
+			} else {
+				outcome.finalError = "turn was aborted"
 			}
-			drainAndWait() // flush os/exec stderr goroutine before sampling Tail
-			finalStatus = "failed"
-			stderrTail := sanitizeCodexDiagnostic(stderrBuf.Tail())
-			finalError = err.Error()
-			if c.threadStartSent {
-				classification := classifyCodexStartupStderr(stderrTail, timedOut)
-				b.cfg.Logger.Warn(logCodexLifecycle,
-					"phase", "thread_start_failure",
-					"task_id", b.cfg.TaskID,
-					"runtime_id", b.cfg.RuntimeID,
-					"pid", cmd.Process.Pid,
-					"attempt", attempt,
-					"active_launches", activeLaunches,
-					"method", methodThreadStart,
-					"latency", time.Since(c.threadStartStarted).Round(time.Millisecond).String(),
-					"latency_ms", time.Since(c.threadStartStarted).Milliseconds(),
-					"cleanup_confirmed", cleanupConfirmed,
-					"reaped", cleanupConfirmed,
-					"retry_safe", false,
-					"retry_attempted", false,
-					"stderr_model_refresh_failure_count", classification.modelRefreshFailure,
-					"stderr_model_refresh_timeout_count", classification.modelRefreshTimeout,
-					"stderr_mcp_init_transport_count", classification.mcpInitTransport,
-					"stderr_bare_timeout_count", classification.bareTimeout,
-				)
+		default:
+			if errMsg := c.getTurnError(); errMsg != "" {
+				finishFirstItemWait("turn_failed")
+				outcome.finalStatus = "failed"
+				outcome.finalError = errMsg
+			} else {
+				finishFirstItemWait("turn_completed")
 			}
-			resCh <- Result{
-				Status:         finalStatus,
-				Error:          finalError,
-				DurationMs:     time.Since(startTime).Milliseconds(),
-				ResumeRejected: isCodexResumeOverflow(opts, err),
-			}
-			return
 		}
-		c.threadID = threadID
-		if resumed {
-			b.cfg.Logger.Info("codex thread resumed", "thread_id", threadID)
+	}
+
+	finishRunContextDone := func() {
+		waitingForTurn = false
+		if runCtx.Err() == context.DeadlineExceeded {
+			finishFirstItemWait("execution_timeout")
+			outcome.finalStatus = "timeout"
+			outcome.finalError = fmt.Sprintf("codex timed out after %s", timeout)
 		} else {
-			b.cfg.Logger.Info("codex thread started", "thread_id", threadID)
+			finishFirstItemWait("cancelled")
+			outcome.finalStatus = "aborted"
+			outcome.finalError = "execution cancelled"
 		}
+	}
 
-		// 3. Send turn and wait for completion. When a resume was expected but we
-		// ended up on a fresh thread (the live thread/resume RPC was rejected — a
-		// corrupt/incompatible rollout, server-side thread GC, schema drift — or a
-		// transport failure forced a fresh retry), prepend the caller's continuity
-		// notice so the agent does not assume continuity it no longer has. The
-		// daemon's pre-flight gates only catch cases detectable before launch;
-		// this covers the ones only the live resume reveals (MUL-4424).
-		//
-		// Whether that notice asks the agent to tell the USER is the caller's
-		// call, not ours: it depends on whether this surface's conversation is
-		// still readable, which this package cannot see (MUL-5722).
-		turnParams := map[string]any{
-			"threadId": threadID,
-			"input":    codexTurnInput(prompt, opts.ResumeExpected, resumed, opts.ResumeContinuityNotice),
-		}
-		// Per-turn reasoning override. Mirrors the per-thread injection in
-		// startOrResumeThread; keeping both in sync is enforced by the
-		// shared `codexReasoningInjection` fixture in codex_test.go (see
-		// MUL-2339 — Trump's constraint that the three injection points
-		// must not drift independently).
-		applyCodexReasoningEffort(turnParams, opts.ThinkingLevel)
-		applyCodexServiceTier(turnParams, opts.ServiceTier)
-		waitingForTurn := true
-		var timeoutDiagnostic codexTimeoutDiagnostic
-		var processExitErr error
-		finishFirstItemWait := func(outcome string) {
-			firstItemWait.finish(
-				time.Now(),
-				outcome,
-				classifyCodexStartupStderr(stderrBuf.Tail(), strings.HasSuffix(outcome, "_timeout")),
-			)
-		}
-		finishTurn := func(aborted bool) {
+	for waitingForTurn {
+		select {
+		case aborted := <-turnDone:
+			finishTurn(aborted)
+		case activity := <-semanticActivityCh:
+			lastSemanticActivity = time.Now()
+			lastSemanticActivityDescription = activity
+			resetTimer(semanticTimer, semanticInactivityTimeout)
+			if activity == statusRunningPrefix && !firstTurnStarted {
+				firstTurnStarted = true
+				firstItemWait.start(time.Now())
+				firstTurnNoProgressTimer = time.NewTimer(firstTurnNoProgressTimeout)
+				firstTurnNoProgressTimerC = firstTurnNoProgressTimer.C
+			} else if firstTurnStarted && !firstTurnProgressObserved && isCodexFirstTurnProgressActivity(activity) {
+				firstTurnProgressObserved = true
+				if activity == "error:terminal" {
+					finishFirstItemWait("turn_failed")
+				} else {
+					finishFirstItemWait("progress")
+				}
+				stopFirstTurnNoProgressTimer()
+			}
+		case <-firstTurnNoProgressTimerC:
 			waitingForTurn = false
-			switch {
-			case aborted:
-				finishFirstItemWait("turn_aborted")
+			finishFirstItemWait("no_progress_timeout")
+			outcome.finalStatus = "timeout"
+			outcome.timeoutDiagnostic = codexTimeoutDiagnostic{
+				Kind:         codexTimeoutFirstTurnNoProgress,
+				Timeout:      firstTurnNoProgressTimeout,
+				LastActivity: lastSemanticActivityDescription,
+				ThreadID:     threadID,
+				TurnID:       c.turnID,
+				Model:        opts.Model,
+			}
+			b.cfg.Logger.Warn(CodexFirstTurnNoProgressMarker,
+				"pid", pid,
+				"thread_id", threadID,
+				"turn_id", c.turnID,
+				"timeout", firstTurnNoProgressTimeout.String(),
+				"last_activity", lastSemanticActivityDescription,
+			)
+		case <-semanticTimer.C:
+			waitingForTurn = false
+			finishFirstItemWait("semantic_inactivity_timeout")
+			outcome.finalStatus = "timeout"
+			outcome.timeoutDiagnostic = codexTimeoutDiagnostic{
+				Kind:         codexTimeoutSemanticInactivity,
+				Timeout:      semanticInactivityTimeout,
+				LastActivity: lastSemanticActivityDescription,
+				ThreadID:     threadID,
+				TurnID:       c.turnID,
+				Model:        opts.Model,
+			}
+			b.cfg.Logger.Warn(CodexSemanticInactivityMarker,
+				"pid", pid,
+				"thread_id", threadID,
+				"turn_id", c.turnID,
+				"timeout", semanticInactivityTimeout.String(),
+				"last_activity", lastSemanticActivityDescription,
+				"idle_for", time.Since(lastSemanticActivity).Round(time.Millisecond).String(),
+			)
+		case <-runCtx.Done():
+			finishRunContextDone()
+		case <-c.processDone:
+			select {
+			case aborted := <-turnDone:
+				finishTurn(aborted)
+			default:
+				if runCtx.Err() != nil {
+					finishRunContextDone()
+				} else {
+					waitingForTurn = false
+					finishFirstItemWait("process_exit")
+					outcome.finalStatus = "failed"
+					processExitErr := c.getProcessErr()
+					if processExitErr == nil {
+						processExitErr = errCodexProcessExited
+					}
+					outcome.processExitErr = processExitErr
+					outcome.finalError = processExitErr.Error()
+				}
+			}
+		}
+	}
+	outcome.firstTurnProgressObserved = firstTurnProgressObserved
+	return outcome
+}
+
+func (b *codexBackend) logFirstItemWaitTelemetry(
+	firstItemWait *codexFirstItemWaitObservation,
+	stderrTail string,
+	threadID string,
+	turnID string,
+	pid int,
+	attempt int,
+	activeLaunches int64,
+	firstTurnNoProgressTimeout time.Duration,
+	semanticInactivityTimeout time.Duration,
+	codexVersion string,
+	cleanupConfirmed bool,
+	startupRefreshRetrySafe bool,
+) {
+	if waitLatency, outcome, classification, ok := firstItemWait.snapshot(); ok {
+		if waitLatency < 0 {
+			waitLatency = 0
+		}
+		if strings.HasSuffix(outcome, "_timeout") {
+			classification = classifyCodexStartupStderr(stderrTail, true)
+		}
+		fields := []any{
+			"phase", "first_item_wait",
+			"task_id", b.cfg.TaskID,
+			"runtime_id", b.cfg.RuntimeID,
+			"pid", pid,
+			"attempt", attempt,
+			"active_launches", activeLaunches,
+			"method", methodTurnStart,
+			"thread_id", threadID,
+			"turn_id", turnID,
+			"outcome", outcome,
+			"latency", waitLatency.Round(time.Millisecond).String(),
+			"latency_ms", waitLatency.Milliseconds(),
+			"timeout", firstTurnNoProgressTimeout.String(),
+			"semantic_inactivity_timeout", semanticInactivityTimeout.String(),
+			"codex_version", codexVersion,
+			"daemon_version", b.cfg.DaemonVersion,
+			"cleanup_confirmed", cleanupConfirmed,
+			"reaped", cleanupConfirmed,
+			"retry_safe", startupRefreshRetrySafe,
+			"stderr_model_refresh_failure_count", classification.modelRefreshFailure,
+			"stderr_model_refresh_timeout_count", classification.modelRefreshTimeout,
+			"stderr_mcp_init_transport_count", classification.mcpInitTransport,
+			"stderr_bare_timeout_count", classification.bareTimeout,
+		}
+		switch outcome {
+		case "progress", "turn_completed":
+			b.cfg.Logger.Info(logCodexLifecycle, fields...)
+		default:
+			b.cfg.Logger.Warn(logCodexLifecycle, fields...)
+		}
+	}
+}
+
+func (b *codexBackend) collectSessionUsage(
+	c *codexClient,
+	startTime time.Time,
+	threadID string,
+	resumed bool,
+	opts *ExecOptions,
+) map[string]TokenUsage {
+	var usageMap map[string]TokenUsage
+	c.usageMu.Lock()
+	u := c.usage
+	c.usageMu.Unlock()
+
+	if u.InputTokens == 0 && u.OutputTokens == 0 {
+		taskCodexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
+		if scanned := scanCodexSessionUsage(startTime, taskCodexHome, threadID, resumed); scanned != nil {
+			u = scanned.usage
+			if scanned.model != "" && opts.Model == "" {
+				opts.Model = scanned.model
+			}
+		}
+	}
+
+	if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 || u.CacheWriteTokens > 0 {
+		model := opts.Model
+		if model == "" {
+			model = "unknown"
+		}
+		usageMap = map[string]TokenUsage{model: u}
+	}
+	return usageMap
+}
+
+func (b *codexBackend) runCodexSessionLifecycle(
+	runCtx context.Context,
+	opts ExecOptions,
+	prompt string,
+	attempt int,
+	activeLaunches int64,
+	codexVersion string,
+	semanticInactivityTimeout time.Duration,
+	handshakeTimeout time.Duration,
+	execPath string,
+	cmd *exec.Cmd,
+	c *codexClient,
+	state *codexSessionState,
+	stderrBuf *stderrTail,
+	drainAndWait func(),
+	getCleanupConfirmed func() bool,
+) {
+	startTime := time.Now()
+	defer close(state.msgCh)
+	defer close(state.resCh)
+	var finalStatus, finalError string
+
+	// 1. Send initialize request and await response
+	initializeStarted := time.Now()
+	_, err := c.request(runCtx, "initialize", map[string]any{
+		"clientInfo": map[string]any{
+			"name":    "multica-agent-sdk",
+			"title":   "Multica Agent SDK",
+			"version": "0.2.0",
+		},
+		"capabilities": map[string]any{
+			"experimentalApi": true,
+		},
+	})
+	if err != nil {
+		b.handleInitializeError(err, cmd, initializeStarted, startTime, attempt, activeLaunches, &state.semanticObserved, getCleanupConfirmed, drainAndWait, stderrBuf, state.resCh)
+		return
+	}
+	b.cfg.Logger.Info(logCodexLifecycle, "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
+	c.notify("initialized")
+
+	// 2. Start a new thread, or resume the prior one for this issue.
+	threadID, resumed, err := c.startOrResumeThread(runCtx, opts, b.cfg.Logger)
+	if err != nil {
+		b.handleThreadStartError(err, cmd, attempt, activeLaunches, getCleanupConfirmed, startTime, opts, c, drainAndWait, stderrBuf, state.resCh)
+		return
+	}
+	c.threadID = threadID
+	if resumed {
+		b.cfg.Logger.Info("codex thread resumed", "thread_id", threadID)
+	} else {
+		b.cfg.Logger.Info("codex thread started", "thread_id", threadID)
+	}
+
+	// 3. Send turn and wait for completion.
+	turnParams := map[string]any{
+		"threadId": threadID,
+		"input":    codexTurnInput(prompt, opts.ResumeExpected, resumed, opts.ResumeContinuityNotice),
+	}
+	applyCodexReasoningEffort(turnParams, opts.ThinkingLevel)
+	applyCodexServiceTier(turnParams, opts.ServiceTier)
+
+	state.turnNotificationGate.arm()
+	_, err = c.request(runCtx, methodTurnStart, turnParams)
+	if err != nil {
+		select {
+		case aborted := <-state.turnDone:
+			if aborted {
 				finalStatus = "aborted"
 				if errMsg := c.getTurnError(); errMsg != "" {
 					finalError = errMsg
 				} else {
 					finalError = "turn was aborted"
 				}
-			default:
+			} else {
 				if errMsg := c.getTurnError(); errMsg != "" {
-					finishFirstItemWait("turn_failed")
 					finalStatus = "failed"
 					finalError = errMsg
-				} else {
-					finishFirstItemWait("turn_completed")
 				}
 			}
+		default:
+			drainAndWait()
+			finalStatus = "failed"
+			finalError = withAgentStderr(fmt.Sprintf("codex turn/start failed: %v", err), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
+			state.resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds()}
+			return
 		}
-		turnNotificationGate.arm()
-		_, err = c.request(runCtx, methodTurnStart, turnParams)
-		if err != nil {
-			select {
-			case aborted := <-turnDone:
-				finishTurn(aborted)
-			default:
-				drainAndWait() // flush os/exec stderr goroutine before sampling Tail
-				finalStatus = "failed"
-				finalError = withAgentStderr(fmt.Sprintf("codex turn/start failed: %v", err), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
-				resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds()}
-				return
-			}
-		}
+	}
 
-		lastSemanticActivity := time.Now()
-		lastSemanticActivityDescription := methodTurnStart
-		semanticTimer := time.NewTimer(semanticInactivityTimeout)
-		defer semanticTimer.Stop()
+	firstTurnNoProgressTimeout := codexFirstTurnNoProgressTimeout(semanticInactivityTimeout, opts.FirstTurnNoProgressTimeout)
+	turnOutcome := b.waitForTurnExecution(
+		runCtx,
+		c,
+		state.turnDone,
+		state.semanticActivityCh,
+		opts.Timeout,
+		semanticInactivityTimeout,
+		opts.FirstTurnNoProgressTimeout,
+		threadID,
+		opts,
+		&state.firstItemWait,
+		cmd.Process.Pid,
+		stderrBuf,
+	)
+	if finalStatus == "" {
+		finalStatus = turnOutcome.finalStatus
+		finalError = turnOutcome.finalError
+	}
 
-		firstTurnNoProgressTimeout := codexFirstTurnNoProgressTimeout(semanticInactivityTimeout, opts.FirstTurnNoProgressTimeout)
-		var firstTurnNoProgressTimer *time.Timer
-		var firstTurnNoProgressTimerC <-chan time.Time
-		firstTurnStarted := false
-		firstTurnProgressObserved := false
-		stopFirstTurnNoProgressTimer := func() {
-			if firstTurnNoProgressTimer == nil {
-				return
-			}
-			stopTimer(firstTurnNoProgressTimer)
-			firstTurnNoProgressTimerC = nil
-		}
-		defer stopFirstTurnNoProgressTimer()
+	duration := time.Since(startTime)
+	b.cfg.Logger.Info("codex finished", "pid", cmd.Process.Pid, "status", finalStatus, "duration", duration.Round(time.Millisecond).String())
 
-		finishRunContextDone := func() {
-			waitingForTurn = false
-			if runCtx.Err() == context.DeadlineExceeded {
-				finishFirstItemWait("execution_timeout")
-				finalStatus = "timeout"
-				finalError = fmt.Sprintf("codex timed out after %s", timeout)
-			} else {
-				finishFirstItemWait("cancelled")
-				finalStatus = "aborted"
-				finalError = "execution cancelled"
-			}
-		}
-		for waitingForTurn {
-			select {
-			case aborted := <-turnDone:
-				finishTurn(aborted)
-			case activity := <-semanticActivityCh:
-				lastSemanticActivity = time.Now()
-				lastSemanticActivityDescription = activity
-				resetTimer(semanticTimer, semanticInactivityTimeout)
-				if activity == statusRunningPrefix && !firstTurnStarted {
-					firstTurnStarted = true
-					firstItemWait.start(time.Now())
-					firstTurnNoProgressTimer = time.NewTimer(firstTurnNoProgressTimeout)
-					firstTurnNoProgressTimerC = firstTurnNoProgressTimer.C
-				} else if firstTurnStarted && !firstTurnProgressObserved && isCodexFirstTurnProgressActivity(activity) {
-					firstTurnProgressObserved = true
-					if activity == "error:terminal" {
-						finishFirstItemWait("turn_failed")
-					} else {
-						finishFirstItemWait("progress")
-					}
-					stopFirstTurnNoProgressTimer()
-				}
-			case <-firstTurnNoProgressTimerC:
-				waitingForTurn = false
-				finishFirstItemWait("no_progress_timeout")
-				finalStatus = "timeout"
-				timeoutDiagnostic = codexTimeoutDiagnostic{
-					Kind:         codexTimeoutFirstTurnNoProgress,
-					Timeout:      firstTurnNoProgressTimeout,
-					LastActivity: lastSemanticActivityDescription,
-					ThreadID:     threadID,
-					TurnID:       c.turnID,
-					Model:        opts.Model,
-				}
-				b.cfg.Logger.Warn(CodexFirstTurnNoProgressMarker,
-					"pid", cmd.Process.Pid,
-					"thread_id", threadID,
-					"turn_id", c.turnID,
-					"timeout", firstTurnNoProgressTimeout.String(),
-					"last_activity", lastSemanticActivityDescription,
-				)
-			case <-semanticTimer.C:
-				waitingForTurn = false
-				finishFirstItemWait("semantic_inactivity_timeout")
-				finalStatus = "timeout"
-				timeoutDiagnostic = codexTimeoutDiagnostic{
-					Kind:         codexTimeoutSemanticInactivity,
-					Timeout:      semanticInactivityTimeout,
-					LastActivity: lastSemanticActivityDescription,
-					ThreadID:     threadID,
-					TurnID:       c.turnID,
-					Model:        opts.Model,
-				}
-				b.cfg.Logger.Warn(CodexSemanticInactivityMarker,
-					"pid", cmd.Process.Pid,
-					"thread_id", threadID,
-					"turn_id", c.turnID,
-					"timeout", semanticInactivityTimeout.String(),
-					"last_activity", lastSemanticActivityDescription,
-					"idle_for", time.Since(lastSemanticActivity).Round(time.Millisecond).String(),
-				)
-			case <-runCtx.Done():
-				finishRunContextDone()
-			case <-c.processDone:
-				select {
-				case aborted := <-turnDone:
-					finishTurn(aborted)
-				default:
-					if runCtx.Err() != nil {
-						finishRunContextDone()
-					} else {
-						waitingForTurn = false
-						finishFirstItemWait("process_exit")
-						finalStatus = "failed"
-						processExitErr = c.getProcessErr()
-						if processExitErr == nil {
-							processExitErr = errCodexProcessExited
-						}
-						finalError = processExitErr.Error()
-					}
-				}
-			}
-		}
+	drainAndWait()
 
-		duration := time.Since(startTime)
-		b.cfg.Logger.Info("codex finished", "pid", cmd.Process.Pid, "status", finalStatus, "duration", duration.Round(time.Millisecond).String())
+	if turnOutcome.processExitErr != nil {
+		finalError = withAgentStderr(turnOutcome.processExitErr.Error(), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
+	}
+	stderrTail := sanitizeCodexDiagnostic(stderrBuf.Tail())
+	if turnOutcome.timeoutDiagnostic.Kind != codexTimeoutNone {
+		turnOutcome.timeoutDiagnostic.CodexVersion = detectCodexVersionForDiagnostics(context.Background(), b.cfg.commandAt(execPath), cmd.Env, b.cfg.Logger)
+		finalError = buildCodexTimeoutDiagnosticError(turnOutcome.timeoutDiagnostic, stderrTail)
+	}
 
-		// Run cleanup. drainAndWait handles the graceful-then-cancel pattern
-		// in two bounded phases (see its declaration): wait for the reader,
-		// then wait for cmd.Wait(), force-cancelling either if the grace
-		// window expires. A clean shutdown lets codex flush OTEL telemetry;
-		// a stuck process is killed via the process-group SIGKILL.
-		drainAndWait()
+	cleanupConfirmed := getCleanupConfirmed()
+	startupRefreshRetrySafe := turnOutcome.timeoutDiagnostic.Kind == codexTimeoutFirstTurnNoProgress &&
+		!turnOutcome.firstTurnProgressObserved &&
+		strings.Contains(stderrTail, codexModelCatalogRefreshFailureSignal) &&
+		cleanupConfirmed && codexInitializeRetrySupported()
+	if startupRefreshRetrySafe {
+		b.cfg.Logger.Warn("codex startup model catalog refresh failure is retry safe",
+			"pid", cmd.Process.Pid,
+			"thread_id", threadID,
+			"attempt", attempt,
+		)
+	}
 
-		if processExitErr != nil {
-			finalError = withAgentStderr(processExitErr.Error(), "codex", sanitizeCodexDiagnostic(stderrBuf.Tail()))
-		}
-		stderrTail := sanitizeCodexDiagnostic(stderrBuf.Tail())
-		if timeoutDiagnostic.Kind != codexTimeoutNone {
-			timeoutDiagnostic.CodexVersion = detectCodexVersionForDiagnostics(context.Background(), b.cfg.commandAt(execPath), cmd.Env, b.cfg.Logger)
-			finalError = buildCodexTimeoutDiagnosticError(timeoutDiagnostic, stderrTail)
-		}
+	b.logFirstItemWaitTelemetry(
+		&state.firstItemWait,
+		stderrTail,
+		threadID,
+		c.turnID,
+		cmd.Process.Pid,
+		attempt,
+		activeLaunches,
+		firstTurnNoProgressTimeout,
+		semanticInactivityTimeout,
+		codexVersion,
+		cleanupConfirmed,
+		startupRefreshRetrySafe,
+	)
 
-		// A first turn that produced no semantic progress because Codex could
-		// not load its model catalog is a startup-only failure: no tool ran and
-		// no content reached the user, so replaying the prompt cannot duplicate
-		// side effects. Reuse the same process-tree evidence initialize retries
-		// require (cleanupConfirmed plus platform support) rather than a bare
-		// ProcessState check: on Windows the daemon cannot prove the whole tree
-		// is gone, and a surviving app-server would race the retry.
-		startupRefreshRetrySafe := timeoutDiagnostic.Kind == codexTimeoutFirstTurnNoProgress &&
-			!firstTurnProgressObserved &&
-			strings.Contains(stderrTail, codexModelCatalogRefreshFailureSignal) &&
-			cleanupConfirmed && codexInitializeRetrySupported()
-		if startupRefreshRetrySafe {
-			b.cfg.Logger.Warn("codex startup model catalog refresh failure is retry safe",
-				"pid", cmd.Process.Pid,
-				"thread_id", threadID,
-				"attempt", attempt,
-			)
-		}
+	state.outputMu.Lock()
+	finalOutput := codexDeliverableOutput(state.finalAnswer, state.lastAgentMessage)
+	state.outputMu.Unlock()
 
-		if waitLatency, outcome, classification, ok := firstItemWait.snapshot(); ok {
-			if waitLatency < 0 {
-				waitLatency = 0
-			}
-			// On timeout, cmd.Wait is the synchronization point that guarantees
-			// the stderr copy goroutine has drained. Reclassify from the complete
-			// bounded tail so a last-moment catalog/MCP signal is not reported as
-			// a bare timeout. Successful waits keep the snapshot taken at first
-			// progress so later turn stderr cannot pollute first-item telemetry.
-			if strings.HasSuffix(outcome, "_timeout") {
-				classification = classifyCodexStartupStderr(stderrTail, true)
-			}
-			fields := []any{
-				"phase", "first_item_wait",
-				"task_id", b.cfg.TaskID,
-				"runtime_id", b.cfg.RuntimeID,
-				"pid", cmd.Process.Pid,
-				"attempt", attempt,
-				"active_launches", activeLaunches,
-				"method", methodTurnStart,
-				"thread_id", threadID,
-				"turn_id", c.turnID,
-				"outcome", outcome,
-				"latency", waitLatency.Round(time.Millisecond).String(),
-				"latency_ms", waitLatency.Milliseconds(),
-				"timeout", firstTurnNoProgressTimeout.String(),
-				"semantic_inactivity_timeout", semanticInactivityTimeout.String(),
-				"codex_version", codexVersion,
-				"daemon_version", b.cfg.DaemonVersion,
-				"cleanup_confirmed", cleanupConfirmed,
-				"reaped", cleanupConfirmed,
-				// retry_safe describes the terminal attempt, not the measured wait
-				// interval. Successful samples therefore report false by design.
-				"retry_safe", startupRefreshRetrySafe,
-				"stderr_model_refresh_failure_count", classification.modelRefreshFailure,
-				"stderr_model_refresh_timeout_count", classification.modelRefreshTimeout,
-				"stderr_mcp_init_transport_count", classification.mcpInitTransport,
-				"stderr_bare_timeout_count", classification.bareTimeout,
-			}
-			switch outcome {
-			case "progress", "turn_completed":
-				b.cfg.Logger.Info(logCodexLifecycle, fields...)
-			default:
-				b.cfg.Logger.Warn(logCodexLifecycle, fields...)
-			}
-		}
+	usageMap := b.collectSessionUsage(c, startTime, threadID, resumed, &opts)
 
-		outputMu.Lock()
-		finalOutput := codexDeliverableOutput(finalAnswer, lastAgentMessage)
-		outputMu.Unlock()
-
-		// Build usage map from accumulated codex usage.
-		// First check JSON-RPC notifications (often empty for Codex).
-		var usageMap map[string]TokenUsage
-		c.usageMu.Lock()
-		u := c.usage
-		c.usageMu.Unlock()
-
-		// Fallback: if no usage from JSON-RPC, scan Codex session JSONL logs.
-		// Codex writes token_count events to $CODEX_HOME/sessions/YYYY/MM/DD/*.jsonl;
-		// scan this backend's per-task CODEX_HOME, since sessions are isolated
-		// there rather than in the shared ~/.codex/sessions (MUL-4424).
-		if u.InputTokens == 0 && u.OutputTokens == 0 {
-			taskCodexHome := strings.TrimSpace(b.cfg.Env["CODEX_HOME"])
-			if scanned := scanCodexSessionUsage(startTime, taskCodexHome, threadID, resumed); scanned != nil {
-				u = scanned.usage
-				if scanned.model != "" && opts.Model == "" {
-					opts.Model = scanned.model
-				}
-			}
-		}
-
-		if u.InputTokens > 0 || u.OutputTokens > 0 || u.CacheReadTokens > 0 || u.CacheWriteTokens > 0 {
-			model := opts.Model
-			if model == "" {
-				model = "unknown"
-			}
-			usageMap = map[string]TokenUsage{model: u}
-		}
-
-		resCh <- Result{
-			Status:                       finalStatus,
-			Output:                       finalOutput,
-			Error:                        finalError,
-			SessionID:                    threadID,
-			DurationMs:                   duration.Milliseconds(),
-			Usage:                        usageMap,
-			codexStartupRefreshRetrySafe: startupRefreshRetrySafe,
-		}
-	}()
-
-	return &Session{Messages: msgCh, Result: resCh}, nil
+	state.resCh <- Result{
+		Status:                       finalStatus,
+		Output:                       finalOutput,
+		Error:                        finalError,
+		SessionID:                    threadID,
+		DurationMs:                   duration.Milliseconds(),
+		Usage:                        usageMap,
+		codexStartupRefreshRetrySafe: startupRefreshRetrySafe,
+	}
 }
 
 // The continuity notice this backend prepends is supplied by the caller via

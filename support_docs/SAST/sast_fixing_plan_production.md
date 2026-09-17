@@ -246,12 +246,12 @@ graph TD
   4. `server/internal/handler/issue.go (3238)`: `UpdateIssue` (skor awal: **129** -> skor baru: **~35**). Didekomposisi menjadi: `validateAndUpdateIssueParent`, `buildUpdateIssueParams`, `publishIssueUpdateAndDispatch`.
   5. `server/internal/handler/issue.go (1014 & 1702)`: `ListIssues` (skor awal: **137**) & `ListGroupedIssues` (skor awal: **122**). Didekomposisi dengan helper bersama: `parseIssueSortConfig` (mengeliminasi 112 baris duplikasi sort), `listOpenIssuesOnly` (ekstraksi full mode `open_only`), dan `buildAssigneeGroupsFromRows`.
 
-##### Sub-wave P5.1.C: Daemon Lifecycle & LLM Stream Parser — [STATUS: PENDING]
-| Skor | Lokasi File & Baris | Fungsi Utama | Strategi Dekomposisi |
-|:---:|---|---|---|
-| **566** | `server/internal/handler/daemon.go (1890)` | Dispatcher Daemon Lifecycle | Pecah ke dalam sub-handler terpisah untuk *start*, *stop*, *handshake*, dan *healthcheck*. |
-| **211** | `server/internal/daemon/daemon.go (6308)` | Task Execution Loop | Ekstrak tahap validasi lingkungan, penyiapan git worktree, dan logging ke fungsi terpisah. |
-| **147** | `server/pkg/agent/codex.go (936)` | LLM Stream Event Parser | Ekstrak parser event JSON ke state machine parser mandiri. |
+##### Sub-wave P5.1.C: Daemon Lifecycle & LLM Stream Parser (`server/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil diimplementasikan dan diverifikasi dengan kompilasi `go build ./cmd/server` serta test suite `go test ./internal/handler ./pkg/agent ./internal/daemon`.
+- **Daftar Fungsi Refactor:**
+  1. `server/internal/handler/daemon.go`: `DaemonClaimTasks` didekomposisi dengan mengekstrak 16 fungsi helper claim & context builder modular ke file baru `server/internal/handler/daemon_claim.go` (`buildClaimedTaskResponse`, `resolveClaimAgentData`, `resolveClaimIssueContext`, `resolveClaimChatContext`, `verifyClaimIsolationAndWorktree`, dsb), mereduksi kompleksitas masif file handler daemon.
+  2. `server/internal/daemon/daemon.go`: Didekomposisi fungsi task execution lifecycle dan run helpers (`runCodexSessionLifecycle`, `waitForTurnExecution`, penyiapan lingkungan & logging).
+  3. `server/pkg/agent/codex.go`: LLM stream event parser & JSON-RPC dispatcher didekomposisi menjadi helper fungsi modular terisolasi (`handleItemNotification`, `handleRawNotification`, `handleEvent`, `scanCodexSessionUsage`, `collectSessionUsage`, dsb).
 
 #### Gelombang P5.2: Ekstrem Kompleksitas di Frontend TypeScript (Skor > 100) — 7 Fungsi/Hooks
 | Skor | Lokasi File & Baris | Komponen / Hook | Strategi Dekomposisi |
