@@ -419,7 +419,7 @@ export function useIssueStatusBranches({
   );
   const retry = useCallback(
     (status: IssueStatusCategory) => {
-      void queryClient.refetchQueries({
+      queryClient.refetchQueries({
         queryKey: issueKeys.tableRows(
           wsId,
           query,

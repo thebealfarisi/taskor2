@@ -360,8 +360,8 @@ function BillingTabContent() {
     if (Number.isNaN(graceUntilMs)) return;
     const delay = Math.max(0, graceUntilMs - Date.now()) + 100;
     const timeout = window.setTimeout(() => {
-      void refetchEntitlements();
-      void refetchSummary();
+      refetchEntitlements();
+      refetchSummary();
     }, Math.min(delay, 2_147_000_000));
     return () => window.clearTimeout(timeout);
   }, [refetchEntitlements, refetchSummary, summaryQuery.data?.graceUntil]);
@@ -538,7 +538,7 @@ function BillingTabContent() {
             <Button
               className="mt-3 h-11"
               variant="outline"
-              onClick={() => void entitlementQuery.refetch()}
+              onClick={() => entitlementQuery.refetch()}
             >
               <RefreshCw />
               {t(($) => $.workspace.actions.retry)}
@@ -904,7 +904,7 @@ function BillingTabContent() {
                       size="sm"
                       aria-busy={pricesQuery.isFetching}
                       disabled={pricesQuery.isFetching}
-                      onClick={() => void pricesQuery.refetch()}
+                      onClick={() => pricesQuery.refetch()}
                     >
                       {pricesQuery.isFetching ? (
                         <Loader2 className="animate-spin" />
@@ -1062,7 +1062,7 @@ function BillingTabContent() {
                   aria-label={t(($) => $.workspace.actions.retry_autopilots)}
                   aria-busy={quotaUsageQuery.isFetching}
                   disabled={quotaUsageQuery.isFetching}
-                  onClick={() => void quotaUsageQuery.refetch()}
+                  onClick={() => quotaUsageQuery.refetch()}
                 >
                   {quotaUsageQuery.isFetching ? (
                     <Loader2 className="animate-spin motion-reduce:animate-none" />
@@ -1098,7 +1098,7 @@ function BillingTabContent() {
                 size="sm"
                 aria-busy={summaryQuery.isFetching}
                 disabled={summaryQuery.isFetching}
-                onClick={() => void summaryQuery.refetch()}
+                onClick={() => summaryQuery.refetch()}
               >
                 {summaryQuery.isFetching ? (
                   <Loader2 className="animate-spin motion-reduce:animate-none" />

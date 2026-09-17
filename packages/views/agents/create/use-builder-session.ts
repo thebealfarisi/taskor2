@@ -144,7 +144,7 @@ export function useBuilderSession(options: {
       // fresh forever — it is staleTime: Infinity, so no reader self-corrects.
       qc.removeQueries({ queryKey: chatKeys.messagesPage(sessionId) });
       qc.removeQueries({ queryKey: chatKeys.pendingTask(sessionId) });
-      void invalidateDraftList();
+      invalidateDraftList();
       return true;
     } catch (err) {
       setError(
@@ -174,7 +174,7 @@ export function useBuilderSession(options: {
     if (!sessionId) return;
     try {
       await api.setChatSessionArchived(sessionId, true);
-      void invalidateDraftList();
+      invalidateDraftList();
     } catch {
       // The draft stays listed; the user can discard it explicitly.
     }
@@ -262,15 +262,15 @@ export function useBuilderSession(options: {
       });
       // Accepted and rendered — release the composer before reconciling.
       commitInput?.();
-      void qc.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
+      qc.invalidateQueries({ queryKey: chatKeys.messages(sessionId) });
       // Both caches are seeded above, so both need the authoritative refetch —
       // otherwise a seeded one-message page could outlive the send as the whole
       // history a later reader sees.
-      void qc.invalidateQueries({ queryKey: chatKeys.messagesPage(sessionId) });
-      void qc.invalidateQueries({ queryKey: chatKeys.pendingTask(sessionId) });
+      qc.invalidateQueries({ queryKey: chatKeys.messagesPage(sessionId) });
+      qc.invalidateQueries({ queryKey: chatKeys.pendingTask(sessionId) });
       // The first turn is what makes a brand-new conversation listable at
       // all, and every later one moves it to the top with a new preview.
-      void invalidateDraftList();
+      invalidateDraftList();
       return true;
     } catch (err) {
       setError(

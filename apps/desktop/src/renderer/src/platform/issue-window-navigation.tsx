@@ -47,7 +47,7 @@ function useContentLinkHandler(
           });
           return;
         }
-        void navigate(issuePath.path);
+        navigate(issuePath.path);
         return;
       }
       if (!runtimeConfig.ok) return;
@@ -96,13 +96,13 @@ export function IssueWindowNavigationProvider({
     const navigateToIssue = (path: string, replace = false) => {
       const issuePath = parseIssueWindowPath(path);
       if (!issuePath) return;
-      void navigate(issuePath.path, { replace });
+      navigate(issuePath.path, { replace });
     };
 
     return {
       push: (path) => navigateToIssue(path),
       replace: (path) => navigateToIssue(path, true),
-      back: () => void navigate(-1),
+      back: () => navigate(-1),
       pathname: location.pathname,
       searchParams: new URLSearchParams(location.search),
       openInNewTab: (path, title) => {

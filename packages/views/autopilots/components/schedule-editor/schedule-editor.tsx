@@ -511,7 +511,7 @@ export function ScheduleEditor({
     const fetchedFor = `${queriedKey} ${firstRunMs}`;
     if (refetchedForRef.current === fetchedFor) return;
     refetchedForRef.current = fetchedFor;
-    void refetch();
+    refetch();
   }, [firstRunMs, now, refetch, queriedKey]);
 
   // The dialog owns the submit button, so it needs to know the expression the

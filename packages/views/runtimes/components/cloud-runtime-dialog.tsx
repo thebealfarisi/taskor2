@@ -153,7 +153,7 @@ export function CloudRuntimeDialog({ onClose }: { onClose: () => void }) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  onClick={() => void nodesQuery.refetch()}
+                  onClick={() => nodesQuery.refetch()}
                   disabled={nodesQuery.isFetching}
                   className="h-7 px-2"
                 >

@@ -19,7 +19,7 @@ export function useIssueStatuses(wsId: string): IssueStatusCatalog {
   // reaching back into React Query from the view layer would duplicate the
   // query key. (MUL-6243)
   const retry = useCallback(() => {
-    void refetch();
+    refetch();
   }, [refetch]);
   // pending/error are carried through, not dropped: a surface that routes a
   // CUSTOM status key cannot distinguish "catalog not here yet" from "catalog

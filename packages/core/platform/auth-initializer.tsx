@@ -243,7 +243,7 @@ export function AuthInitializer({
     };
 
     const warmWorkspaces = () => {
-      void qc.fetchQuery(workspaceListOptions()).catch((err: unknown) => {
+      qc.fetchQuery(workspaceListOptions()).catch((err: unknown) => {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 401) {
           rejectSession();

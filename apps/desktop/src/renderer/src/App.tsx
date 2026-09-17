@@ -237,7 +237,7 @@ function AppContent() {
       // window. The sidebar's pending-invitations dropdown will surface
       // missed invites later once they're onboarded.
       let cancelled = false;
-      void api
+      api
         .listMyInvitations()
         .then((invites) => {
           if (cancelled) return;
@@ -324,7 +324,7 @@ function AppContent() {
       <DesktopAuthRecoveryPage
         isRetrying={workspaceListRetrying}
         onRetry={() => {
-          void retryWorkspaceList();
+          retryWorkspaceList();
         }}
       />
     );

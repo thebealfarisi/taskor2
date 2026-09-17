@@ -125,7 +125,7 @@ function SkipWelcome({ workspaceId, onDismiss }: SkipWelcomeProps) {
             assignee_id: me.id,
           },
         );
-        void queryClient.invalidateQueries({
+        queryClient.invalidateQueries({
           queryKey: issueKeys.all(workspaceId),
         });
         if (!cancelled) {

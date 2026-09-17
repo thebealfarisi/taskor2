@@ -91,7 +91,7 @@ export function DaemonRuntimeActions() {
 
   const handleStopClick = useCallback(() => {
     if (affectedTasks.length === 0) {
-      void performStop();
+      performStop();
     } else {
       setConfirmStop(true);
     }
@@ -240,7 +240,7 @@ export function DaemonRuntimeActions() {
         affectedCount={affectedTasks.length}
         onConfirm={() => {
           setConfirmStop(false);
-          void performStop();
+          performStop();
         }}
       />
     </>

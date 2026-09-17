@@ -257,7 +257,7 @@ export function createIssueIdentifierAutolinkExtension(
             function scheduleApply(): void {
               if (scheduled || destroyed) return;
               scheduled = true;
-              void Promise.resolve().then(() => {
+              Promise.resolve().then(() => {
                 scheduled = false;
                 if (!destroyed) applyReady(view);
               });

@@ -479,7 +479,7 @@ export function applyChatCancelFinalizedToCache(
       !!currentUserId &&
       payload.initiator_user_id === currentUserId;
     if (isInitiator) {
-      void qc.invalidateQueries({ queryKey: chatKeys.draftRestores(sessionId) });
+      qc.invalidateQueries({ queryKey: chatKeys.draftRestores(sessionId) });
     }
   }
 }

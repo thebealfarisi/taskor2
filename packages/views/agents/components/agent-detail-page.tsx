@@ -179,7 +179,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
         data as UpdateAgentRequest,
       );
       cacheAgentResponse(qc, wsId, updatedAgent, { insertIntoList: false });
-      void qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey });
       toast.success(t(($) => $.detail.agent_updated_toast));
     } catch (e) {
       if (prevListAgent) {
@@ -194,7 +194,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           old ? ({ ...old, ...prevDetailFields } as Agent) : old,
         );
       }
-      void qc.invalidateQueries({ queryKey });
+      qc.invalidateQueries({ queryKey });
       toast.error(e instanceof Error ? e.message : t(($) => $.detail.update_failed_toast));
       throw e;
     }
@@ -278,7 +278,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
               variant="outline"
               size="sm"
               onClick={() => {
-                void Promise.all([refetchAgents(), detailQuery.refetch()]);
+                Promise.all([refetchAgents(), detailQuery.refetch()]);
               }}
             >
               {t(($) => $.detail.try_again)}

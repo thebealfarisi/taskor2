@@ -130,7 +130,7 @@ export function BillingReturnPage() {
           <Button
             className="h-11"
             variant="outline"
-            onClick={() => void refetchWorkspaces()}
+            onClick={() => refetchWorkspaces()}
           >
             <RefreshCw />
             {t(($) => $.return_page.retry)}

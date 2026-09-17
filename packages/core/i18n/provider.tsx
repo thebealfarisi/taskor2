@@ -43,7 +43,7 @@ export function I18nProvider({
     }
 
     if (instance.language !== locale) {
-      void instance.changeLanguage(locale);
+      instance.changeLanguage(locale);
     } else {
       instance.emit("languageChanged", locale);
     }

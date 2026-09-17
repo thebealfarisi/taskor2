@@ -68,13 +68,13 @@ export function DesktopClientUsageReporter({ apiUrl }: { apiUrl: string }) {
       inFlight.current = false;
       if (rerun.current) {
         rerun.current = false;
-        void probeAndReport();
+        probeAndReport();
       }
     }
   }, [apiUrl]);
 
   useEffect(() => {
-    void probeAndReport();
+    probeAndReport();
   }, [probeAndReport, userID]);
 
   useEffect(() => {
@@ -88,10 +88,10 @@ export function DesktopClientUsageReporter({ apiUrl }: { apiUrl: string }) {
         const signal = `${status.state}:${[...(status.agents ?? [])].sort().join(",")}`;
         if (lastStatusSignal.current === signal) return;
         lastStatusSignal.current = signal;
-        void probeAndReport();
+        probeAndReport();
       }
     });
-    const onFocus = () => void probeAndReport();
+    const onFocus = () => probeAndReport();
     window.addEventListener("focus", onFocus);
     return () => {
       unsubscribe();

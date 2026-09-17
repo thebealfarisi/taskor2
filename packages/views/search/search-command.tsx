@@ -429,7 +429,7 @@ export function SearchCommand() {
           icon: Link2,
           keywords: ["copy", "link", "share", "url", identifier.toLowerCase()],
           onSelect: () => {
-            void copyText(getShareableUrl(pathname)).then((ok) => {
+            copyText(getShareableUrl(pathname)).then((ok) => {
               if (ok) toast.success(t(($) => $.toast.link_copied));
             });
             setOpen(false);
@@ -441,7 +441,7 @@ export function SearchCommand() {
           icon: Copy,
           keywords: ["copy", "id", "identifier", identifier.toLowerCase()],
           onSelect: () => {
-            void copyText(identifier).then((ok) => {
+            copyText(identifier).then((ok) => {
               if (ok) toast.success(t(($) => $.toast.copied_identifier, { identifier }));
             });
             setOpen(false);
@@ -457,7 +457,7 @@ export function SearchCommand() {
             // rendered; ensureQueryData only fetches on a cold cache. If it
             // still can't load, no comments are on screen — dropping the
             // action matches the visible state.
-            void queryClient
+            queryClient
               .ensureQueryData(issueTimelineOptions(currentIssueId))
               .then((entries) => {
                 useCommentCollapseStore
@@ -475,7 +475,7 @@ export function SearchCommand() {
           icon: ListChevronsUpDown,
           keywords: ["unfold", "expand", "comments", "展开", "评论"],
           onSelect: () => {
-            void queryClient
+            queryClient
               .ensureQueryData(issueTimelineOptions(currentIssueId))
               .then((entries) => {
                 useCommentCollapseStore.getState().expandAll(currentIssueId);

@@ -262,7 +262,7 @@ export function ChatPage() {
           firstItemIndex={c.firstItemIndex}
           hasOlderMessages={c.hasOlderMessages}
           isFetchingOlderMessages={c.isFetchingOlderMessages}
-          onLoadOlderMessages={() => void c.fetchOlderMessages()}
+          onLoadOlderMessages={() => c.fetchOlderMessages()}
           onQuickAction={(action) => c.handleSend(action.prompt)}
           quickActionsDisabled={
             !!c.pendingTaskId ||

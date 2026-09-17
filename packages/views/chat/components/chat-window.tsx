@@ -604,7 +604,7 @@ export function ChatWindow() {
       });
       return;
     }
-    void cancelChatTask(pendingTaskId, activeSessionId, {
+    cancelChatTask(pendingTaskId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });
@@ -896,7 +896,7 @@ export function ChatWindow() {
           firstItemIndex={firstItemIndex}
           hasOlderMessages={!!hasOlderMessages}
           isFetchingOlderMessages={isFetchingOlderMessages}
-          onLoadOlderMessages={() => void fetchOlderMessages()}
+          onLoadOlderMessages={() => fetchOlderMessages()}
           onQuickAction={(action) => handleSend(action.prompt)}
           quickActionsDisabled={
             !!pendingTaskId ||

@@ -19,14 +19,14 @@ export default function Login() {
   const onSubmit = async () => {
     const trimmed = email.trim();
     if (!trimmed) return;
-    void Haptics.selectionAsync();
+    Haptics.selectionAsync();
     setSubmitting(true);
     setError(null);
     try {
       await sendCode(trimmed);
       router.push({ pathname: "/verify", params: { email: trimmed } });
     } catch (err) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(mapAuthError(err, "Couldn't send the code. Try again."));
     } finally {
       setSubmitting(false);

@@ -106,7 +106,7 @@ function FileCard({
         // so resolve against `EXPO_PUBLIC_API_URL` first.
         const target = resolveAttachmentUrl(attachment.download_url);
         if (target) {
-          void Linking.openURL(target);
+          Linking.openURL(target);
         }
       }}
       accessibilityRole="button"

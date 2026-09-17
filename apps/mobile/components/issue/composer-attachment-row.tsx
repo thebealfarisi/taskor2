@@ -204,7 +204,7 @@ function AttachmentChipView({ item, onRemove, onRetry }: AttachmentChipProps) {
       // CloudFront/presigned URLs pass through unchanged. `null` (no
       // downloadUrl yet) falls through to a no-op.
       const target = resolveAttachmentUrl(item.downloadUrl);
-      if (target) void Linking.openURL(target);
+      if (target) Linking.openURL(target);
     }
   };
 

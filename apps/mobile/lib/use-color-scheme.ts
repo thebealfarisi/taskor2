@@ -50,7 +50,7 @@ export function useColorScheme() {
   const setPreference = (p: ThemePreference) => {
     setPreferenceState(p);
     applyScheme(p);
-    void SecureStore.setItemAsync(STORAGE_KEY, p);
+    SecureStore.setItemAsync(STORAGE_KEY, p);
   };
 
   return {
