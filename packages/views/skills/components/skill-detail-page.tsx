@@ -131,11 +131,15 @@ function toDraft(s: Skill): SkillDraft {
  * files disagree on order — GET sorts by path, PUT echoes request order — and
  * an order difference is not a content difference.
  */
+function comparePath(a: { path: string }, b: { path: string }): number {
+  if (a.path < b.path) return -1;
+  if (a.path > b.path) return 1;
+  return 0;
+}
+
 function fileSignature(files: DraftFile[]): string {
   return JSON.stringify(
-    files
-      .map((f) => ({ path: f.path, content: f.content }))
-      .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
+    files.map((f) => ({ path: f.path, content: f.content })).sort(comparePath),
   );
 }
 
@@ -263,13 +267,15 @@ function useOriginLabel(origin: OriginInfo | null, runtime: AgentRuntime | null)
   const { t } = useT("skills");
   if (!origin) return null;
   if (origin.type === "runtime_local") {
-    return runtime
-      ? t(($) => $.detail.subline.origin_runtime_named, {
-          name: runtimeDisplayLabel(runtime),
-        })
-      : origin.provider
-        ? t(($) => $.detail.subline.origin_runtime_provider, { provider: origin.provider })
-        : t(($) => $.detail.subline.origin_runtime_unknown);
+    if (runtime) {
+      return t(($) => $.detail.subline.origin_runtime_named, {
+        name: runtimeDisplayLabel(runtime),
+      });
+    }
+    if (origin.provider) {
+      return t(($) => $.detail.subline.origin_runtime_provider, { provider: origin.provider });
+    }
+    return t(($) => $.detail.subline.origin_runtime_unknown);
   }
   if (origin.type === "clawhub") return t(($) => $.detail.subline.origin_clawhub);
   if (origin.type === "skills_sh") return t(($) => $.detail.subline.origin_skills_sh);
@@ -310,6 +316,15 @@ function SkillIdentity({
   const isRuntimeOrigin = origin?.type === "runtime_local";
   const sourceUrl = originSourceUrl(origin);
 
+  let originIcon: React.ReactNode;
+  if (isRuntimeOrigin) {
+    originIcon = <HardDrive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+  } else if (origin?.type === "manual") {
+    originIcon = <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+  } else {
+    originIcon = <Download className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />;
+  }
+
   return (
     <div className="shrink-0 border-b px-4 py-3 sm:px-6">
       <div className="mx-auto flex max-w-[1440px] flex-wrap items-center gap-x-4 gap-y-1.5">
@@ -327,13 +342,7 @@ function SkillIdentity({
             <span className="inline-flex min-w-0 items-center gap-1.5">
               {/* Same three-way split as the list's Source column: runtime,
                   created here, imported. */}
-              {isRuntimeOrigin ? (
-                <HardDrive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              ) : origin?.type === "manual" ? (
-                <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              ) : (
-                <Download className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              )}
+              {originIcon}
               {sourceUrl ? (
                 <Tooltip>
                   <TooltipTrigger
@@ -461,6 +470,17 @@ function OverviewTab({
 }) {
   const { t } = useT("skills");
 
+  let permissionsMessage: React.ReactNode;
+  if (canEdit) {
+    permissionsMessage = t(($) => $.detail.overview.permissions_owner);
+  } else if (creatorName) {
+    permissionsMessage = t(($) => $.detail.overview.permissions_locked_creator, {
+      name: creatorName,
+    });
+  } else {
+    permissionsMessage = t(($) => $.detail.overview.permissions_locked);
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl p-4 sm:p-6 md:p-8">
       <section>
@@ -534,11 +554,7 @@ function OverviewTab({
       </section>
 
       <p className="mt-10 rounded-lg bg-muted px-3 py-2.5 text-caption leading-relaxed text-muted-foreground">
-        {canEdit
-          ? t(($) => $.detail.overview.permissions_owner)
-          : creatorName
-            ? t(($) => $.detail.overview.permissions_locked_creator, { name: creatorName })
-            : t(($) => $.detail.overview.permissions_locked)}
+        {permissionsMessage}
       </p>
     </div>
   );
@@ -679,26 +695,32 @@ function FilesTab({
                 aria-label={t(($) => $.detail.files.mode_aria)}
                 className="flex items-center gap-0.5 rounded-md bg-muted p-0.5"
               >
-                {(["preview", "raw"] as const).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={mode === value}
-                    onClick={() => onModeChange(value)}
-                    className={cn(
-                      "h-6 rounded px-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      mode === value
-                        ? "bg-surface text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {value === "preview"
-                      ? t(($) => $.detail.files.mode_preview)
-                      : canEdit
-                        ? t(($) => $.detail.files.mode_edit)
-                        : t(($) => $.detail.files.mode_raw)}
-                  </button>
-                ))}
+                {(["preview", "raw"] as const).map((value) => {
+                  let modeLabel: string;
+                  if (value === "preview") {
+                    modeLabel = t(($) => $.detail.files.mode_preview);
+                  } else if (canEdit) {
+                    modeLabel = t(($) => $.detail.files.mode_edit);
+                  } else {
+                    modeLabel = t(($) => $.detail.files.mode_raw);
+                  }
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={mode === value}
+                      onClick={() => onModeChange(value)}
+                      className={cn(
+                        "h-6 rounded px-2 text-caption font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        mode === value
+                          ? "bg-surface text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {modeLabel}
+                    </button>
+                  );
+                })}
               </div>
             )}
             {selectedPath !== SKILL_MD && canEdit && (
@@ -826,7 +848,8 @@ export function SkillDetailPage({ skillId }: { skillId: string }) {
       if (next === "overview") params.delete("view");
       else params.set("view", next);
       const query = params.toString();
-      navigation.replace(`${navigation.pathname}${query ? `?${query}` : ""}`);
+      const queryString = query ? `?${query}` : "";
+      navigation.replace(`${navigation.pathname}${queryString}`);
     },
     [navigation],
   );

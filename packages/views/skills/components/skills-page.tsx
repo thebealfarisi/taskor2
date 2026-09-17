@@ -334,13 +334,17 @@ function SourceCell({
   let label: string = t(($) => $.table.source_manual);
   if (origin.type === "runtime_local") {
     icon = <HardDrive className="h-3 w-3 shrink-0" />;
-    label = runtime
-      ? t(($) => $.table.source_runtime_named, { name: runtimeDisplayLabel(runtime) })
-      : origin.provider
-        ? t(($) => $.table.source_runtime_provider, {
-            provider: origin.provider,
-          })
-        : t(($) => $.table.source_runtime_unknown);
+    if (runtime) {
+      label = t(($) => $.table.source_runtime_named, {
+        name: runtimeDisplayLabel(runtime),
+      });
+    } else if (origin.provider) {
+      label = t(($) => $.table.source_runtime_provider, {
+        provider: origin.provider,
+      });
+    } else {
+      label = t(($) => $.table.source_runtime_unknown);
+    }
   } else if (origin.type === "clawhub") {
     icon = <Download className="h-3 w-3 shrink-0" />;
     label = t(($) => $.table.source_clawhub);
@@ -554,8 +558,14 @@ function LoadingSkeleton() {
         <ListGridHeaderCell className="hidden px-0 @2xl:flex" />
         <span aria-hidden="true" />
       </ListGridHeader>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <ListGridRow key={i} className="hover:bg-transparent">
+      {[
+        "skill-row-skeleton-1",
+        "skill-row-skeleton-2",
+        "skill-row-skeleton-3",
+        "skill-row-skeleton-4",
+        "skill-row-skeleton-5",
+      ].map((rowId) => (
+        <ListGridRow key={rowId} className="hover:bg-transparent">
           <span aria-hidden="true" />
           <ListGridCell>
             <Skeleton className="h-3.5 w-40 max-w-full" />

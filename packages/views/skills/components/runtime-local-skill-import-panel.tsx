@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -1042,12 +1048,14 @@ export function RuntimeLocalSkillImportPanel({
     if (skillsQuery.isLoading) {
       return (
         <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-lg border px-4 py-3">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="mt-2 h-3 w-48" />
-            </div>
-          ))}
+          {["skill-skeleton-1", "skill-skeleton-2", "skill-skeleton-3"].map(
+            (skeletonId) => (
+              <div key={skeletonId} className="rounded-lg border px-4 py-3">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="mt-2 h-3 w-48" />
+              </div>
+            ),
+          )}
         </div>
       );
     }
@@ -1170,8 +1178,28 @@ export function RuntimeLocalSkillImportPanel({
     }
   };
 
-  const footerContent =
-    bulkState.phase === "done" || bulkState.phase === "cancelled" ? (
+  let readyLabel: ReactNode;
+  if (singleSelectedSkill) {
+    readyLabel = (
+      <>
+        {t(($) => $.runtime_import.ready)}{" "}
+        <span className="font-medium text-foreground">
+          {editName.trim() || singleSelectedSkill.name}
+        </span>{" "}
+        {t(($) => $.runtime_import.into_workspace)}
+      </>
+    );
+  } else if (selectedKeys.size > 1) {
+    readyLabel = t(($) => $.runtime_import.bulk_ready, {
+      count: selectedKeys.size,
+    });
+  } else {
+    readyLabel = t(($) => $.runtime_import.select_skill);
+  }
+
+  let footerContent: ReactNode;
+  if (bulkState.phase === "done" || bulkState.phase === "cancelled") {
+    footerContent = (
       <>
         <div className="min-w-0 flex-1 text-caption text-muted-foreground">
           {bulkState.phase === "cancelled"
@@ -1182,7 +1210,9 @@ export function RuntimeLocalSkillImportPanel({
           {t(($) => $.runtime_import.bulk_done_button)}
         </Button>
       </>
-    ) : resolvingConflicts ? (
+    );
+  } else if (resolvingConflicts) {
+    footerContent = (
       <>
         <div className="min-w-0 flex-1 text-caption text-muted-foreground">
           {t(($) => $.runtime_import.conflict_footer, {
@@ -1198,7 +1228,9 @@ export function RuntimeLocalSkillImportPanel({
           {t(($) => $.runtime_import.conflict_apply_button)}
         </Button>
       </>
-    ) : importing ? (
+    );
+  } else if (importing) {
+    footerContent = (
       <>
         <div className="min-w-0 flex-1 text-caption text-muted-foreground">
           {t(($) => $.runtime_import.bulk_progress, {
@@ -1215,24 +1247,12 @@ export function RuntimeLocalSkillImportPanel({
           {t(($) => $.runtime_import.bulk_cancel_button)}
         </Button>
       </>
-    ) : (
+    );
+  } else {
+    footerContent = (
       <>
         <div className="min-w-0 flex-1 text-caption text-muted-foreground">
-          {singleSelectedSkill ? (
-            <>
-              {t(($) => $.runtime_import.ready)}{" "}
-              <span className="font-medium text-foreground">
-                {editName.trim() || singleSelectedSkill.name}
-              </span>{" "}
-              {t(($) => $.runtime_import.into_workspace)}
-            </>
-          ) : selectedKeys.size > 1 ? (
-            t(($) => $.runtime_import.bulk_ready, {
-              count: selectedKeys.size,
-            })
-          ) : (
-            t(($) => $.runtime_import.select_skill)
-          )}
+          {readyLabel}
         </div>
         <Button
           type="button"
@@ -1249,6 +1269,7 @@ export function RuntimeLocalSkillImportPanel({
         </Button>
       </>
     );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

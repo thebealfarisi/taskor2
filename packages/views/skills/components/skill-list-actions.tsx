@@ -105,6 +105,31 @@ function AgentPickerRow({
     agent.skills.some((s) => s.id === id),
   ).length;
   const hasAll = owned === skillIds.length;
+
+  let rowStateClass: string;
+  if (hasAll) {
+    rowStateClass = "opacity-50";
+  } else if (selected) {
+    rowStateClass = "bg-accent";
+  } else {
+    rowStateClass = "hover:bg-accent/50";
+  }
+
+  let ownershipIndicator: React.ReactNode;
+  if (hasAll) {
+    ownershipIndicator = (
+      <Check className="size-3.5 shrink-0 text-muted-foreground" />
+    );
+  } else if (owned > 0) {
+    ownershipIndicator = (
+      <span className="shrink-0 text-caption text-muted-foreground">
+        {t(($) => $.actions.has_partial, { owned, total: skillIds.length })}
+      </span>
+    );
+  } else {
+    ownershipIndicator = null;
+  }
+
   return (
     <button
       type="button"
@@ -113,11 +138,7 @@ function AgentPickerRow({
       aria-pressed={selected}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
-        hasAll
-          ? "opacity-50"
-          : selected
-            ? "bg-accent"
-            : "hover:bg-accent/50",
+        rowStateClass,
       )}
     >
       {/* Indicator only — the wrapping <button> handles clicks. */}
@@ -134,13 +155,7 @@ function AgentPickerRow({
         size="md"
       />
       <span className="min-w-0 flex-1 truncate text-body">{agent.name}</span>
-      {hasAll ? (
-        <Check className="size-3.5 shrink-0 text-muted-foreground" />
-      ) : owned > 0 ? (
-        <span className="shrink-0 text-caption text-muted-foreground">
-          {t(($) => $.actions.has_partial, { owned, total: skillIds.length })}
-        </span>
-      ) : null}
+      {ownershipIndicator}
     </button>
   );
 }
@@ -311,6 +326,44 @@ export function AddToAgentDialog({
     }
   };
 
+  let agentPanelBody: React.ReactNode;
+  if (!hasAnyAgent) {
+    agentPanelBody = (
+      <div className="py-6 text-center text-caption text-muted-foreground">
+        {t(($) => $.actions.no_agents)}
+      </div>
+    );
+  } else if (!hasMatch) {
+    agentPanelBody = (
+      <div className="py-6 text-center text-caption text-muted-foreground">
+        {t(($) => $.actions.no_agents_match)}
+      </div>
+    );
+  } else {
+    agentPanelBody = (
+      <>
+        <AgentGroup
+          key={`mine-${searching}`}
+          label={t(($) => $.actions.my_agents)}
+          agents={filteredMine}
+          defaultOpen
+          skillIds={skillIds}
+          selectedIds={selectedIds}
+          onToggle={handleToggle}
+        />
+        <AgentGroup
+          key={`others-${searching}`}
+          label={t(($) => $.actions.other_agents)}
+          agents={filteredOthers}
+          defaultOpen={searching}
+          skillIds={skillIds}
+          selectedIds={selectedIds}
+          onToggle={handleToggle}
+        />
+      </>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       {/* Fixed-height dialog: header/chips/footer stay put, only the agent
@@ -341,36 +394,7 @@ export function AddToAgentDialog({
         )}
 
         <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border bg-card p-1.5">
-          {!hasAnyAgent ? (
-            <div className="py-6 text-center text-caption text-muted-foreground">
-              {t(($) => $.actions.no_agents)}
-            </div>
-          ) : !hasMatch ? (
-            <div className="py-6 text-center text-caption text-muted-foreground">
-              {t(($) => $.actions.no_agents_match)}
-            </div>
-          ) : (
-            <>
-              <AgentGroup
-                key={`mine-${searching}`}
-                label={t(($) => $.actions.my_agents)}
-                agents={filteredMine}
-                defaultOpen
-                skillIds={skillIds}
-                selectedIds={selectedIds}
-                onToggle={handleToggle}
-              />
-              <AgentGroup
-                key={`others-${searching}`}
-                label={t(($) => $.actions.other_agents)}
-                agents={filteredOthers}
-                defaultOpen={searching}
-                skillIds={skillIds}
-                selectedIds={selectedIds}
-                onToggle={handleToggle}
-              />
-            </>
-          )}
+          {agentPanelBody}
         </div>
 
         <DialogFooter>
@@ -425,6 +449,28 @@ export function DeleteSkillsDialog({
   const single = rows.length === 1 ? rows[0] : null;
   const count = rows.length;
 
+  let deleteDialogDescription: React.ReactNode;
+  if (single) {
+    if (single.agents.length > 0) {
+      deleteDialogDescription = t(
+        ($) => $.detail.delete_dialog.description_with_agents,
+        {
+          name: single.skill.name,
+          count: single.agents.length,
+        },
+      );
+    } else {
+      deleteDialogDescription = t(
+        ($) => $.detail.delete_dialog.description_no_agents,
+        { name: single.skill.name },
+      );
+    }
+  } else {
+    deleteDialogDescription = t(($) => $.actions.delete_dialog_desc, {
+      count,
+    });
+  }
+
   const handleConfirm = async () => {
     setDeleting(true);
     try {
@@ -461,18 +507,7 @@ export function DeleteSkillsDialog({
               ? t(($) => $.detail.delete_dialog.title)
               : t(($) => $.actions.delete_dialog_title, { count })}
           </DialogTitle>
-          <DialogDescription>
-            {single
-              ? single.agents.length > 0
-                ? t(($) => $.detail.delete_dialog.description_with_agents, {
-                    name: single.skill.name,
-                    count: single.agents.length,
-                  })
-                : t(($) => $.detail.delete_dialog.description_no_agents, {
-                    name: single.skill.name,
-                  })
-              : t(($) => $.actions.delete_dialog_desc, { count })}
-          </DialogDescription>
+          <DialogDescription>{deleteDialogDescription}</DialogDescription>
         </DialogHeader>
         <div className="rounded-md bg-destructive/10 px-3 py-2 text-caption text-destructive">
           {t(($) => $.detail.delete_dialog.warning)}
