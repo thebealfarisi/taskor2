@@ -86,16 +86,21 @@ type streamTerminalState struct {
 // reached a Lark thread (GH #6462). Which words a user sees, and in which
 // language, belongs to each delivery surface; the stream parser only reports
 // whether text exists.
-func finalizeStreamResult(
-	provider string,
-	timeout time.Duration,
-	runErr error,
-	writeErr error,
-	exitErr error,
-	sessionID string,
-	state streamTerminalState,
-	completionGuardError string,
-) (status, output, errMsg string) {
+// finalizeStreamResultParams bundles finalizeStreamResult's fields so the
+// function signature stays under the parameter-count lint.
+type finalizeStreamResultParams struct {
+	Provider             string
+	Timeout              time.Duration
+	RunErr               error
+	WriteErr             error
+	ExitErr              error
+	SessionID            string
+	State                streamTerminalState
+	CompletionGuardError string
+}
+
+func finalizeStreamResult(p finalizeStreamResultParams) (status, output, errMsg string) {
+	provider, timeout, runErr, writeErr, exitErr, sessionID, state, completionGuardError := p.Provider, p.Timeout, p.RunErr, p.WriteErr, p.ExitErr, p.SessionID, p.State, p.CompletionGuardError
 	status = "completed"
 	switch {
 	case state.terminalReasonError != "":

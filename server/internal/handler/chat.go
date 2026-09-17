@@ -905,7 +905,15 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// creator-only), so they are the task initiator — surfaced to the agent
 	// under `## Task Initiator`. actorType/actorID were resolved above for the
 	// invoke gate.
-	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID))
+	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), service.SendDirectChatMessageParams{
+		Session:         session,
+		Agent:           agent,
+		InitiatorUserID: parseUUID(userID),
+		Content:         req.Content,
+		AttachmentIDs:   attachmentIDs,
+		UploaderType:    actorType,
+		UploaderID:      parseUUID(actorID),
+	})
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrChatSessionArchived):
@@ -934,16 +942,16 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 
 	taskContext := h.TaskService.AnalyticsContextForTask(r.Context(), task)
 	platform, _, _ := middleware.ClientMetadataFromContext(r.Context())
-	obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.ChatMessageSent(
-		userID,
-		workspaceID,
-		uuidToString(session.ID),
-		uuidToString(task.ID),
-		uuidToString(session.AgentID),
-		taskContext.RuntimeMode,
-		taskContext.Provider,
-		platform,
-	))
+	obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.ChatMessageSent(analytics.ChatMessageSentParams{
+		UserID:        userID,
+		WorkspaceID:   workspaceID,
+		ChatSessionID: uuidToString(session.ID),
+		TaskID:        uuidToString(task.ID),
+		AgentID:       uuidToString(session.AgentID),
+		RuntimeMode:   taskContext.RuntimeMode,
+		Provider:      taskContext.Provider,
+		Platform:      platform,
+	}))
 
 	// Broadcast the user message.
 	resolvedSessionID := uuidToString(session.ID)

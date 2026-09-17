@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -2308,7 +2309,7 @@ func pluralS(n int) string {
 // non-finite or negative input collapses to "0.0%" — total=0 workspaces
 // shouldn't surface "NaN%".
 func formatRatio(r float64) string {
-	if r != r || r < 0 { // NaN check via inequality
+	if math.IsNaN(r) || r < 0 {
 		return "0.0%"
 	}
 	return fmt.Sprintf("%.1f%%", r*100)

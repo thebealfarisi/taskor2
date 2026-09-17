@@ -110,7 +110,16 @@ func TestCompleteTask_AlreadyFinalized(t *testing.T) {
 				Bus:     events.New(),
 			}
 
-			got, err := svc.CompleteTask(context.Background(), taskID, nil, "", "", "", false, "", "")
+			got, err := svc.CompleteTask(context.Background(), CompleteTaskParams{
+		TaskID:                taskID,
+		Result:                nil,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}
@@ -152,7 +161,17 @@ func TestFailTask_AlreadyFinalized(t *testing.T) {
 				Bus:     events.New(),
 			}
 
-			got, err := svc.FailTask(context.Background(), taskID, "agent crashed", "", "", "", "", false, "", "")
+			got, err := svc.FailTask(context.Background(), FailTaskParams{
+		TaskID:                taskID,
+		ErrMsg:                "agent crashed",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
 			}

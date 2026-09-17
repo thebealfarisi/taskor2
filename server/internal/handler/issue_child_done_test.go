@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/multica-ai/multica/server/internal/service"
 )
 
 // childDoneFixture creates a parent + child pair so the parent-notification
@@ -625,7 +627,17 @@ func TestStageLeaderPrepareTimeoutRetryCanAdvanceNextStage(t *testing.T) {
 		t.Fatalf("dispatch original leader task: %v", err)
 	}
 
-	if _, err := testHandler.TaskService.FailTask(ctx, parseUUID(originalID), "task preparation timed out after 5m0s", "", "", "", "timeout", false, "", ""); err != nil {
+	if _, err := testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
+		TaskID:                parseUUID(originalID),
+		ErrMsg:                "task preparation timed out after 5m0s",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "timeout",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("fail original leader task: %v", err)
 	}
 

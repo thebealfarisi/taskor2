@@ -834,9 +834,15 @@ func TestSendDirectChatMessageUsesCurrentlyBoundRuntime(t *testing.T) {
 		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE chat_session_id = $1`, created.SessionID)
 	})
 
-	sent, err := testHandler.TaskService.SendDirectChatMessage(
-		ctx, session, staleAgent, parseUUID(testUserID), "hello after the switch", nil, "member", parseUUID(testUserID),
-	)
+	sent, err := testHandler.TaskService.SendDirectChatMessage(ctx, service.SendDirectChatMessageParams{
+		Session:         session,
+		Agent:           staleAgent,
+		InitiatorUserID: parseUUID(testUserID),
+		Content:         "hello after the switch",
+		AttachmentIDs:   nil,
+		UploaderType:    "member",
+		UploaderID:      parseUUID(testUserID),
+	})
 	if err != nil {
 		t.Fatalf("SendDirectChatMessage: %v", err)
 	}
@@ -953,10 +959,15 @@ func TestSendDirectChatMessageWaitsForUncommittedRebind(t *testing.T) {
 	}
 	results := make(chan sendResult, 1)
 	go func() {
-		sent, err := testHandler.TaskService.SendDirectChatMessage(
-			context.Background(), session, staleAgent, parseUUID(testUserID),
-			"sent while the rebind was still open", nil, "member", parseUUID(testUserID),
-		)
+		sent, err := testHandler.TaskService.SendDirectChatMessage(context.Background(), service.SendDirectChatMessageParams{
+		Session:         session,
+		Agent:           staleAgent,
+		InitiatorUserID: parseUUID(testUserID),
+		Content:         "sent while the rebind was still open",
+		AttachmentIDs:   nil,
+		UploaderType:    "member",
+		UploaderID:      parseUUID(testUserID),
+	})
 		if err != nil {
 			results <- sendResult{err: err}
 			return
@@ -1026,10 +1037,15 @@ func TestSendDirectChatMessageRejectsSessionArchivedWhileWaitingForLock(t *testi
 
 	results := make(chan error, 1)
 	go func() {
-		_, err := testHandler.TaskService.SendDirectChatMessage(
-			context.Background(), session, agent, parseUUID(testUserID),
-			"must not enqueue after archive", nil, "member", parseUUID(testUserID),
-		)
+		_, err := testHandler.TaskService.SendDirectChatMessage(context.Background(), service.SendDirectChatMessageParams{
+		Session:         session,
+		Agent:           agent,
+		InitiatorUserID: parseUUID(testUserID),
+		Content:         "must not enqueue after archive",
+		AttachmentIDs:   nil,
+		UploaderType:    "member",
+		UploaderID:      parseUUID(testUserID),
+	})
 		results <- err
 	}()
 

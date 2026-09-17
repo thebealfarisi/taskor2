@@ -182,22 +182,29 @@ func decodeSkillConfig(raw []byte) any {
 	return config
 }
 
-func skillSummaryToResponse(
-	id, workspaceID pgtype.UUID,
-	name, description string,
-	config []byte,
-	createdBy pgtype.UUID,
-	createdAt, updatedAt pgtype.Timestamptz,
-) SkillSummaryResponse {
+// skillSummaryToResponseParams bundles skillSummaryToResponse's fields so the
+// function signature stays under the parameter-count lint.
+type skillSummaryToResponseParams struct {
+	ID          pgtype.UUID
+	WorkspaceID pgtype.UUID
+	Name        string
+	Description string
+	Config      []byte
+	CreatedBy   pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+}
+
+func skillSummaryToResponse(p skillSummaryToResponseParams) SkillSummaryResponse {
 	return SkillSummaryResponse{
-		ID:          uuidToString(id),
-		WorkspaceID: uuidToString(workspaceID),
-		Name:        name,
-		Description: description,
-		Config:      decodeSkillConfig(config),
-		CreatedBy:   uuidToPtr(createdBy),
-		CreatedAt:   timestampToString(createdAt),
-		UpdatedAt:   timestampToString(updatedAt),
+		ID:          uuidToString(p.ID),
+		WorkspaceID: uuidToString(p.WorkspaceID),
+		Name:        p.Name,
+		Description: p.Description,
+		Config:      decodeSkillConfig(p.Config),
+		CreatedBy:   uuidToPtr(p.CreatedBy),
+		CreatedAt:   timestampToString(p.CreatedAt),
+		UpdatedAt:   timestampToString(p.UpdatedAt),
 	}
 }
 
@@ -296,10 +303,16 @@ func (h *Handler) ListSkills(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]SkillSummaryResponse, len(skills))
 	for i, s := range skills {
-		resp[i] = skillSummaryToResponse(
-			s.ID, s.WorkspaceID, s.Name, s.Description, s.Config,
-			s.CreatedBy, s.CreatedAt, s.UpdatedAt,
-		)
+		resp[i] = skillSummaryToResponse(skillSummaryToResponseParams{
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			Name:        s.Name,
+			Description: s.Description,
+			Config:      s.Config,
+			CreatedBy:   s.CreatedBy,
+			CreatedAt:   s.CreatedAt,
+			UpdatedAt:   s.UpdatedAt,
+		})
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -1087,7 +1100,16 @@ func fetchFromSkillsSh(ctx context.Context, httpClient *http.Client, rawURL stri
 			errImportSourceUnavailable, owner, repo, treeErr)
 	}
 
-	skillDir, skillMdBody, err := resolveSkillDirFromTree(ctx, httpClient, owner, repo, defaultBranch, rawPrefix, skillName, tree, truncated)
+	skillDir, skillMdBody, err := resolveSkillDirFromTree(ctx, resolveSkillDirFromTreeParams{
+		HTTPClient:    httpClient,
+		Owner:         owner,
+		Repo:          repo,
+		DefaultBranch: defaultBranch,
+		RawPrefix:     rawPrefix,
+		SkillName:     skillName,
+		Tree:          tree,
+		Truncated:     truncated,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1236,7 +1258,21 @@ func fetchGitHubTree(ctx context.Context, httpClient *http.Client, owner, repo, 
 // it falls back to accepting a conventional skill location by path (preserving
 // the pre-tree importer's lenient semantics). When the tree is truncated it
 // falls back to a bounded per-prefix listing.
-func resolveSkillDirFromTree(ctx context.Context, httpClient *http.Client, owner, repo, defaultBranch, rawPrefix, skillName string, tree []githubTreeEntry, truncated bool) (string, []byte, error) {
+// resolveSkillDirFromTreeParams bundles resolveSkillDirFromTree's fields so
+// the function signature stays under the parameter-count lint.
+type resolveSkillDirFromTreeParams struct {
+	HTTPClient    *http.Client
+	Owner         string
+	Repo          string
+	DefaultBranch string
+	RawPrefix     string
+	SkillName     string
+	Tree          []githubTreeEntry
+	Truncated     bool
+}
+
+func resolveSkillDirFromTree(ctx context.Context, p resolveSkillDirFromTreeParams) (string, []byte, error) {
+	httpClient, owner, repo, defaultBranch, rawPrefix, skillName, tree, truncated := p.HTTPClient, p.Owner, p.Repo, p.DefaultBranch, p.RawPrefix, p.SkillName, p.Tree, p.Truncated
 	skillPaths := extractSkillMdPaths(tree)
 	preferred, remaining := partitionSkillMdPaths(skillName, skillPaths)
 	if dir, body, ok := findMatchingSkillDirByFrontmatter(ctx, httpClient, rawPrefix, skillName, preferred); ok {
@@ -2091,7 +2127,23 @@ func skillImportOverwriteFailure(err error) (int, string) {
 	}
 }
 
-func (h *Handler) resolveImportSkillConflict(w http.ResponseWriter, r *http.Request, strategy string, workspaceID string, workspaceUUID, creatorUUID pgtype.UUID, creatorID string, name string, imported *importedSkill, config map[string]any, files []CreateSkillFileRequest, existing db.Skill) {
+// resolveImportSkillConflictParams bundles resolveImportSkillConflict's fields
+// so the function signature stays under the parameter-count lint.
+type resolveImportSkillConflictParams struct {
+	Strategy      string
+	WorkspaceID   string
+	WorkspaceUUID pgtype.UUID
+	CreatorUUID   pgtype.UUID
+	CreatorID     string
+	Name          string
+	Imported      *importedSkill
+	Config        map[string]any
+	Files         []CreateSkillFileRequest
+	Existing      db.Skill
+}
+
+func (h *Handler) resolveImportSkillConflict(w http.ResponseWriter, r *http.Request, p resolveImportSkillConflictParams) {
+	strategy, workspaceID, workspaceUUID, creatorUUID, creatorID, name, imported, config, files, existing := p.Strategy, p.WorkspaceID, p.WorkspaceUUID, p.CreatorUUID, p.CreatorID, p.Name, p.Imported, p.Config, p.Files, p.Existing
 	existingInfo := existingSkillIdentity(existing, creatorID)
 	switch strategy {
 	case importOnConflictSkip:
@@ -2227,7 +2279,15 @@ func (h *Handler) ImportSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.finishSkillImport(w, r, workspaceID, workspaceUUID, creatorUUID, creatorID, strategy, structuredResult, imported)
+	h.finishSkillImport(w, r, finishSkillImportParams{
+		WorkspaceID:      workspaceID,
+		WorkspaceUUID:    workspaceUUID,
+		CreatorUUID:      creatorUUID,
+		CreatorID:        creatorID,
+		Strategy:         strategy,
+		StructuredResult: structuredResult,
+		Imported:         imported,
+	})
 }
 
 // importFetchTimeout bounds the total time spent fetching a skill's files from
@@ -2274,7 +2334,20 @@ func importedSkillFileRequests(imported *importedSkill) []CreateSkillFileRequest
 // the extracted files onto CreateSkillFileRequest, records provenance into
 // config.origin, and creates the skill, routing same-name collisions through
 // the on_conflict strategy.
-func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, workspaceID string, workspaceUUID, creatorUUID pgtype.UUID, creatorID, strategy string, structuredResult bool, imported *importedSkill) {
+// finishSkillImportParams bundles finishSkillImport's fields so the function
+// signature stays under the parameter-count lint.
+type finishSkillImportParams struct {
+	WorkspaceID      string
+	WorkspaceUUID    pgtype.UUID
+	CreatorUUID      pgtype.UUID
+	CreatorID        string
+	Strategy         string
+	StructuredResult bool
+	Imported         *importedSkill
+}
+
+func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, p finishSkillImportParams) {
+	workspaceID, workspaceUUID, creatorUUID, creatorID, strategy, structuredResult, imported := p.WorkspaceID, p.WorkspaceUUID, p.CreatorUUID, p.CreatorID, p.Strategy, p.StructuredResult, p.Imported
 	files := importedSkillFileRequests(imported)
 
 	// Persist provenance into skill.config.origin so list/detail UI can show
@@ -2293,7 +2366,18 @@ func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, work
 			})
 			return
 		} else if found {
-			h.resolveImportSkillConflict(w, r, strategy, workspaceID, workspaceUUID, creatorUUID, creatorID, name, imported, config, files, existing)
+			h.resolveImportSkillConflict(w, r, resolveImportSkillConflictParams{
+				Strategy:      strategy,
+				WorkspaceID:   workspaceID,
+				WorkspaceUUID: workspaceUUID,
+				CreatorUUID:   creatorUUID,
+				CreatorID:     creatorID,
+				Name:          name,
+				Imported:      imported,
+				Config:        config,
+				Files:         files,
+				Existing:      existing,
+			})
 			return
 		}
 	}
@@ -2303,7 +2387,18 @@ func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, work
 		if isUniqueViolation(err) {
 			if structuredResult {
 				if existing, found, lerr := h.lookupSkillByName(r.Context(), workspaceUUID, name); lerr == nil && found {
-					h.resolveImportSkillConflict(w, r, strategy, workspaceID, workspaceUUID, creatorUUID, creatorID, name, imported, config, files, existing)
+					h.resolveImportSkillConflict(w, r, resolveImportSkillConflictParams{
+				Strategy:      strategy,
+				WorkspaceID:   workspaceID,
+				WorkspaceUUID: workspaceUUID,
+				CreatorUUID:   creatorUUID,
+				CreatorID:     creatorID,
+				Name:          name,
+				Imported:      imported,
+				Config:        config,
+				Files:         files,
+				Existing:      existing,
+			})
 					return
 				}
 			}
@@ -2432,10 +2527,16 @@ func (h *Handler) ListAgentSkills(w http.ResponseWriter, r *http.Request) {
 
 	resp := make([]SkillSummaryResponse, len(skills))
 	for i, s := range skills {
-		resp[i] = skillSummaryToResponse(
-			s.ID, s.WorkspaceID, s.Name, s.Description, s.Config,
-			s.CreatedBy, s.CreatedAt, s.UpdatedAt,
-		)
+		resp[i] = skillSummaryToResponse(skillSummaryToResponseParams{
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			Name:        s.Name,
+			Description: s.Description,
+			Config:      s.Config,
+			CreatedBy:   s.CreatedBy,
+			CreatedAt:   s.CreatedAt,
+			UpdatedAt:   s.UpdatedAt,
+		})
 		resp[i].Enabled = &s.Enabled
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -2634,10 +2735,16 @@ func (h *Handler) writeUpdatedAgentSkills(w http.ResponseWriter, r *http.Request
 
 	resp := make([]SkillSummaryResponse, len(skills))
 	for i, s := range skills {
-		resp[i] = skillSummaryToResponse(
-			s.ID, s.WorkspaceID, s.Name, s.Description, s.Config,
-			s.CreatedBy, s.CreatedAt, s.UpdatedAt,
-		)
+		resp[i] = skillSummaryToResponse(skillSummaryToResponseParams{
+			ID:          s.ID,
+			WorkspaceID: s.WorkspaceID,
+			Name:        s.Name,
+			Description: s.Description,
+			Config:      s.Config,
+			CreatedBy:   s.CreatedBy,
+			CreatedAt:   s.CreatedAt,
+			UpdatedAt:   s.UpdatedAt,
+		})
 		resp[i].Enabled = &s.Enabled
 	}
 	actorType, actorID := h.resolveActor(r, requestUserID(r), uuidToString(agent.WorkspaceID))

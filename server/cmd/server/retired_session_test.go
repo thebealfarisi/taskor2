@@ -260,9 +260,17 @@ func TestFailTaskClearsPoisonedChatPointer(t *testing.T) {
 	taskSvc := service.NewTaskService(queries, testPool, nil, events.New())
 
 	// The un-upgraded-daemon shape: catchall reason, poisoning only in the text.
-	if _, err := taskSvc.FailTask(ctx, pgtype.UUID{Bytes: parseUUIDBytes(taskID), Valid: true},
-		"Invalid request: the message at position 37 with role 'assistant' must not be empty",
-		"CHAT-PTR-S", "/tmp/chat", "", "agent_error.unknown", false, "", ""); err != nil {
+	if _, err := taskSvc.FailTask(ctx, service.FailTaskParams{
+		TaskID:                pgtype.UUID{Bytes: parseUUIDBytes(taskID), Valid: true},
+		ErrMsg:                "Invalid request: the message at position 37 with role 'assistant' must not be empty",
+		SessionID:             "CHAT-PTR-S",
+		WorkDir:               "/tmp/chat",
+		BranchName:            "",
+		FailureReason:         "agent_error.unknown",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 
@@ -305,9 +313,17 @@ func TestFailTaskKeepsChatPointerOnTransientFailure(t *testing.T) {
 	queries := db.New(testPool)
 	taskSvc := service.NewTaskService(queries, testPool, nil, events.New())
 
-	if _, err := taskSvc.FailTask(ctx, pgtype.UUID{Bytes: parseUUIDBytes(taskID), Valid: true},
-		"Connection closed mid-response", "CHAT-KEEP-S", "/tmp/chat", "",
-		"agent_error.provider_network", false, "", ""); err != nil {
+	if _, err := taskSvc.FailTask(ctx, service.FailTaskParams{
+		TaskID:                pgtype.UUID{Bytes: parseUUIDBytes(taskID), Valid: true},
+		ErrMsg:                "Connection closed mid-response",
+		SessionID:             "CHAT-KEEP-S",
+		WorkDir:               "/tmp/chat",
+		BranchName:            "",
+		FailureReason:         "agent_error.provider_network",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 

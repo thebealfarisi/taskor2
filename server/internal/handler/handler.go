@@ -382,7 +382,23 @@ type Handler struct {
 	cfg       Config
 }
 
-func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, cfSigner *auth.CloudFrontSigner, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {
+// NewParams bundles New's fields so the function signature stays under the
+// parameter-count lint.
+type NewParams struct {
+	Queries         *db.Queries
+	TxStarter       txStarter
+	Hub             *realtime.Hub
+	Bus             *events.Bus
+	EmailService    *service.EmailService
+	Store           storage.Storage
+	CFSigner        *auth.CloudFrontSigner
+	AnalyticsClient analytics.Client
+	Cfg             Config
+	DaemonHubs      []*daemonws.Hub
+}
+
+func New(p NewParams) *Handler {
+	queries, txStarter, hub, bus, emailService, store, cfSigner, analyticsClient, cfg, daemonHubs := p.Queries, p.TxStarter, p.Hub, p.Bus, p.EmailService, p.Store, p.CFSigner, p.AnalyticsClient, p.Cfg, p.DaemonHubs
 	var executor dbExecutor
 	if candidate, ok := txStarter.(dbExecutor); ok {
 		executor = candidate

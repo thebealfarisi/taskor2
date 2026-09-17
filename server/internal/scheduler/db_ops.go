@@ -259,15 +259,20 @@ func finishSuccess(
 
 // finishFailure writes a terminal FAILED row. nextRetryAt may be the
 // zero value if no retry is due (max_attempts reached).
-func finishFailure(
-	ctx context.Context,
-	pool *pgxpool.Pool,
-	id, leaseToken uuid.UUID,
-	dbTime time.Time,
-	durationMs int64,
-	errorCode, errorMsg string,
-	nextRetryAt time.Time,
-) error {
+// finishFailureParams bundles finishFailure's fields so the function
+// signature stays under the parameter-count lint.
+type finishFailureParams struct {
+	ID          uuid.UUID
+	LeaseToken  uuid.UUID
+	DBTime      time.Time
+	DurationMs  int64
+	ErrorCode   string
+	ErrorMsg    string
+	NextRetryAt time.Time
+}
+
+func finishFailure(ctx context.Context, pool *pgxpool.Pool, p finishFailureParams) error {
+	id, leaseToken, dbTime, durationMs, errorCode, errorMsg, nextRetryAt := p.ID, p.LeaseToken, p.DBTime, p.DurationMs, p.ErrorCode, p.ErrorMsg, p.NextRetryAt
 	var nextRetry pgtype.Timestamptz
 	if !nextRetryAt.IsZero() {
 		nextRetry = pgtype.Timestamptz{Time: nextRetryAt, Valid: true}

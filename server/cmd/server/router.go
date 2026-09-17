@@ -363,7 +363,18 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		LLMMaxRetries:            opts.LLMMaxRetries,
 		ServerVersion:            normalizeServerVersion(version),
 	}
-	h := handler.New(queries, pool, hub, bus, emailSvc, store, cfSigner, analyticsClient, signupConfig, daemonHub)
+	h := handler.New(handler.NewParams{
+		Queries:         queries,
+		TxStarter:       pool,
+		Hub:             hub,
+		Bus:             bus,
+		EmailService:    emailSvc,
+		Store:           store,
+		CFSigner:        cfSigner,
+		AnalyticsClient: analyticsClient,
+		Cfg:             signupConfig,
+		DaemonHubs:      []*daemonws.Hub{daemonHub},
+	})
 	invitationRateLimits := handler.DefaultInvitationRateLimits()
 	invitationRateLimits.Actor.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_ACTOR_10M", invitationRateLimits.Actor.Limit)
 	invitationRateLimits.Workspace.Limit = envNonNegativeInt("RATE_LIMIT_INVITATION_WORKSPACE_24H", invitationRateLimits.Workspace.Limit)

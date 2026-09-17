@@ -1355,20 +1355,18 @@ func TestRouter_MediaFinalizationExpiredDeadlineDoesNotLogResolutionFailure(t *t
 	h.router.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	messageID := uuidFromString(t, "77777777-7777-4777-8777-777777777777")
 
-	h.router.resolveAndBindMedia(
-		ResolverSet{Session: h.binder, Media: h.media},
-		h.inst.inst,
-		h.ident.id,
-		messageID,
-		p2pMessage(t),
-		h.binder.ensureID,
-		db.Issue{},
-		pgtype.Text{},
-		"",
-		pgtype.UUID{},
-		false,
-		time.Now().Add(-time.Second),
-	)
+	h.router.resolveAndBindMedia(mediaJobParams{
+		Set:           ResolverSet{Session: h.binder, Media: h.media},
+		Inst:          h.inst.inst,
+		Identity:      h.ident.id,
+		ChatMessageID: messageID,
+		Msg:           p2pMessage(t),
+		SessionID:     h.binder.ensureID,
+		Issue:         db.Issue{},
+		IssueTaskID:   pgtype.UUID{},
+		ResolveRemote: false,
+		Deadline:      time.Now().Add(-time.Second),
+	})
 
 	if got := h.binder.boundMedia(); got.MessageID != messageID || len(got.MediaRefs) != 0 {
 		t.Fatalf("expired finalize-only bind = %+v", got)

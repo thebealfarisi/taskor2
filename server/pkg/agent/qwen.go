@@ -160,13 +160,22 @@ func (b *qwenBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		exitErr := cmd.Wait()
 		duration := time.Since(started)
 
-		status, output, errMsg := finalizeStreamResult("qwen", timeout, runCtx.Err(), nil, exitErr, state.sessionID, streamTerminalState{
+		status, output, errMsg := finalizeStreamResult(finalizeStreamResultParams{
+		Provider:             "qwen",
+		Timeout:              timeout,
+		RunErr:               runCtx.Err(),
+		WriteErr:             nil,
+		ExitErr:              exitErr,
+		SessionID:            state.sessionID,
+		State:                streamTerminalState{
 			lastAssistantText: state.lastAssistantText,
 			finalResultText:   state.finalResultText,
 			sawResult:         state.sawResult,
 			resultIsError:     state.resultIsError,
 			scanErr:           scanErr,
-		}, "")
+		},
+		CompletionGuardError: "",
+	})
 		if errMsg != "" {
 			errMsg = withAgentStderr(errMsg, "qwen", stderrBuf.Tail())
 		}

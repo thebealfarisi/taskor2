@@ -148,21 +148,35 @@ func taskScopedAuthToken(task Task) (string, error) {
 	return token, nil
 }
 
-func taskMulticaEnvironment(task Task, agentName, token, configRoot, workspacesRoot, serverURL string, healthPort, slot int, tempDir string) map[string]string {
+// taskMulticaEnvironmentParams bundles taskMulticaEnvironment's fields so the
+// function signature stays under the parameter-count lint.
+type taskMulticaEnvironmentParams struct {
+	Task           Task
+	AgentName      string
+	Token          string
+	ConfigRoot     string
+	WorkspacesRoot string
+	ServerURL      string
+	HealthPort     int
+	Slot           int
+	TempDir        string
+}
+
+func taskMulticaEnvironment(p taskMulticaEnvironmentParams) map[string]string {
 	return map[string]string{
-		"MULTICA_TOKEN":        token,
-		cli.TaskConfigRootEnv:  configRoot,
-		TaskWorkspacesRootEnv:  workspacesRoot,
-		"MULTICA_SERVER_URL":   serverURL,
-		"MULTICA_DAEMON_PORT":  strconv.Itoa(healthPort),
-		"MULTICA_WORKSPACE_ID": task.WorkspaceID,
-		"MULTICA_AGENT_NAME":   agentName,
-		"MULTICA_AGENT_ID":     task.AgentID,
-		"MULTICA_TASK_ID":      task.ID,
-		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
-		"TMPDIR":               tempDir,
-		"TMP":                  tempDir,
-		"TEMP":                 tempDir,
+		"MULTICA_TOKEN":        p.Token,
+		cli.TaskConfigRootEnv:  p.ConfigRoot,
+		TaskWorkspacesRootEnv:  p.WorkspacesRoot,
+		"MULTICA_SERVER_URL":   p.ServerURL,
+		"MULTICA_DAEMON_PORT":  strconv.Itoa(p.HealthPort),
+		"MULTICA_WORKSPACE_ID": p.Task.WorkspaceID,
+		"MULTICA_AGENT_NAME":   p.AgentName,
+		"MULTICA_AGENT_ID":     p.Task.AgentID,
+		"MULTICA_TASK_ID":      p.Task.ID,
+		"MULTICA_TASK_SLOT":    strconv.Itoa(p.Slot),
+		"TMPDIR":               p.TempDir,
+		"TMP":                  p.TempDir,
+		"TEMP":                 p.TempDir,
 	}
 }
 
@@ -5557,9 +5571,28 @@ func (d *Daemon) reportTerminalTask(parentCtx context.Context, report terminalTa
 
 	switch report.kind {
 	case terminalTaskReportComplete:
-		return d.client.CompleteTask(ctx, report.taskID, report.output, report.branchName, report.sessionID, report.workDir, report.sessionRolloutMissing, report.retiredSessionID, report.durableWorkDir)
+		return d.client.CompleteTask(ctx, CompleteTaskParams{
+			TaskID:                report.taskID,
+			Output:                report.output,
+			BranchName:            report.branchName,
+			SessionID:             report.sessionID,
+			WorkDir:               report.workDir,
+			SessionRolloutMissing: report.sessionRolloutMissing,
+			RetiredSessionID:      report.retiredSessionID,
+			DurableWorkDir:        report.durableWorkDir,
+		})
 	case terminalTaskReportFail:
-		return d.client.FailTask(ctx, report.taskID, report.errorMessage, report.sessionID, report.workDir, report.branchName, report.failureReason, report.sessionRolloutMissing, report.retiredSessionID, report.durableWorkDir)
+		return d.client.FailTask(ctx, FailTaskParams{
+			TaskID:                report.taskID,
+			ErrMsg:                report.errorMessage,
+			SessionID:             report.sessionID,
+			WorkDir:               report.workDir,
+			BranchName:            report.branchName,
+			FailureReason:         report.failureReason,
+			SessionRolloutMissing: report.sessionRolloutMissing,
+			RetiredSessionID:      report.retiredSessionID,
+			DurableWorkDir:        report.durableWorkDir,
+		})
 	default:
 		return fmt.Errorf("unsupported terminal task report kind %d", report.kind)
 	}
@@ -7006,7 +7039,17 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		taskLog.Error("task auth token invalid; refusing to start agent", "error", err)
 		return TaskResult{}, err
 	}
-	agentEnv := taskMulticaEnvironment(task, agentName, agentToken, env.MulticaConfigRoot, d.cfg.WorkspacesRoot, d.cfg.ServerBaseURL, d.cfg.HealthPort, slot, taskTempDir)
+	agentEnv := taskMulticaEnvironment(taskMulticaEnvironmentParams{
+		Task:           task,
+		AgentName:      agentName,
+		Token:          agentToken,
+		ConfigRoot:     env.MulticaConfigRoot,
+		WorkspacesRoot: d.cfg.WorkspacesRoot,
+		ServerURL:      d.cfg.ServerBaseURL,
+		HealthPort:     d.cfg.HealthPort,
+		Slot:           slot,
+		TempDir:        taskTempDir,
+	})
 	if checkoutMode := repoCheckoutModeFor(provider, runtime.GOOS); checkoutMode != "" {
 		agentEnv[repoCheckoutModeEnv] = checkoutMode
 	}
@@ -7306,7 +7349,15 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+	result, tools, err := d.executeAndDrain(ctx, executeAndDrainParams{
+		Backend:   backend,
+		Prompt:    prompt,
+		Opts:      execOpts,
+		TaskLog:   taskLog,
+		TaskID:    task.ID,
+		CodexHome: env.CodexHome,
+		MsgSeq:    &msgSeq,
+	})
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -7360,7 +7411,15 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 		freshPrompt := BuildPrompt(task, provider)
 
-		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, executeAndDrainParams{
+			Backend:   backend,
+			Prompt:    freshPrompt,
+			Opts:      execOpts,
+			TaskLog:   taskLog,
+			TaskID:    task.ID,
+			CodexHome: env.CodexHome,
+			MsgSeq:    &msgSeq,
+		})
 		if retryErr != nil {
 			taskLog.Error("fresh session also failed to start; keeping the original poisoned result", "error", retryErr)
 		} else if retryResult.Status != "completed" && retryResult.SessionID == "" {
@@ -7759,10 +7818,7 @@ func reconcileFreshRetryResult(first agent.Result, firstUsage map[string]agent.T
 	case retryErr != nil:
 		first.Usage = firstUsage
 		return first, firstTools
-	case retry.SessionID != "":
-		retry.Usage = mergeUsage(firstUsage, retry.Usage)
-		return retry, retryTools
-	case retry.Status == "completed":
+	case retry.SessionID != "" || retry.Status == "completed":
 		retry.Usage = mergeUsage(firstUsage, retry.Usage)
 		return retry, retryTools
 	default:
@@ -7804,12 +7860,25 @@ func freshSessionMayHelp(errText string) bool {
 	}
 }
 
+// executeAndDrainParams bundles executeAndDrain's fields so the function
+// signature stays under the parameter-count lint.
+type executeAndDrainParams struct {
+	Backend   agent.Backend
+	Prompt    string
+	Opts      agent.ExecOptions
+	TaskLog   *slog.Logger
+	TaskID    string
+	CodexHome string
+	MsgSeq    *atomic.Int32
+}
+
 // executeAndDrain runs a backend, drains its message stream (forwarding to the
 // server), and waits for the final result. msgSeq numbers the reported task
 // messages and is owned by the caller so a same-task retry continues the
 // sequence instead of restarting at 1 — the server orders the transcript by
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
+func (d *Daemon) executeAndDrain(ctx context.Context, p executeAndDrainParams) (agent.Result, int32, error) {
+	backend, prompt, opts, taskLog, taskID, codexHome, msgSeq := p.Backend, p.Prompt, p.Opts, p.TaskLog, p.TaskID, p.CodexHome, p.MsgSeq
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
 	// drain loop with a single cancel. Without this layer the backend would
@@ -7880,7 +7949,19 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	var idleWatchdogThreshold atomic.Int64
 	idleWatchdogThreshold.Store(int64(idleWindow))
 	if idleWindow > 0 {
-		go d.runIdleWatchdog(agentCtx, idleWindow, d.cfg.AgentToolWatchdog, &lastActivityAt, &inFlightTools, &idleWatchdogFired, &idleWatchdogThreshold, agentCancel, session.Messages, taskLog, taskID)
+		go d.runIdleWatchdog(idleWatchdogParams{
+			AgentCtx:       agentCtx,
+			Window:         idleWindow,
+			ToolWindow:     d.cfg.AgentToolWatchdog,
+			LastActivityAt: &lastActivityAt,
+			InFlightTools:  &inFlightTools,
+			Fired:          &idleWatchdogFired,
+			FiredThreshold: &idleWatchdogThreshold,
+			Cancel:         agentCancel,
+			Messages:       session.Messages,
+			TaskLog:        taskLog,
+			TaskID:         taskID,
+		})
 	}
 
 	// drainFinished closes after the drain goroutine has flushed the last
@@ -8194,34 +8275,50 @@ func idleWatchdogReason(window time.Duration) string {
 // Tick interval is window/2 (floored at 30 s in production, but the floor only
 // kicks in for windows >= 1 min so tests can pass tiny windows like 50 ms and
 // see the watchdog fire within a few ticks).
-func (d *Daemon) runIdleWatchdog(agentCtx context.Context, window, toolWindow time.Duration, lastActivityAt *atomic.Int64, inFlightTools *atomic.Int32, fired *atomic.Bool, firedThreshold *atomic.Int64, cancel context.CancelFunc, messages <-chan agent.Message, taskLog *slog.Logger, taskID string) {
-	interval := window / 2
-	if window >= time.Minute && interval < 30*time.Second {
+// idleWatchdogParams bundles runIdleWatchdog's fields so the function
+// signature stays under the parameter-count lint.
+type idleWatchdogParams struct {
+	AgentCtx       context.Context
+	Window         time.Duration
+	ToolWindow     time.Duration
+	LastActivityAt *atomic.Int64
+	InFlightTools  *atomic.Int32
+	Fired          *atomic.Bool
+	FiredThreshold *atomic.Int64
+	Cancel         context.CancelFunc
+	Messages       <-chan agent.Message
+	TaskLog        *slog.Logger
+	TaskID         string
+}
+
+func (d *Daemon) runIdleWatchdog(p idleWatchdogParams) {
+	interval := p.Window / 2
+	if p.Window >= time.Minute && interval < 30*time.Second {
 		interval = 30 * time.Second
 	}
 	if interval <= 0 {
-		interval = window
+		interval = p.Window
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-agentCtx.Done():
+		case <-p.AgentCtx.Done():
 			return
 		case <-ticker.C:
 			// Pick the silence budget. A tool in flight is expected to be
 			// silent (a long build/install/test emits nothing between
 			// tool_use and tool_result), so it gets the larger toolWindow;
 			// toolWindow <= 0 disables the in-flight bound entirely.
-			threshold := window
-			toolInFlight := inFlightTools.Load() > 0
+			threshold := p.Window
+			toolInFlight := p.InFlightTools.Load() > 0
 			if toolInFlight {
-				if toolWindow <= 0 {
+				if p.ToolWindow <= 0 {
 					continue
 				}
-				threshold = toolWindow
+				threshold = p.ToolWindow
 			}
-			last := time.Unix(0, lastActivityAt.Load())
+			last := time.Unix(0, p.LastActivityAt.Load())
 			idleFor := time.Since(last)
 			if idleFor < threshold {
 				continue
@@ -8229,18 +8326,18 @@ func (d *Daemon) runIdleWatchdog(agentCtx context.Context, window, toolWindow ti
 			// A buffered-but-undrained message means the drain loop is
 			// behind, not the backend. Wait one more tick rather than
 			// killing a backend that is still producing output.
-			if len(messages) > 0 {
+			if len(p.Messages) > 0 {
 				continue
 			}
-			taskLog.Warn("idle watchdog firing: no agent activity, force-stopping run",
-				"task", shortID(taskID),
+			p.TaskLog.Warn("idle watchdog firing: no agent activity, force-stopping run",
+				"task", shortID(p.TaskID),
 				"idle_for", idleFor.Round(time.Second).String(),
 				"threshold", threshold.String(),
 				"tool_in_flight", toolInFlight,
 			)
-			firedThreshold.Store(int64(threshold))
-			fired.Store(true)
-			cancel()
+			p.FiredThreshold.Store(int64(threshold))
+			p.Fired.Store(true)
+			p.Cancel()
 			return
 		}
 	}

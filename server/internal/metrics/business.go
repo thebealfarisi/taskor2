@@ -470,7 +470,22 @@ func (m *BusinessMetrics) ObserveChatClaimRolloutMissingQuery(seconds float64) {
 // when it reported none. When present it wins over the rate table: the table
 // cannot express request-level rules such as xAI's 2x surcharge above a 200K
 // prompt, so for those providers the local estimate is structurally low.
-func (m *BusinessMetrics) RecordLLMUsage(source, runtimeMode, rawProvider, modelAlias string, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUSDTicks int64) {
+// RecordLLMUsageParams bundles RecordLLMUsage's fields so the function
+// signature stays under the parameter-count lint.
+type RecordLLMUsageParams struct {
+	Source           string
+	RuntimeMode      string
+	RawProvider      string
+	ModelAlias       string
+	InputTokens      int64
+	OutputTokens     int64
+	CacheReadTokens  int64
+	CacheWriteTokens int64
+	CostUSDTicks     int64
+}
+
+func (m *BusinessMetrics) RecordLLMUsage(p RecordLLMUsageParams) {
+	source, runtimeMode, rawProvider, modelAlias, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUSDTicks := p.Source, p.RuntimeMode, p.RawProvider, p.ModelAlias, p.InputTokens, p.OutputTokens, p.CacheReadTokens, p.CacheWriteTokens, p.CostUSDTicks
 	if m == nil {
 		return
 	}

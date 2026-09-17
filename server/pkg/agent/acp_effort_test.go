@@ -210,8 +210,15 @@ func TestApplyACPEffortOptionSendsAdvertisedID(t *testing.T) {
 		`{"value":"low"},{"value":"high"},{"value":"max"}]}]}`
 	request, calls := recordingACPRequest(echo, nil)
 
-	applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-		"ses-1", json.RawMessage(reasonixEffortSessionResult), "low", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(reasonixEffortSessionResult),
+		Level:          "low",
+		StateIsCurrent: true,
+	})
 
 	if len(*calls) != 1 {
 		t.Fatalf("calls = %+v, want exactly one set_config_option", *calls)
@@ -258,8 +265,15 @@ func TestApplyACPEffortOptionSkips(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			request, calls := recordingACPRequest(`{}`, nil)
-			applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-				"ses-1", json.RawMessage(tc.sessionResult), tc.level, true)
+			applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(tc.sessionResult),
+		Level:          tc.level,
+		StateIsCurrent: true,
+	})
 			if len(*calls) != 0 {
 				t.Errorf("sent %+v, want no request at all", *calls)
 			}
@@ -275,8 +289,15 @@ func TestApplyACPEffortOptionResumedSessionStillApplies(t *testing.T) {
 	echo := `{"configOptions":[{"id":"effort","currentValue":"low","options":[{"value":"low"},{"value":"max"}]}]}`
 	request, calls := recordingACPRequest(echo, nil)
 
-	applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-		"ses-1", json.RawMessage(reasonixEffortSessionResult), "low", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(reasonixEffortSessionResult),
+		Level:          "low",
+		StateIsCurrent: true,
+	})
 
 	if len(*calls) != 1 {
 		t.Fatalf("calls = %+v, want the level re-applied on resume", *calls)
@@ -290,8 +311,15 @@ func TestApplyACPEffortOptionResumedWithoutOption(t *testing.T) {
 	t.Parallel()
 	request, calls := recordingACPRequest(`{}`, nil)
 
-	applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-		"ses-1", json.RawMessage(`{"sessionId":"ses-1"}`), "max", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(`{"sessionId":"ses-1"}`),
+		Level:          "max",
+		StateIsCurrent: true,
+	})
 
 	if len(*calls) != 0 {
 		t.Errorf("sent %+v, want no request when resume advertises no option", *calls)
@@ -309,8 +337,15 @@ func TestApplyACPEffortOptionStaleStateDefersToRuntime(t *testing.T) {
 	echo := `{"configOptions":[{"id":"effort","currentValue":"ultra","options":[{"value":"ultra"}]}]}`
 
 	request, calls := recordingACPRequest(echo, nil)
-	applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-		"ses-1", json.RawMessage(reasonixEffortSessionResult), "ultra", false)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(reasonixEffortSessionResult),
+		Level:          "ultra",
+		StateIsCurrent: false,
+	})
 	if len(*calls) != 1 {
 		t.Fatalf("calls = %+v, want the request sent when the advertised list is stale", *calls)
 	}
@@ -320,8 +355,15 @@ func TestApplyACPEffortOptionStaleStateDefersToRuntime(t *testing.T) {
 
 	// Same input, state known current: the local check short-circuits it.
 	request, calls = recordingACPRequest(echo, nil)
-	applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-		"ses-1", json.RawMessage(reasonixEffortSessionResult), "ultra", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(reasonixEffortSessionResult),
+		Level:          "ultra",
+		StateIsCurrent: true,
+	})
 	if len(*calls) != 0 {
 		t.Errorf("sent %+v, want the unadvertised level skipped against fresh state", *calls)
 	}
@@ -354,8 +396,15 @@ func TestApplyACPEffortOptionSurvivesUnconfirmedApply(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			request, calls := recordingACPRequest(tc.reply, tc.err)
-			applyACPEffortOption(context.Background(), request, "reasonix", discardLogger(),
-				"ses-1", json.RawMessage(reasonixEffortSessionResult), "max", true)
+			applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "reasonix",
+		Logger:         discardLogger(),
+		SessionID:      "ses-1",
+		SessionResult:  json.RawMessage(reasonixEffortSessionResult),
+		Level:          "max",
+		StateIsCurrent: true,
+	})
 			if len(*calls) != 1 {
 				t.Fatalf("calls = %+v, want the attempt to still have been made", *calls)
 			}
@@ -454,8 +503,15 @@ func TestHermesAgentAdvertisesNoEffortCatalog(t *testing.T) {
 func TestApplyACPEffortOptionHermesAgentSendsNothing(t *testing.T) {
 	t.Parallel()
 	request, calls := recordingACPRequest(`{}`, nil)
-	applyACPEffortOption(context.Background(), request, "hermes", discardLogger(),
-		"ses-hermes", json.RawMessage(hermesAgentSessionResult), "high", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "hermes",
+		Logger:         discardLogger(),
+		SessionID:      "ses-hermes",
+		SessionResult:  json.RawMessage(hermesAgentSessionResult),
+		Level:          "high",
+		StateIsCurrent: true,
+	})
 	if len(*calls) != 0 {
 		t.Errorf("sent %+v, want no request against a runtime with no effort option", *calls)
 	}
@@ -469,8 +525,15 @@ func TestApplyACPEffortOptionJcodeUsesAdvertisedID(t *testing.T) {
 		`{"value":"low"},{"value":"medium"},{"value":"high"}]}]}`
 	request, calls := recordingACPRequest(echo, nil)
 
-	applyACPEffortOption(context.Background(), request, "hermes", discardLogger(),
-		"ses-jcode", json.RawMessage(jcodeEffortSessionResult), "high", true)
+	applyACPEffortOption(context.Background(), applyACPEffortOptionParams{
+		Request:        request,
+		Backend:        "hermes",
+		Logger:         discardLogger(),
+		SessionID:      "ses-jcode",
+		SessionResult:  json.RawMessage(jcodeEffortSessionResult),
+		Level:          "high",
+		StateIsCurrent: true,
+	})
 
 	if len(*calls) != 1 {
 		t.Fatalf("calls = %+v, want one set_config_option", *calls)

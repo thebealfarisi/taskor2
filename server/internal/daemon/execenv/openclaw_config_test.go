@@ -1398,10 +1398,10 @@ func TestPrepareEnvironmentNonOpenclawSkipsConfig(t *testing.T) {
 func TestBuildPerTaskOpenclawConfigOmitsGatewayWhenZero(t *testing.T) {
 	t.Parallel()
 
-	cfg := buildPerTaskOpenclawConfig(
-		"", false, "", nil, false, "/workdir", nil, false,
-		OpenclawGatewayPin{},
-	)
+	cfg := buildPerTaskOpenclawConfig(buildPerTaskOpenclawConfigParams{
+		WorkDir: "/workdir",
+		Gateway: OpenclawGatewayPin{},
+	})
 	if _, present := cfg["gateway"]; present {
 		t.Errorf("zero gateway must not emit a gateway block, got %v", cfg["gateway"])
 	}
@@ -1416,10 +1416,10 @@ func TestBuildPerTaskOpenclawConfigWritesGatewayBlock(t *testing.T) {
 		Token: "secret-token",
 		TLS:   true,
 	}
-	cfg := buildPerTaskOpenclawConfig(
-		"", false, "", nil, false, "/workdir", nil, false,
-		pin,
-	)
+	cfg := buildPerTaskOpenclawConfig(buildPerTaskOpenclawConfigParams{
+		WorkDir: "/workdir",
+		Gateway: pin,
+	})
 
 	gw, ok := cfg["gateway"].(map[string]any)
 	if !ok {
@@ -1455,10 +1455,10 @@ func TestBuildPerTaskOpenclawConfigPartialGatewayOmitsZeroFields(t *testing.T) {
 	// for the token (which still flows in via the $include). Zero-valued
 	// fields must not land in the wrapper as empty strings/zeros — that
 	// would override the user's value with junk.
-	cfg := buildPerTaskOpenclawConfig(
-		"", false, "", nil, false, "/workdir", nil, false,
-		OpenclawGatewayPin{Host: "gw.internal", Port: 18789},
-	)
+	cfg := buildPerTaskOpenclawConfig(buildPerTaskOpenclawConfigParams{
+		WorkDir: "/workdir",
+		Gateway: OpenclawGatewayPin{Host: "gw.internal", Port: 18789},
+	})
 	gw := cfg["gateway"].(map[string]any)
 	if _, present := gw["auth"]; present {
 		t.Errorf("auth block must be omitted when token is empty, got %v", gw["auth"])

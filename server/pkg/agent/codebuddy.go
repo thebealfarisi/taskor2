@@ -285,22 +285,22 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 		// broken pipe, or been unblocked by the kill that ended cmd.
 		writeErr := <-writeDone
 
-		finalStatus, finalOutput, finalError := finalizeStreamResult(
-			"codebuddy",
-			timeout,
-			runCtx.Err(),
-			writeErr,
-			exitErr,
-			sessionID,
-			streamTerminalState{
+		finalStatus, finalOutput, finalError := finalizeStreamResult(finalizeStreamResultParams{
+		Provider:             "codebuddy",
+		Timeout:              timeout,
+		RunErr:               runCtx.Err(),
+		WriteErr:             writeErr,
+		ExitErr:              exitErr,
+		SessionID:            sessionID,
+		State:                streamTerminalState{
 				lastAssistantText: lastAssistantText,
 				finalResultText:   finalResultText,
 				sawResult:         sawResult,
 				resultIsError:     resultIsError,
 				scanErr:           scanErr,
 			},
-			"",
-		)
+		CompletionGuardError: "",
+	})
 
 		if finalError != "" {
 			finalError = withAgentStderr(finalError, "codebuddy", stderrBuf.Tail())

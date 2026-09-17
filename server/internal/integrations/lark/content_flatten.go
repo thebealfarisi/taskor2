@@ -128,10 +128,6 @@ func flattenPostParagraph(spans []larkPostSpan) string {
 	parts := make([]string, 0, len(spans))
 	for _, s := range spans {
 		switch s.Tag {
-		case "text", "code_block":
-			if s.Text != "" {
-				parts = append(parts, s.Text)
-			}
 		case "a":
 			switch {
 			case s.Text != "" && s.Href != "":
@@ -161,6 +157,8 @@ func flattenPostParagraph(spans []larkPostSpan) string {
 		case "hr":
 			parts = append(parts, "---")
 		default:
+			// "text", "code_block", and any other/unknown tag: emit the raw
+			// text if present.
 			if s.Text != "" {
 				parts = append(parts, s.Text)
 			}

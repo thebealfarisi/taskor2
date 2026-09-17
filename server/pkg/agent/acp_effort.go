@@ -223,16 +223,20 @@ type acpRequestFn func(ctx context.Context, method string, params any) (json.Raw
 // client drops. When the state is stale we skip the local vocabulary check
 // rather than test the level against the wrong model's list, send the request,
 // and let the runtime's own answer decide.
-func applyACPEffortOption(
-	ctx context.Context,
-	request acpRequestFn,
-	backend string,
-	logger *slog.Logger,
-	sessionID string,
-	sessionResult json.RawMessage,
-	level string,
-	stateIsCurrent bool,
-) {
+// applyACPEffortOptionParams bundles applyACPEffortOption's fields so the
+// function signature stays under the parameter-count lint.
+type applyACPEffortOptionParams struct {
+	Request        acpRequestFn
+	Backend        string
+	Logger         *slog.Logger
+	SessionID      string
+	SessionResult  json.RawMessage
+	Level          string
+	StateIsCurrent bool
+}
+
+func applyACPEffortOption(ctx context.Context, p applyACPEffortOptionParams) {
+	request, backend, logger, sessionID, sessionResult, level, stateIsCurrent := p.Request, p.Backend, p.Logger, p.SessionID, p.SessionResult, p.Level, p.StateIsCurrent
 	if level == "" {
 		return
 	}

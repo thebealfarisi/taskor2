@@ -106,7 +106,17 @@ func TestFailTaskFinalDelegatedFailureWakesCoordinatorOnce(t *testing.T) {
 	failedID := f.insertWorkerTask(t, "running", "comment", 1, 2)
 	secret := "sk-" + strings.Repeat("a", 24)
 
-	failed, err := svc.FailTask(ctx, failedID, "upstream capacity exhausted "+secret, "", "", "", "agent_error.process_failure", false, "", "")
+	failed, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                failedID,
+		ErrMsg:                "upstream capacity exhausted "+secret,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "agent_error.process_failure",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 	if err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
@@ -595,7 +605,17 @@ func TestFailTaskRetryPendingDoesNotWakeCoordinator(t *testing.T) {
 	ctx := context.Background()
 	failedID := f.insertWorkerTask(t, "running", "comment", 1, 2)
 
-	if _, err := svc.FailTask(ctx, failedID, "task timed out", "", "", "", "timeout", false, "", ""); err != nil {
+	if _, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                failedID,
+		ErrMsg:                "task timed out",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "timeout",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 
@@ -631,7 +651,17 @@ func TestFinalDelegatedFailureMergesIntoPendingCoordinatorTask(t *testing.T) {
 		t.Fatalf("seed pending coordinator task: %v", err)
 	}
 
-	if _, err := svc.FailTask(ctx, failedID, "worker exited", "", "", "", "agent_error.process_failure", false, "", ""); err != nil {
+	if _, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                failedID,
+		ErrMsg:                "worker exited",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "agent_error.process_failure",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 
@@ -658,7 +688,17 @@ func TestFinalDelegatedFailureMergesIntoPendingCoordinatorTask(t *testing.T) {
 	// A second delegated failure while the same coordinator task is still
 	// queued must coalesce into that task instead of creating a parallel run.
 	secondFailedID := f.insertWorkerTask(t, "running", "comment", 1, 2)
-	if _, err := svc.FailTask(ctx, secondFailedID, "second worker exited", "", "", "", "agent_error.process_failure", false, "", ""); err != nil {
+	if _, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                secondFailedID,
+		ErrMsg:                "second worker exited",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "agent_error.process_failure",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask(second): %v", err)
 	}
 	var secondCommentID pgtype.UUID
@@ -692,7 +732,17 @@ func TestDelegatedFailurePlannedBehindDispatchedCoordinatorGetsFollowUp(t *testi
 		t.Fatalf("seed active coordinator task: %v", err)
 	}
 
-	if _, err := svc.FailTask(ctx, failedID, "worker exited", "", "", "", "agent_error.process_failure", false, "", ""); err != nil {
+	if _, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                failedID,
+		ErrMsg:                "worker exited",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "agent_error.process_failure",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 	comment, err := svc.Queries.GetDelegatedFailureRecoveryComment(ctx, db.GetDelegatedFailureRecoveryCommentParams{
@@ -745,7 +795,17 @@ func TestDelegatedFailureRecoveryTaskDoesNotRecursivelyWake(t *testing.T) {
 	ctx := context.Background()
 	recoveryID := f.insertWorkerTask(t, "running", string(attribution.EvidenceDelegatedFailure), 1, 2)
 
-	if _, err := svc.FailTask(ctx, recoveryID, "recovery failed", "", "", "", "agent_error.process_failure", false, "", ""); err != nil {
+	if _, err := svc.FailTask(ctx, FailTaskParams{
+		TaskID:                recoveryID,
+		ErrMsg:                "recovery failed",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "agent_error.process_failure",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask: %v", err)
 	}
 

@@ -585,16 +585,16 @@ func (s *IssueService) captureCreatedAnalytics(issue db.Issue, creatorType, acto
 	if creatorType == "agent" {
 		analyticsActorID = "agent:" + actorID
 	}
-	obsmetrics.RecordEvent(s.Analytics, s.Metrics, analytics.IssueCreated(
-		analyticsActorID,
-		util.UUIDToString(issue.WorkspaceID),
-		util.UUIDToString(issue.ID),
-		opts.AnalyticsAgentID,
-		taskID,
-		autopilotRunID,
-		source,
-		opts.Platform,
-	))
+	obsmetrics.RecordEvent(s.Analytics, s.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
+		ActorID:        analyticsActorID,
+		WorkspaceID:    util.UUIDToString(issue.WorkspaceID),
+		IssueID:        util.UUIDToString(issue.ID),
+		AgentID:        opts.AnalyticsAgentID,
+		TaskID:         taskID,
+		AutopilotRunID: autopilotRunID,
+		Source:         source,
+		Platform:       opts.Platform,
+	}))
 }
 
 // classifyOrigin maps the issue's origin_type / origin_id columns into the

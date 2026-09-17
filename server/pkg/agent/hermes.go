@@ -620,8 +620,15 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		//
 		// sessionResult stops describing the live session once set_model runs,
 		// because an ACP effort option may depend on the current model.
-		applyACPEffortOption(runCtx, c.request, "hermes", b.cfg.Logger,
-			sessionID, sessionResult, opts.ThinkingLevel, opts.Model == "")
+		applyACPEffortOption(runCtx, applyACPEffortOptionParams{
+		Request:        c.request,
+		Backend:        "hermes",
+		Logger:         b.cfg.Logger,
+		SessionID:      sessionID,
+		SessionResult:  sessionResult,
+		Level:          opts.ThinkingLevel,
+		StateIsCurrent: opts.Model == "",
+	})
 
 		// 4. Send the prompt and wait for PromptResponse.
 		//

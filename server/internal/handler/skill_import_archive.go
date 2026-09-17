@@ -78,7 +78,15 @@ func (h *Handler) importSkillFromArchive(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	h.finishSkillImport(w, r, workspaceID, workspaceUUID, creatorUUID, creatorID, strategy, true, imported)
+	h.finishSkillImport(w, r, finishSkillImportParams{
+		WorkspaceID:      workspaceID,
+		WorkspaceUUID:    workspaceUUID,
+		CreatorUUID:      creatorUUID,
+		CreatorID:        creatorID,
+		Strategy:         strategy,
+		StructuredResult: true,
+		Imported:         imported,
+	})
 }
 
 // parseSkillArchive decompresses an uploaded skill archive (.skill / .zip) into

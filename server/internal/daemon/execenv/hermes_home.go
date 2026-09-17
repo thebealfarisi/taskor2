@@ -379,7 +379,19 @@ func hermesProfileDir(root, name string) (home string, mustExist bool, err error
 // database task-local. The returned hermesSessionMount reports both what got
 // mounted and whether the store actually holds a transcript, so the caller never
 // tells a task it can resume history that is not there.
-func prepareHermesHome(hermesHome, sourceHome string, sourceMustExist bool, workspaceSkills []SkillContextForEnv, env map[string]string, memoryStore, sessionStore string, logger *slog.Logger) (sessions hermesSessionMount, err error) {
+type prepareHermesHomeParams struct {
+	HermesHome      string
+	SourceHome      string
+	SourceMustExist bool
+	WorkspaceSkills []SkillContextForEnv
+	Env             map[string]string
+	MemoryStore     string
+	SessionStore    string
+	Logger          *slog.Logger
+}
+
+func prepareHermesHome(p prepareHermesHomeParams) (sessions hermesSessionMount, err error) {
+	hermesHome, sourceHome, sourceMustExist, workspaceSkills, env, memoryStore, sessionStore, logger := p.HermesHome, p.SourceHome, p.SourceMustExist, p.WorkspaceSkills, p.Env, p.MemoryStore, p.SessionStore, p.Logger
 	sharedHome := strings.TrimSpace(sourceHome)
 	if sharedHome == "" {
 		sharedHome = platformDefaultHermesHome()

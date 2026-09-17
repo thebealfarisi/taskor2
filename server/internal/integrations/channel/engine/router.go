@@ -514,7 +514,15 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 			// cannot race an issue agent reading the newly-created issue.
 			assignedRunFireAt = localMediaDeadline.Add(mediaFinalizeTimeout)
 		}
-		issueRes, err := r.createIssue(ctx, inst, set.OriginType, identity.UserID, sessionID, *appendRes.IssueCommand, prefix, assignedRunFireAt)
+		issueRes, err := r.createIssue(ctx, createIssueParams{
+			Inst:              inst,
+			OriginType:        set.OriginType,
+			CreatorUserID:     identity.UserID,
+			SessionID:         sessionID,
+			Cmd:               *appendRes.IssueCommand,
+			IssuePrefix:       prefix,
+			AssignedRunFireAt: assignedRunFireAt,
+		})
 		if errors.Is(err, service.ErrActiveDuplicate) && issueRes.DuplicateIssue != nil {
 			duplicate := *issueRes.DuplicateIssue
 			res.IssueID = duplicate.ID
@@ -547,10 +555,22 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 		// Scheduling the command as a chat run too makes the agent execute the
 		// same /issue input again. A synchronous issue command is terminal.
 		if resolveMedia {
-			r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, mediaIssue, pgtype.Text{
-				String: appendRes.IssueCommand.Description,
-				Valid:  true,
-			}, msg.CommandText, deferredIssueTaskID, localMediaDeadline)
+			r.enqueueMedia(enqueueMediaParams{
+				Set:           set,
+				Inst:          inst,
+				Identity:      identity,
+				ChatMessageID: appendRes.MessageID,
+				Msg:           msg,
+				SessionID:     sessionID,
+				Issue:         mediaIssue,
+				IssueDescriptionBase: pgtype.Text{
+					String: appendRes.IssueCommand.Description,
+					Valid:  true,
+				},
+				IssueCommandText: msg.CommandText,
+				IssueTaskID:      deferredIssueTaskID,
+				Deadline:         localMediaDeadline,
+			})
 		}
 		return res, postAppendFinalize, nil
 	}
@@ -573,7 +593,17 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 		res.runScheduled = true
 	}
 	if resolveMedia {
-		r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, mediaIssue, pgtype.Text{}, "", deferredIssueTaskID, localMediaDeadline)
+		r.enqueueMedia(enqueueMediaParams{
+			Set:           set,
+			Inst:          inst,
+			Identity:      identity,
+			ChatMessageID: appendRes.MessageID,
+			Msg:           msg,
+			SessionID:     sessionID,
+			Issue:         mediaIssue,
+			IssueTaskID:   deferredIssueTaskID,
+			Deadline:      localMediaDeadline,
+		})
 	}
 	return res, postAppendFinalize, nil
 }
@@ -582,8 +612,37 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 // order within a chat session. Run scheduling is independent and durable: the
 // task service defers a task to the persisted media deadline, then media
 // completion promotes it early.
-func (r *Router) enqueueMedia(set ResolverSet, inst ResolvedInstallation, identity ResolvedIdentity, chatMessageID pgtype.UUID, msg channel.InboundMessage, sessionID pgtype.UUID, issue db.Issue, issueDescriptionBase pgtype.Text, issueCommandText string, issueTaskID pgtype.UUID, deadline time.Time) {
-	r.enqueueMediaJob(set, inst, identity, chatMessageID, msg, sessionID, issue, issueDescriptionBase, issueCommandText, issueTaskID, true, deadline)
+// enqueueMediaParams bundles enqueueMedia's fields so the function signature
+// stays under the parameter-count lint.
+type enqueueMediaParams struct {
+	Set                  ResolverSet
+	Inst                 ResolvedInstallation
+	Identity             ResolvedIdentity
+	ChatMessageID        pgtype.UUID
+	Msg                  channel.InboundMessage
+	SessionID            pgtype.UUID
+	Issue                db.Issue
+	IssueDescriptionBase pgtype.Text
+	IssueCommandText     string
+	IssueTaskID          pgtype.UUID
+	Deadline             time.Time
+}
+
+func (r *Router) enqueueMedia(p enqueueMediaParams) {
+	r.enqueueMediaJob(mediaJobParams{
+		Set:                  p.Set,
+		Inst:                 p.Inst,
+		Identity:             p.Identity,
+		ChatMessageID:        p.ChatMessageID,
+		Msg:                  p.Msg,
+		SessionID:            p.SessionID,
+		Issue:                p.Issue,
+		IssueDescriptionBase: p.IssueDescriptionBase,
+		IssueCommandText:     p.IssueCommandText,
+		IssueTaskID:          p.IssueTaskID,
+		ResolveRemote:        true,
+		Deadline:             p.Deadline,
+	})
 }
 
 // enqueueMediaFinalization clears the durable media-pending marker without
@@ -604,11 +663,40 @@ func (r *Router) enqueueMediaFinalization(set ResolverSet, inst ResolvedInstalla
 		// A channel_command message cannot join or gate a chat task's input
 		// batch, so clearing its own pending marker need not wait behind the
 		// session's ordered remote-media queue.
-		r.resolveAndBindMedia(set, inst, identity, chatMessageID, msg, sessionID, db.Issue{}, pgtype.Text{}, "", pgtype.UUID{}, false, deadline)
+		r.resolveAndBindMedia(mediaJobParams{
+			Set:           set,
+			Inst:          inst,
+			Identity:      identity,
+			ChatMessageID: chatMessageID,
+			Msg:           msg,
+			SessionID:     sessionID,
+			Issue:         db.Issue{},
+			IssueTaskID:   pgtype.UUID{},
+			ResolveRemote: false,
+			Deadline:      deadline,
+		})
 	}()
 }
 
-func (r *Router) enqueueMediaJob(set ResolverSet, inst ResolvedInstallation, identity ResolvedIdentity, chatMessageID pgtype.UUID, msg channel.InboundMessage, sessionID pgtype.UUID, issue db.Issue, issueDescriptionBase pgtype.Text, issueCommandText string, issueTaskID pgtype.UUID, resolveRemote bool, deadline time.Time) {
+// mediaJobParams bundles enqueueMediaJob's and resolveAndBindMedia's fields so
+// their function signatures stay under the parameter-count lint.
+type mediaJobParams struct {
+	Set                  ResolverSet
+	Inst                 ResolvedInstallation
+	Identity             ResolvedIdentity
+	ChatMessageID        pgtype.UUID
+	Msg                  channel.InboundMessage
+	SessionID            pgtype.UUID
+	Issue                db.Issue
+	IssueDescriptionBase pgtype.Text
+	IssueCommandText     string
+	IssueTaskID          pgtype.UUID
+	ResolveRemote        bool
+	Deadline             time.Time
+}
+
+func (r *Router) enqueueMediaJob(p mediaJobParams) {
+	set, inst, identity, chatMessageID, msg, sessionID, issue, issueDescriptionBase, issueCommandText, issueTaskID, resolveRemote, deadline := p.Set, p.Inst, p.Identity, p.ChatMessageID, p.Msg, p.SessionID, p.Issue, p.IssueDescriptionBase, p.IssueCommandText, p.IssueTaskID, p.ResolveRemote, p.Deadline
 	key := keyForSession(sessionID)
 	done := make(chan struct{})
 
@@ -663,13 +751,27 @@ func (r *Router) enqueueMediaJob(set ResolverSet, inst ResolvedInstallation, ide
 				// sees the dead deadline and runs only the empty finalize.
 			}
 		}
-		r.resolveAndBindMedia(set, inst, identity, chatMessageID, msg, sessionID, issue, issueDescriptionBase, issueCommandText, issueTaskID, resolveRemote, deadline)
+		r.resolveAndBindMedia(mediaJobParams{
+			Set:                  set,
+			Inst:                 inst,
+			Identity:             identity,
+			ChatMessageID:        chatMessageID,
+			Msg:                  msg,
+			SessionID:            sessionID,
+			Issue:                issue,
+			IssueDescriptionBase: issueDescriptionBase,
+			IssueCommandText:     issueCommandText,
+			IssueTaskID:          issueTaskID,
+			ResolveRemote:        resolveRemote,
+			Deadline:             deadline,
+		})
 	}()
 }
 
 const mediaFinalizeTimeout = 5 * time.Second
 
-func (r *Router) resolveAndBindMedia(set ResolverSet, inst ResolvedInstallation, identity ResolvedIdentity, chatMessageID pgtype.UUID, msg channel.InboundMessage, sessionID pgtype.UUID, issue db.Issue, issueDescriptionBase pgtype.Text, issueCommandText string, issueTaskID pgtype.UUID, resolveRemote bool, deadline time.Time) {
+func (r *Router) resolveAndBindMedia(p mediaJobParams) {
+	set, inst, identity, chatMessageID, msg, sessionID, issue, issueDescriptionBase, issueCommandText, issueTaskID, resolveRemote, deadline := p.Set, p.Inst, p.Identity, p.ChatMessageID, p.Msg, p.SessionID, p.Issue, p.IssueDescriptionBase, p.IssueCommandText, p.IssueTaskID, p.ResolveRemote, p.Deadline
 	ctx, cancel := context.WithDeadline(r.mediaCtx, deadline)
 	defer cancel()
 
@@ -871,7 +973,20 @@ func (r *Router) drop(ctx context.Context, set ResolverSet, msg channel.InboundM
 	return Result{Outcome: OutcomeDropped, DropReason: reason, InstallationID: instID}
 }
 
-func (r *Router) createIssue(ctx context.Context, inst ResolvedInstallation, originType string, creatorUserID, sessionID pgtype.UUID, cmd IssueCommand, issuePrefix string, assignedRunFireAt time.Time) (service.IssueCreateResult, error) {
+// createIssueParams bundles createIssue's fields so the function signature
+// stays under the parameter-count lint.
+type createIssueParams struct {
+	Inst              ResolvedInstallation
+	OriginType        string
+	CreatorUserID     pgtype.UUID
+	SessionID         pgtype.UUID
+	Cmd               IssueCommand
+	IssuePrefix       string
+	AssignedRunFireAt time.Time
+}
+
+func (r *Router) createIssue(ctx context.Context, p createIssueParams) (service.IssueCreateResult, error) {
+	inst, originType, creatorUserID, sessionID, cmd, issuePrefix, assignedRunFireAt := p.Inst, p.OriginType, p.CreatorUserID, p.SessionID, p.Cmd, p.IssuePrefix, p.AssignedRunFireAt
 	if cmd.Title == "" {
 		return service.IssueCreateResult{}, ErrEmptyIssueTitle
 	}

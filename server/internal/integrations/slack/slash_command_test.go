@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/slack-go/slack"
 
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -52,13 +53,13 @@ type fakeQuickCreate struct {
 	prompt      string
 }
 
-func (f *fakeQuickCreate) EnqueueQuickCreateTask(_ context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, _, _ string, _, _ pgtype.UUID, _ []pgtype.UUID) (db.AgentTaskQueue, error) {
+func (f *fakeQuickCreate) EnqueueQuickCreateTask(_ context.Context, p service.EnqueueQuickCreateTaskParams) (db.AgentTaskQueue, error) {
 	f.calls++
-	f.workspaceID = workspaceID
-	f.requesterID = requesterID
-	f.agentID = agentID
-	f.squadID = squadID
-	f.prompt = prompt
+	f.workspaceID = p.WorkspaceID
+	f.requesterID = p.RequesterID
+	f.agentID = p.AgentID
+	f.squadID = p.SquadID
+	f.prompt = p.Prompt
 	return f.task, f.err
 }
 

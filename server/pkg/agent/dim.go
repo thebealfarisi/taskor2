@@ -568,8 +568,15 @@ func (b *dimBackend) Execute(ctx context.Context, prompt string, opts ExecOption
 		// advertises a `thought_level` configOption in session/new (auto/high/
 		// max), so it joins the acpCatalogThinkingProviders list. The effort
 		// option may depend on the current model, so apply it after set_model.
-		applyACPEffortOption(runCtx, c.request, "dim", b.cfg.Logger,
-			sessionID, sessionResult, opts.ThinkingLevel, opts.Model == "")
+		applyACPEffortOption(runCtx, applyACPEffortOptionParams{
+		Request:        c.request,
+		Backend:        "dim",
+		Logger:         b.cfg.Logger,
+		SessionID:      sessionID,
+		SessionResult:  sessionResult,
+		Level:          opts.ThinkingLevel,
+		StateIsCurrent: opts.Model == "",
+	})
 
 		userText := prompt
 		if opts.SystemPrompt != "" {

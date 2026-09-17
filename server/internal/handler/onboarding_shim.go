@@ -319,11 +319,14 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 		h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
 		platform, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
-			userID, req.WorkspaceID, uuidToString(issue.ID),
-			uuidToString(assistant.ID), "", "", analytics.SourceOnboarding,
-			platform,
-		))
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
+			ActorID:     userID,
+			WorkspaceID: req.WorkspaceID,
+			IssueID:     uuidToString(issue.ID),
+			AgentID:     uuidToString(assistant.ID),
+			Source:      analytics.SourceOnboarding,
+			Platform:    platform,
+		}))
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
 			h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
 		}
@@ -461,11 +464,13 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
 		platform2, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
-			userID, req.WorkspaceID, uuidToString(issue.ID),
-			"", "", "", analytics.SourceOnboarding,
-			platform2,
-		))
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
+			ActorID:     userID,
+			WorkspaceID: req.WorkspaceID,
+			IssueID:     uuidToString(issue.ID),
+			Source:      analytics.SourceOnboarding,
+			Platform:    platform2,
+		}))
 	}
 	if firstCompletion {
 		onboardedAt := ""

@@ -394,8 +394,15 @@ func (m *Manager) runClaimed(
 			nextRetry = dbTime.Add(delay)
 		}
 		errCode := classifyError(handlerErr)
-		if err := finishFailure(context.Background(), m.pool, c.ID, c.LeaseToken,
-			dbTime, dur, errCode, handlerErr.Error(), nextRetry); err != nil {
+		if err := finishFailure(context.Background(), m.pool, finishFailureParams{
+			ID:          c.ID,
+			LeaseToken:  c.LeaseToken,
+			DBTime:      dbTime,
+			DurationMs:  dur,
+			ErrorCode:   errCode,
+			ErrorMsg:    handlerErr.Error(),
+			NextRetryAt: nextRetry,
+		}); err != nil {
 			if errors.Is(err, ErrLeaseLost) {
 				log.Warn("scheduler: terminal FAILED ignored, lease was stolen",
 					"duration_ms", dur, "error", handlerErr.Error())

@@ -32,7 +32,18 @@ func TestLogClaimEndpointSlowIncludesPayloadFields(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	logClaimEndpointSlow("runtime-1", "claimed", time.Now().Add(-600*time.Millisecond), 10, 20, 30, 4096, 2, 8, 3072)
+	logClaimEndpointSlow(logClaimEndpointSlowParams{
+		RuntimeID:         "runtime-1",
+		Outcome:           "claimed",
+		Start:             time.Now().Add(-600 * time.Millisecond),
+		AuthMs:            10,
+		ClaimMs:           20,
+		BuildMs:           30,
+		PayloadBytes:      4096,
+		AgentSkillCount:   2,
+		BuiltinSkillCount: 8,
+		SkillPayloadBytes: 3072,
+	})
 
 	got := logs.String()
 	for _, want := range []string{

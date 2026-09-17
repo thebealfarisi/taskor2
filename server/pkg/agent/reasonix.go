@@ -389,8 +389,15 @@ func (b *reasonixBackend) Execute(ctx context.Context, prompt string, opts ExecO
 		// above, because reasonix derives the effort catalog from the current
 		// model and returns nothing from set_model. Say so, so the helper
 		// trusts the runtime's answer over a stale advertised list.
-		applyACPEffortOption(runCtx, c.request, "reasonix", b.cfg.Logger,
-			sessionID, sessionResult, opts.ThinkingLevel, opts.Model == "")
+		applyACPEffortOption(runCtx, applyACPEffortOptionParams{
+		Request:        c.request,
+		Backend:        "reasonix",
+		Logger:         b.cfg.Logger,
+		SessionID:      sessionID,
+		SessionResult:  sessionResult,
+		Level:          opts.ThinkingLevel,
+		StateIsCurrent: opts.Model == "",
+	})
 
 		// 4. Send the prompt and wait for PromptResponse. Reasonix loads
 		// AGENTS.md from cwd, so the daemon deliberately does not duplicate the

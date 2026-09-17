@@ -34,7 +34,16 @@ func TestHermesOverlayWarnsWhenSourceHomeCarriesNoConfig(t *testing.T) {
 		var logs bytes.Buffer
 
 		hermesHome := filepath.Join(t.TempDir(), "hermes-home")
-		if _, err := prepareHermesHome(hermesHome, missing, false, nil, nil, "", "", captureLogger(&logs)); err != nil {
+		if _, err := prepareHermesHome(prepareHermesHomeParams{
+		HermesHome:      hermesHome,
+		SourceHome:      missing,
+		SourceMustExist: false,
+		WorkspaceSkills: nil,
+		Env:             nil,
+		MemoryStore:     "",
+		SessionStore:    "",
+		Logger:          captureLogger(&logs),
+	}); err != nil {
 			t.Fatalf("prepareHermesHome must not fail closed on a missing default home: %v", err)
 		}
 
@@ -66,7 +75,16 @@ func TestHermesOverlayWarnsWhenSourceHomeCarriesNoConfig(t *testing.T) {
 		var logs bytes.Buffer
 
 		hermesHome := filepath.Join(t.TempDir(), "hermes-home")
-		if _, err := prepareHermesHome(hermesHome, sharedHome, false, nil, nil, "", "", captureLogger(&logs)); err != nil {
+		if _, err := prepareHermesHome(prepareHermesHomeParams{
+		HermesHome:      hermesHome,
+		SourceHome:      sharedHome,
+		SourceMustExist: false,
+		WorkspaceSkills: nil,
+		Env:             nil,
+		MemoryStore:     "",
+		SessionStore:    "",
+		Logger:          captureLogger(&logs),
+	}); err != nil {
 			t.Fatalf("prepareHermesHome: %v", err)
 		}
 
@@ -98,7 +116,16 @@ func TestHermesOverlayKeepsProviderAndStaysQuiet(t *testing.T) {
 	var logs bytes.Buffer
 
 	hermesHome := filepath.Join(t.TempDir(), "hermes-home")
-	if _, err := prepareHermesHome(hermesHome, sharedHome, false, nil, nil, "", "", captureLogger(&logs)); err != nil {
+	if _, err := prepareHermesHome(prepareHermesHomeParams{
+		HermesHome:      hermesHome,
+		SourceHome:      sharedHome,
+		SourceMustExist: false,
+		WorkspaceSkills: nil,
+		Env:             nil,
+		MemoryStore:     "",
+		SessionStore:    "",
+		Logger:          captureLogger(&logs),
+	}); err != nil {
 		t.Fatalf("prepareHermesHome: %v", err)
 	}
 

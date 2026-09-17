@@ -19,16 +19,16 @@ import (
 func TestFinalizeStreamResultEmptySuccessWithoutAssistantReturnsEmptyOutput(t *testing.T) {
 	t.Parallel()
 
-	status, output, errMsg := finalizeStreamResult(
-		"claude",
-		time.Second,
-		nil,
-		nil,
-		nil,
-		"session-1",
-		streamTerminalState{sawResult: true},
-		"",
-	)
+	status, output, errMsg := finalizeStreamResult(finalizeStreamResultParams{
+		Provider:             "claude",
+		Timeout:              time.Second,
+		RunErr:               nil,
+		WriteErr:             nil,
+		ExitErr:              nil,
+		SessionID:            "session-1",
+		State:                streamTerminalState{sawResult: true},
+		CompletionGuardError: "",
+	})
 	if status != "completed" || output != "" || errMsg != "" {
 		t.Fatalf("finalizeStreamResult() = (%q, %q, %q), want completed with empty output", status, output, errMsg)
 	}
@@ -82,20 +82,20 @@ func TestFinalizeStreamResultPreservesErrorResultWhenContextEnds(t *testing.T) {
 	t.Parallel()
 
 	for _, runErr := range []error{context.DeadlineExceeded, context.Canceled} {
-		status, output, errMsg := finalizeStreamResult(
-			"claude",
-			time.Second,
-			runErr,
-			nil,
-			nil,
-			"session-1",
-			streamTerminalState{
+		status, output, errMsg := finalizeStreamResult(finalizeStreamResultParams{
+		Provider:             "claude",
+		Timeout:              time.Second,
+		RunErr:               runErr,
+		WriteErr:             nil,
+		ExitErr:              nil,
+		SessionID:            "session-1",
+		State:                streamTerminalState{
 				finalResultText: "provider rejected the request",
 				sawResult:       true,
 				resultIsError:   true,
 			},
-			"",
-		)
+		CompletionGuardError: "",
+	})
 		if status != "failed" || output != "" || errMsg != "provider rejected the request" {
 			t.Errorf("runErr=%v: finalizeStreamResult() = (%q, %q, %q), want failed provider error", runErr, status, output, errMsg)
 		}

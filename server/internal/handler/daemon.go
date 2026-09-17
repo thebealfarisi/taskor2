@@ -1055,7 +1055,26 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 		probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut                                       bool
 	)
 	defer func() {
-		logHeartbeatEndpointSlow(runtimeID, outcome, authPath, start, decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs, probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut)
+		logHeartbeatEndpointSlow(logHeartbeatEndpointSlowParams{
+			RuntimeID:           runtimeID,
+			Outcome:             outcome,
+			AuthPath:            authPath,
+			Start:               start,
+			DecodeMs:            decodeMs,
+			RuntimeLookupMs:     runtimeLookupMs,
+			WorkspaceCheckMs:    workspaceCheckMs,
+			AuthMs:              authMs,
+			UpdateMs:            updateMs,
+			ProbeModelMs:        probeModelMs,
+			PopModelMs:          popModelMs,
+			ProbeSkillsMs:       probeSkillsMs,
+			PopSkillsMs:         popSkillsMs,
+			ProbeImportMs:       probeImportMs,
+			PopImportMs:         popImportMs,
+			ProbeModelTimedOut:  probeModelTimedOut,
+			ProbeSkillsTimedOut: probeSkillsTimedOut,
+			ProbeImportTimedOut: probeImportTimedOut,
+		})
 	}()
 
 	decodeStart := time.Now()
@@ -1408,52 +1427,90 @@ func (h *Handler) processHeartbeat(ctx context.Context, rt db.AgentRuntime, supp
 // auth_ms is further decomposed into decode_ms, runtime_lookup_ms, and
 // workspace_check_ms; auth_path labels which token kind authenticated the
 // request ("daemon_token", "pat", or "jwt"). Mirrors logClaimEndpointSlow.
-func logHeartbeatEndpointSlow(runtimeID, outcome, authPath string, start time.Time, decodeMs, runtimeLookupMs, workspaceCheckMs, authMs, updateMs, probeModelMs, popModelMs, probeSkillsMs, popSkillsMs, probeImportMs, popImportMs int64, probeModelTimedOut, probeSkillsTimedOut, probeImportTimedOut bool) {
-	totalMs := time.Since(start).Milliseconds()
-	if totalMs < 500 && !probeModelTimedOut && !probeSkillsTimedOut && !probeImportTimedOut {
+// logHeartbeatEndpointSlowParams bundles logHeartbeatEndpointSlow's fields so
+// the function signature stays under the parameter-count lint.
+type logHeartbeatEndpointSlowParams struct {
+	RuntimeID           string
+	Outcome             string
+	AuthPath            string
+	Start               time.Time
+	DecodeMs            int64
+	RuntimeLookupMs     int64
+	WorkspaceCheckMs    int64
+	AuthMs              int64
+	UpdateMs            int64
+	ProbeModelMs        int64
+	PopModelMs          int64
+	ProbeSkillsMs       int64
+	PopSkillsMs         int64
+	ProbeImportMs       int64
+	PopImportMs         int64
+	ProbeModelTimedOut  bool
+	ProbeSkillsTimedOut bool
+	ProbeImportTimedOut bool
+}
+
+func logHeartbeatEndpointSlow(p logHeartbeatEndpointSlowParams) {
+	totalMs := time.Since(p.Start).Milliseconds()
+	if totalMs < 500 && !p.ProbeModelTimedOut && !p.ProbeSkillsTimedOut && !p.ProbeImportTimedOut {
 		return
 	}
 	slog.Info("heartbeat_endpoint slow",
-		"runtime_id", runtimeID,
-		"outcome", outcome,
-		"auth_path", authPath,
+		"runtime_id", p.RuntimeID,
+		"outcome", p.Outcome,
+		"auth_path", p.AuthPath,
 		"total_ms", totalMs,
-		"auth_ms", authMs,
-		"decode_ms", decodeMs,
-		"runtime_lookup_ms", runtimeLookupMs,
-		"workspace_check_ms", workspaceCheckMs,
-		"update_ms", updateMs,
-		"probe_model_ms", probeModelMs,
-		"pop_model_ms", popModelMs,
-		"probe_skills_ms", probeSkillsMs,
-		"pop_skills_ms", popSkillsMs,
-		"probe_import_ms", probeImportMs,
-		"pop_import_ms", popImportMs,
-		"probe_model_timed_out", probeModelTimedOut,
-		"probe_skills_timed_out", probeSkillsTimedOut,
-		"probe_import_timed_out", probeImportTimedOut,
+		"auth_ms", p.AuthMs,
+		"decode_ms", p.DecodeMs,
+		"runtime_lookup_ms", p.RuntimeLookupMs,
+		"workspace_check_ms", p.WorkspaceCheckMs,
+		"update_ms", p.UpdateMs,
+		"probe_model_ms", p.ProbeModelMs,
+		"pop_model_ms", p.PopModelMs,
+		"probe_skills_ms", p.ProbeSkillsMs,
+		"pop_skills_ms", p.PopSkillsMs,
+		"probe_import_ms", p.ProbeImportMs,
+		"pop_import_ms", p.PopImportMs,
+		"probe_model_timed_out", p.ProbeModelTimedOut,
+		"probe_skills_timed_out", p.ProbeSkillsTimedOut,
+		"probe_import_timed_out", p.ProbeImportTimedOut,
 	)
+}
+
+// logClaimEndpointSlowParams bundles logClaimEndpointSlow's fields so the
+// function signature stays under the parameter-count lint.
+type logClaimEndpointSlowParams struct {
+	RuntimeID         string
+	Outcome           string
+	Start             time.Time
+	AuthMs            int64
+	ClaimMs           int64
+	BuildMs           int64
+	PayloadBytes      int
+	AgentSkillCount   int
+	BuiltinSkillCount int
+	SkillPayloadBytes int
 }
 
 // logClaimEndpointSlow emits one structured log when the /tasks/claim endpoint
 // exceeds 500ms, splitting auth / claim / response-build phases so the prod
 // tail can be diagnosed without flooding logs at normal poll rates.
-func logClaimEndpointSlow(runtimeID, outcome string, start time.Time, authMs, claimMs, buildMs int64, payloadBytes, agentSkillCount, builtinSkillCount, skillPayloadBytes int) {
-	totalMs := time.Since(start).Milliseconds()
+func logClaimEndpointSlow(p logClaimEndpointSlowParams) {
+	totalMs := time.Since(p.Start).Milliseconds()
 	if totalMs < 500 {
 		return
 	}
 	slog.Info("claim_endpoint slow",
-		"runtime_id", runtimeID,
-		"outcome", outcome,
+		"runtime_id", p.RuntimeID,
+		"outcome", p.Outcome,
 		"total_ms", totalMs,
-		"auth_ms", authMs,
-		"claim_ms", claimMs,
-		"build_ms", buildMs,
-		"payload_bytes", payloadBytes,
-		"agent_skill_count", agentSkillCount,
-		"builtin_skill_count", builtinSkillCount,
-		"skill_payload_bytes", skillPayloadBytes,
+		"auth_ms", p.AuthMs,
+		"claim_ms", p.ClaimMs,
+		"build_ms", p.BuildMs,
+		"payload_bytes", p.PayloadBytes,
+		"agent_skill_count", p.AgentSkillCount,
+		"builtin_skill_count", p.BuiltinSkillCount,
+		"skill_payload_bytes", p.SkillPayloadBytes,
 	)
 }
 
@@ -1825,18 +1882,17 @@ func (h *Handler) failClaimedTaskBeforeLaunch(
 	status int,
 	claimMessage string,
 ) *claimBuildFailure {
-	if _, err := h.TaskService.FailTask(
-		ctx,
-		task.ID,
-		userMessage,
-		"",
-		"",
-		"",
-		failureReason.String(),
-		false,
-		"",
-		"",
-	); err != nil {
+	if _, err := h.TaskService.FailTask(ctx, service.FailTaskParams{
+		TaskID:                task.ID,
+		ErrMsg:                userMessage,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         failureReason.String(),
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		slog.Error("task claim: fail rejected task failed; requeueing claim",
 			"task_id", uuidToString(task.ID),
 			"outcome", outcome,
@@ -3127,7 +3183,18 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		if !buildStart.IsZero() {
 			buildMs = time.Since(buildStart).Milliseconds()
 		}
-		logClaimEndpointSlow(runtimeID, outcome, start, authMs, claimMs, buildMs, payloadBytes, agentSkillCount, builtinSkillCount, skillPayloadBytes)
+		logClaimEndpointSlow(logClaimEndpointSlowParams{
+			RuntimeID:         runtimeID,
+			Outcome:           outcome,
+			Start:             start,
+			AuthMs:            authMs,
+			ClaimMs:           claimMs,
+			BuildMs:           buildMs,
+			PayloadBytes:      payloadBytes,
+			AgentSkillCount:   agentSkillCount,
+			BuiltinSkillCount: builtinSkillCount,
+			SkillPayloadBytes: skillPayloadBytes,
+		})
 	}()
 
 	// Verify the caller owns this runtime's workspace. The runtime's
@@ -3642,7 +3709,16 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// transaction (force session_id NULL + flag the row), so an auto-retry the
 	// same commit creates and wakes can never observe the withheld pointer or a
 	// missing continuity-gap flag.
-	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir, req.BranchName, req.SessionRolloutMissing, req.RetiredSessionID, req.DurableWorkDir)
+	task, err := h.TaskService.CompleteTask(r.Context(), service.CompleteTaskParams{
+		TaskID:                parseUUID(taskID),
+		Result:                result,
+		SessionID:             req.SessionID,
+		WorkDir:               req.WorkDir,
+		BranchName:            req.BranchName,
+		SessionRolloutMissing: req.SessionRolloutMissing,
+		RetiredSessionID:      req.RetiredSessionID,
+		DurableWorkDir:        req.DurableWorkDir,
+	})
 	if err != nil {
 		// A CompleteTask error is an infrastructure failure (transaction /
 		// assistant-outcome write), not a bad request: an already-finalized
@@ -3711,17 +3787,17 @@ func (h *Handler) emitIssueExecutedOnFirstCompletion(r *http.Request, task *db.A
 	if marked.CreatorType == "agent" {
 		distinct = "agent:" + distinct
 	}
-	obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueExecuted(
-		distinct,
-		uuidToString(marked.WorkspaceID),
-		uuidToString(marked.ID),
-		uuidToString(task.ID),
-		uuidToString(task.AgentID),
-		taskContext.Source,
-		taskContext.RuntimeMode,
-		taskContext.Provider,
-		durationMS,
-	))
+	obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueExecuted(analytics.IssueExecutedParams{
+		ActorID:        distinct,
+		WorkspaceID:    uuidToString(marked.WorkspaceID),
+		IssueID:        uuidToString(marked.ID),
+		TaskID:         uuidToString(task.ID),
+		AgentID:        uuidToString(task.AgentID),
+		Source:         taskContext.Source,
+		RuntimeMode:    taskContext.RuntimeMode,
+		Provider:       taskContext.Provider,
+		TaskDurationMS: durationMS,
+	}))
 }
 
 // reconcileCommentsOnCompletion closes the at-least-once gap for member
@@ -4338,7 +4414,17 @@ func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, works
 	// keep a stale mid-flight pin) and flagging the row in the same commit that
 	// creates and wakes the auto-retry, so the retry can never claim the withheld
 	// pointer or miss the continuity gap.
-	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.BranchName, req.FailureReason, req.SessionRolloutMissing, req.RetiredSessionID, req.DurableWorkDir)
+	task, err := h.TaskService.FailTask(r.Context(), service.FailTaskParams{
+		TaskID:                parseUUID(taskID),
+		ErrMsg:                req.Error,
+		SessionID:             req.SessionID,
+		WorkDir:               req.WorkDir,
+		BranchName:            req.BranchName,
+		FailureReason:         req.FailureReason,
+		SessionRolloutMissing: req.SessionRolloutMissing,
+		RetiredSessionID:      req.RetiredSessionID,
+		DurableWorkDir:        req.DurableWorkDir,
+	})
 	if err != nil {
 		// A FailTask error is an infrastructure failure (the terminal
 		// transaction that also clears the withheld session, writes the

@@ -643,15 +643,32 @@ func TestTerminalReports_TakeChatSessionLockBeforeTask(t *testing.T) {
 		"complete": func(taskID string) error {
 			callCtx, cancel := raceCtx()
 			defer cancel()
-			_, err := testHandler.TaskService.CompleteTask(callCtx, parseUUID(taskID),
-				[]byte(`"done"`), "turn2-session", "/tmp/turn2-workdir", "", false, "", "")
+			_, err := testHandler.TaskService.CompleteTask(callCtx, service.CompleteTaskParams{
+		TaskID:                parseUUID(taskID),
+		Result:                []byte(`"done"`),
+		SessionID:             "turn2-session",
+		WorkDir:               "/tmp/turn2-workdir",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 			return err
 		},
 		"fail": func(taskID string) error {
 			callCtx, cancel := raceCtx()
 			defer cancel()
-			_, err := testHandler.TaskService.FailTask(callCtx, parseUUID(taskID),
-				"boom", "turn2-session", "/tmp/turn2-workdir", "", "agent_error", false, "", "")
+			_, err := testHandler.TaskService.FailTask(callCtx, service.FailTaskParams{
+		TaskID:                parseUUID(taskID),
+		ErrMsg:                "boom",
+		SessionID:             "turn2-session",
+		WorkDir:               "/tmp/turn2-workdir",
+		BranchName:            "",
+		FailureReason:         "agent_error",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 			return err
 		},
 	}
@@ -736,8 +753,16 @@ func TestCancelAndPin_ConcurrentWithTerminalReport(t *testing.T) {
 			other: func(taskID string) error {
 				callCtx, cancel := raceCtx()
 				defer cancel()
-				_, err := testHandler.TaskService.CompleteTask(callCtx, parseUUID(taskID),
-					[]byte(`"done"`), "turn2-session", "/tmp/turn2-workdir", "", false, "", "")
+				_, err := testHandler.TaskService.CompleteTask(callCtx, service.CompleteTaskParams{
+		TaskID:                parseUUID(taskID),
+		Result:                []byte(`"done"`),
+		SessionID:             "turn2-session",
+		WorkDir:               "/tmp/turn2-workdir",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 				return err
 			},
 		},
@@ -766,8 +791,17 @@ func TestCancelAndPin_ConcurrentWithTerminalReport(t *testing.T) {
 			other: func(taskID string) error {
 				callCtx, cancel := raceCtx()
 				defer cancel()
-				_, err := testHandler.TaskService.FailTask(callCtx, parseUUID(taskID),
-					"boom", "turn3-session", "/tmp/turn3-workdir", "", "agent_error", false, "", "")
+				_, err := testHandler.TaskService.FailTask(callCtx, service.FailTaskParams{
+		TaskID:                parseUUID(taskID),
+		ErrMsg:                "boom",
+		SessionID:             "turn3-session",
+		WorkDir:               "/tmp/turn3-workdir",
+		BranchName:            "",
+		FailureReason:         "agent_error",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 				return err
 			},
 		},

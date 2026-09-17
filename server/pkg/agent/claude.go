@@ -294,14 +294,14 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		if sawAsyncLaunch {
 			completionGuardError = "claude launched an async background task; Multica-managed runs require foreground execution"
 		}
-		finalStatus, finalOutput, finalError := finalizeStreamResult(
-			"claude",
-			timeout,
-			runCtx.Err(),
-			writeErr,
-			exitErr,
-			sessionID,
-			streamTerminalState{
+		finalStatus, finalOutput, finalError := finalizeStreamResult(finalizeStreamResultParams{
+		Provider:             "claude",
+		Timeout:              timeout,
+		RunErr:               runCtx.Err(),
+		WriteErr:             writeErr,
+		ExitErr:              exitErr,
+		SessionID:            sessionID,
+		State:                streamTerminalState{
 				lastAssistantText:   lastAssistantText,
 				finalResultText:     finalResultText,
 				sawResult:           sawResult,
@@ -309,8 +309,8 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				scanErr:             scanErr,
 				terminalReasonError: terminalReasonError,
 			},
-			completionGuardError,
-		)
+		CompletionGuardError: completionGuardError,
+	})
 
 		// cmd.Wait() has returned — os/exec's stderr copy goroutine has
 		// observed every byte claude wrote to stderr before exiting, so

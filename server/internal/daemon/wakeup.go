@@ -269,6 +269,7 @@ func (d *Daemon) runWSWriter(conn *websocket.Conn, writes <-chan *wsOutbound, do
 			// Drain remaining frames so the producers don't block forever
 			// while waiting for runTaskWakeupConnection to close the channel.
 			for range writes {
+				continue
 			}
 			return
 		}

@@ -1924,7 +1924,16 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// The comment is already saved; a blocked mention must not fail the whole
 	// request. Surface the per-target outcomes so the client can show partial
 	// success instead of a silent no-op (MUL-4525 §2).
-	resp.TriggerOutcomes = h.triggerTasksForComment(r.Context(), issue, comment, parentComment, authorType, authorID, originatorUserID, delegationAuthority, suppressAgentIDs)
+	resp.TriggerOutcomes = h.triggerTasksForComment(r.Context(), triggerTasksForCommentParams{
+		Issue:                     issue,
+		Comment:                   comment,
+		ParentComment:             parentComment,
+		ActorType:                 authorType,
+		ActorID:                   authorID,
+		OriginatorUserID:          originatorUserID,
+		DelegationAuthorityUserID: delegationAuthority,
+		SuppressAgentIDs:          suppressAgentIDs,
+	})
 
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -1960,12 +1969,26 @@ func isNoteComment(content string) bool {
 	return strings.EqualFold(firstToken, noteCommentPrefix)
 }
 
+// triggerTasksForCommentParams bundles triggerTasksForComment's fields so the
+// function signature stays under the parameter-count lint.
+type triggerTasksForCommentParams struct {
+	Issue                     db.Issue
+	Comment                   db.Comment
+	ParentComment             *db.Comment
+	ActorType                 string
+	ActorID                   string
+	OriginatorUserID          string
+	DelegationAuthorityUserID string
+	SuppressAgentIDs          []pgtype.UUID
+}
+
 // triggerTasksForComment resolves and enqueues the comment's agent triggers and
 // returns the per-target outcomes for explicit @agent / @squad mentions
 // (MUL-4525 §2): blocked mentions from resolution plus queued / coalesced /
 // deferred / blocked from enqueue. UI-suppressed triggers (the user unchecked
 // them) are removed before enqueue and produce no outcome.
-func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, actorType, actorID, originatorUserID, delegationAuthorityUserID string, suppressAgentIDs []pgtype.UUID) []CommentTriggerOutcome {
+func (h *Handler) triggerTasksForComment(ctx context.Context, p triggerTasksForCommentParams) []CommentTriggerOutcome {
+	issue, comment, parentComment, actorType, actorID, originatorUserID, delegationAuthorityUserID, suppressAgentIDs := p.Issue, p.Comment, p.ParentComment, p.ActorType, p.ActorID, p.OriginatorUserID, p.DelegationAuthorityUserID, p.SuppressAgentIDs
 	if isNoteComment(comment.Content) {
 		return nil
 	}
@@ -3436,7 +3459,16 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		// or non-author edit left it NULL, so this fails closed rather than borrowing
 		// the old authoring run's authority.
 		delegationAuthority := h.autopilotDelegationAuthorityFromComment(r.Context(), issue, comment)
-		return h.triggerTasksForComment(r.Context(), issue, comment, parentComment, actorType, actorID, h.invokeOriginatorFromRequest(r, actorType, actorID), delegationAuthority, suppressAgentIDs)
+		return h.triggerTasksForComment(r.Context(), triggerTasksForCommentParams{
+			Issue:                     issue,
+			Comment:                   comment,
+			ParentComment:             parentComment,
+			ActorType:                 actorType,
+			ActorID:                   actorID,
+			OriginatorUserID:          h.invokeOriginatorFromRequest(r, actorType, actorID),
+			DelegationAuthorityUserID: delegationAuthority,
+			SuppressAgentIDs:          suppressAgentIDs,
+		})
 	}
 
 	// Fetch reactions and attachments for the updated comment.

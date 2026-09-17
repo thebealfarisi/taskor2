@@ -12,6 +12,7 @@ import (
 	"github.com/slack-go/slack"
 
 	"github.com/multica-ai/multica/server/internal/integrations/channel/engine"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -66,7 +67,7 @@ type slashQueries interface {
 // command needs to hand the invoker's prompt to the agent. *service.TaskService
 // satisfies it; tests supply a fake.
 type quickCreateEnqueuer interface {
-	EnqueueQuickCreateTask(ctx context.Context, workspaceID, requesterID, agentID, squadID pgtype.UUID, prompt, priority, dueDate string, projectID, parentIssueID pgtype.UUID, attachmentIDs []pgtype.UUID) (db.AgentTaskQueue, error)
+	EnqueueQuickCreateTask(ctx context.Context, p service.EnqueueQuickCreateTaskParams) (db.AgentTaskQueue, error)
 }
 
 // SlashCommandProcessor handles the Slack `/issue` slash command end to end.
@@ -184,19 +185,14 @@ func (p *SlashCommandProcessor) process(ctx context.Context, cmd slack.SlashComm
 	// background and attributes it to the bound member. No project / parent /
 	// attachments and no squad routing — the slash command targets the
 	// installation's own agent directly.
-	if _, err := p.tasks.EnqueueQuickCreateTask(
-		ctx,
-		inst.WorkspaceID,
-		userID,
-		inst.AgentID,
-		pgtype.UUID{}, // no squad — dispatch straight to the installation agent
-		prompt,
-		"",            // no explicit priority
-		"",            // no explicit due date
-		pgtype.UUID{}, // no project
-		pgtype.UUID{}, // no parent issue
-		nil,           // no attachments
-	); err != nil {
+	if _, err := p.tasks.EnqueueQuickCreateTask(ctx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID: inst.WorkspaceID,
+		RequesterID: userID,
+		AgentID:     inst.AgentID,
+		SquadID:     pgtype.UUID{}, // no squad — dispatch straight to the installation agent
+		Prompt:      prompt,
+		// no explicit priority, due date, project, parent issue, or attachments
+	}); err != nil {
 		p.logger.WarnContext(ctx, "slack slash command: enqueue quick-create failed",
 			"app_id", cmd.APIAppID, "error", err)
 		return slashInternalErrorText

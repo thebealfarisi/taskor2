@@ -741,7 +741,17 @@ func (s *TaskService) CaptureTaskUsage(ctx context.Context, task db.AgentTaskQue
 		return
 	}
 	source, runtimeMode, _ := s.taskMetricsContext(ctx, task)
-	s.Metrics.RecordLLMUsage(source, runtimeMode, provider, model, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUSDTicks)
+	s.Metrics.RecordLLMUsage(obsmetrics.RecordLLMUsageParams{
+		Source:           source,
+		RuntimeMode:      runtimeMode,
+		RawProvider:      provider,
+		ModelAlias:       model,
+		InputTokens:      inputTokens,
+		OutputTokens:     outputTokens,
+		CacheReadTokens:  cacheReadTokens,
+		CacheWriteTokens: cacheWriteTokens,
+		CostUSDTicks:     costUSDTicks,
+	})
 }
 
 func (s *TaskService) CaptureQueuedExpiredTasks(ctx context.Context, tasks []db.AgentTaskQueue) {
@@ -978,7 +988,10 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 	if len(triggerCommentID) > 0 {
 		commentID = triggerCommentID[0]
 	}
-	return s.enqueueIssueTask(ctx, issue, commentID, false, "", pgtype.UUID{}, pgtype.UUID{}, pgtype.Timestamptz{})
+	return s.enqueueIssueTask(ctx, enqueueIssueTaskParams{
+		Issue:            issue,
+		TriggerCommentID: commentID,
+	})
 }
 
 // EnqueueDeferredChannelIssueTask persists the assigned task for a media-backed
@@ -986,7 +999,10 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 // crash-safe fallback; the channel router promotes the task as soon as the
 // detached attachment transaction settles.
 func (s *TaskService) EnqueueDeferredChannelIssueTask(ctx context.Context, issue db.Issue, fireAt time.Time) (db.AgentTaskQueue, error) {
-	return s.enqueueIssueTask(ctx, issue, pgtype.UUID{}, false, "", pgtype.UUID{}, pgtype.UUID{}, pgtype.Timestamptz{Time: fireAt, Valid: true})
+	return s.enqueueIssueTask(ctx, enqueueIssueTaskParams{
+		Issue:  issue,
+		FireAt: pgtype.Timestamptz{Time: fireAt, Valid: true},
+	})
 }
 
 // createDeferredChannelIssueTaskWithQueries inserts the inert media-gated task
@@ -997,7 +1013,10 @@ func (s *TaskService) EnqueueDeferredChannelIssueTask(ctx context.Context, issue
 // commit without holding database locks across a network call.
 func (s *TaskService) createDeferredChannelIssueTaskWithQueries(ctx context.Context, q *db.Queries, issue db.Issue, fireAt time.Time) (db.AgentTaskQueue, error) {
 	txService := &TaskService{Queries: q}
-	return txService.enqueueIssueTask(ctx, issue, pgtype.UUID{}, false, "", pgtype.UUID{}, pgtype.UUID{}, pgtype.Timestamptz{Time: fireAt, Valid: true})
+	return txService.enqueueIssueTask(ctx, enqueueIssueTaskParams{
+		Issue:  issue,
+		FireAt: pgtype.Timestamptz{Time: fireAt, Valid: true},
+	})
 }
 
 // hydrateDeferredChannelIssueTaskOverlay fills the optional Composio overlay
@@ -1039,7 +1058,11 @@ func (s *TaskService) hydrateDeferredChannelIssueTaskOverlay(ctx context.Context
 // member who performed the assign/promote and becomes the accountable human for
 // the run (MUL-4302 §4); invalid when the caller has no member actor.
 func (s *TaskService) EnqueueTaskForIssueWithHandoff(ctx context.Context, issue db.Issue, handoffNote string, actorUserID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueIssueTask(ctx, issue, pgtype.UUID{}, false, handoffNote, actorUserID, pgtype.UUID{}, pgtype.Timestamptz{})
+	return s.enqueueIssueTask(ctx, enqueueIssueTaskParams{
+		Issue:       issue,
+		HandoffNote: handoffNote,
+		ActorUserID: actorUserID,
+	})
 }
 
 // enqueueIssueTask is the shared implementation behind EnqueueTaskForIssue
@@ -1087,11 +1110,27 @@ func (s *TaskService) ResolveIssueReviewSHAParam(ctx context.Context, issueID pg
 	return headShaText(s.ResolveIssueReviewSHA(ctx, issueID))
 }
 
-func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz) (db.AgentTaskQueue, error) {
-	return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, nil, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID, fireAt)
+// enqueueIssueTaskParams bundles enqueueIssueTask's and
+// enqueueIssueTaskWithCommentPlan's fields so their function signatures stay
+// under the parameter-count lint.
+type enqueueIssueTaskParams struct {
+	Issue               db.Issue
+	TriggerCommentID    pgtype.UUID
+	CoalescedCommentIDs []pgtype.UUID
+	ForceFreshSession   bool
+	HandoffNote         string
+	ActorUserID         pgtype.UUID
+	RerunOfTaskID       pgtype.UUID
+	FireAt              pgtype.Timestamptz
 }
 
-func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID, fireAt pgtype.Timestamptz) (db.AgentTaskQueue, error) {
+func (s *TaskService) enqueueIssueTask(ctx context.Context, p enqueueIssueTaskParams) (db.AgentTaskQueue, error) {
+	p.CoalescedCommentIDs = nil
+	return s.enqueueIssueTaskWithCommentPlan(ctx, p)
+}
+
+func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, p enqueueIssueTaskParams) (db.AgentTaskQueue, error) {
+	issue, triggerCommentID, coalescedCommentIDs, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID, fireAt := p.Issue, p.TriggerCommentID, p.CoalescedCommentIDs, p.ForceFreshSession, p.HandoffNote, p.ActorUserID, p.RerunOfTaskID, p.FireAt
 	if !issue.AssigneeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
 		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
@@ -1212,13 +1251,21 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 // Unlike EnqueueTaskForIssue, this takes an explicit agent ID rather than
 // deriving it from the issue assignee.
 func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, pgtype.UUID{}, false, "", pgtype.UUID{}, pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, enqueueMentionTaskParams{
+		Issue:            issue,
+		AgentID:          agentID,
+		TriggerCommentID: triggerCommentID,
+	})
 }
 
 // EnqueueTaskForThreadParent creates a queued task for the agent who authored
 // the direct parent comment a member replied to.
 func (s *TaskService) EnqueueTaskForThreadParent(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, pgtype.UUID{}, false, "", pgtype.UUID{}, pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, enqueueMentionTaskParams{
+		Issue:            issue,
+		AgentID:          agentID,
+		TriggerCommentID: triggerCommentID,
+	})
 }
 
 // EnqueueTaskForSquadLeader is the leader-role variant of EnqueueTaskForMention.
@@ -1233,7 +1280,13 @@ func (s *TaskService) EnqueueTaskForThreadParent(ctx context.Context, issue db.I
 // leader task was triggered (comment @squad, issue assign, autopilot,
 // sub-issue done callback). See migration 127.
 func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.Issue, leaderID pgtype.UUID, squadID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, squadID, false, "", pgtype.UUID{}, pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, enqueueMentionTaskParams{
+		Issue:            issue,
+		AgentID:          leaderID,
+		TriggerCommentID: triggerCommentID,
+		IsLeader:         true,
+		SquadID:          squadID,
+	})
 }
 
 // EnqueueTaskForSquadLeaderWithHandoff is the assign/promote variant carrying a
@@ -1242,14 +1295,39 @@ func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.Is
 // performed the assign/promote and becomes the accountable human (MUL-4302 §4);
 // invalid when the caller has no member actor.
 func (s *TaskService) EnqueueTaskForSquadLeaderWithHandoff(ctx context.Context, issue db.Issue, leaderID pgtype.UUID, squadID pgtype.UUID, handoffNote string, actorUserID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, leaderID, pgtype.UUID{}, true, squadID, false, handoffNote, actorUserID, pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, enqueueMentionTaskParams{
+		Issue:       issue,
+		AgentID:     leaderID,
+		IsLeader:    true,
+		SquadID:     squadID,
+		HandoffNote: handoffNote,
+		ActorUserID: actorUserID,
+	})
 }
 
-func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, squadID pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTaskWithCommentPlan(ctx, issue, agentID, triggerCommentID, nil, isLeader, squadID, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID)
+// enqueueMentionTaskParams bundles enqueueMentionTask's and
+// enqueueMentionTaskWithCommentPlan's fields so their function signatures stay
+// under the parameter-count lint.
+type enqueueMentionTaskParams struct {
+	Issue               db.Issue
+	AgentID             pgtype.UUID
+	TriggerCommentID    pgtype.UUID
+	CoalescedCommentIDs []pgtype.UUID
+	IsLeader            bool
+	SquadID             pgtype.UUID
+	ForceFreshSession   bool
+	HandoffNote         string
+	ActorUserID         pgtype.UUID
+	RerunOfTaskID       pgtype.UUID
 }
 
-func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, isLeader bool, squadID pgtype.UUID, forceFreshSession bool, handoffNote string, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.AgentTaskQueue, error) {
+func (s *TaskService) enqueueMentionTask(ctx context.Context, p enqueueMentionTaskParams) (db.AgentTaskQueue, error) {
+	p.CoalescedCommentIDs = nil
+	return s.enqueueMentionTaskWithCommentPlan(ctx, p)
+}
+
+func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, p enqueueMentionTaskParams) (db.AgentTaskQueue, error) {
+	issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID := p.Issue, p.AgentID, p.TriggerCommentID, p.CoalescedCommentIDs, p.IsLeader, p.SquadID, p.ForceFreshSession, p.HandoffNote, p.ActorUserID, p.RerunOfTaskID
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("mention task enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -1451,7 +1529,23 @@ const QuickCreateContextType = "quick_create"
 // parentIssueID is optional (zero-valued pgtype.UUID when the user didn't
 // open the modal from "Add sub issue"). The handler is responsible for
 // validating it belongs to the same workspace before passing it in.
-func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, workspaceID, requesterID pgtype.UUID, agentID, squadID pgtype.UUID, prompt, priority, dueDate string, projectID, parentIssueID pgtype.UUID, attachmentIDs []pgtype.UUID) (db.AgentTaskQueue, error) {
+// EnqueueQuickCreateTaskParams bundles EnqueueQuickCreateTask's fields so the
+// function signature stays under the parameter-count lint.
+type EnqueueQuickCreateTaskParams struct {
+	WorkspaceID   pgtype.UUID
+	RequesterID   pgtype.UUID
+	AgentID       pgtype.UUID
+	SquadID       pgtype.UUID
+	Prompt        string
+	Priority      string
+	DueDate       string
+	ProjectID     pgtype.UUID
+	ParentIssueID pgtype.UUID
+	AttachmentIDs []pgtype.UUID
+}
+
+func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, p EnqueueQuickCreateTaskParams) (db.AgentTaskQueue, error) {
+	workspaceID, requesterID, agentID, squadID, prompt, priority, dueDate, projectID, parentIssueID, attachmentIDs := p.WorkspaceID, p.RequesterID, p.AgentID, p.SquadID, p.Prompt, p.Priority, p.DueDate, p.ProjectID, p.ParentIssueID, p.AttachmentIDs
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
@@ -1922,16 +2016,20 @@ var ErrChatSessionAlreadyStarted = errors.New("chat session already has a user m
 // The caller must have already gated the session and preflighted the agent
 // (archived / no-runtime), passing the loaded agent in. Those checks are repeated
 // under the transaction locks below because either row may change before enqueue.
-func (s *TaskService) SendDirectChatMessage(
-	ctx context.Context,
-	session db.ChatSession,
-	agent db.Agent,
-	initiatorUserID pgtype.UUID,
-	content string,
-	attachmentIDs []pgtype.UUID,
-	uploaderType string,
-	uploaderID pgtype.UUID,
-) (*DirectChatSendResult, error) {
+// SendDirectChatMessageParams bundles SendDirectChatMessage's fields so the
+// function signature stays under the parameter-count lint.
+type SendDirectChatMessageParams struct {
+	Session         db.ChatSession
+	Agent           db.Agent
+	InitiatorUserID pgtype.UUID
+	Content         string
+	AttachmentIDs   []pgtype.UUID
+	UploaderType    string
+	UploaderID      pgtype.UUID
+}
+
+func (s *TaskService) SendDirectChatMessage(ctx context.Context, p SendDirectChatMessageParams) (*DirectChatSendResult, error) {
+	session, agent, initiatorUserID, content, attachmentIDs, uploaderType, uploaderID := p.Session, p.Agent, p.InitiatorUserID, p.Content, p.AttachmentIDs, p.UploaderType, p.UploaderID
 	// Build the per-task Composio overlay before the transaction — it can do
 	// network I/O and must not run with a DB transaction open.
 	overlay := s.buildRuntimeMCPOverlay(ctx, initiatorUserID, agent)
@@ -2999,7 +3097,17 @@ func (s *TaskService) claimTask(ctx context.Context, agentID, runtimeID pgtype.U
 	var getAgentMs, countRunningMs, claimAgentMs, reanchorMs, updateStatusMs, dispatchMs int64
 	var claimed *db.AgentTaskQueue
 	defer func() {
-		s.maybeLogClaimSlow(agentID, outcome, start, getAgentMs, countRunningMs, claimAgentMs, reanchorMs, updateStatusMs, dispatchMs)
+		s.maybeLogClaimSlow(maybeLogClaimSlowParams{
+			AgentID:        agentID,
+			Outcome:        outcome,
+			Start:          start,
+			GetAgentMs:     getAgentMs,
+			CountRunningMs: countRunningMs,
+			ClaimAgentMs:   claimAgentMs,
+			ReanchorMs:     reanchorMs,
+			UpdateStatusMs: updateStatusMs,
+			DispatchMs:     dispatchMs,
+		})
 	}()
 
 	err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -3556,7 +3664,22 @@ func (s *TaskService) PromoteDueDeferredTasksForRuntime(ctx context.Context, run
 // logs at normal poll rates. Called via defer so it captures the full path
 // including post-claim updateAgentStatus / broadcastTaskDispatch (both of
 // which can hit the DB) and any error exit.
-func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, start time.Time, getAgentMs, countRunningMs, claimAgentMs, reanchorMs, updateStatusMs, dispatchMs int64) {
+// maybeLogClaimSlowParams bundles maybeLogClaimSlow's fields so the function
+// signature stays under the parameter-count lint.
+type maybeLogClaimSlowParams struct {
+	AgentID        pgtype.UUID
+	Outcome        string
+	Start          time.Time
+	GetAgentMs     int64
+	CountRunningMs int64
+	ClaimAgentMs   int64
+	ReanchorMs     int64
+	UpdateStatusMs int64
+	DispatchMs     int64
+}
+
+func (s *TaskService) maybeLogClaimSlow(p maybeLogClaimSlowParams) {
+	agentID, outcome, start, getAgentMs, countRunningMs, claimAgentMs, reanchorMs, updateStatusMs, dispatchMs := p.AgentID, p.Outcome, p.Start, p.GetAgentMs, p.CountRunningMs, p.ClaimAgentMs, p.ReanchorMs, p.UpdateStatusMs, p.DispatchMs
 	totalMs := time.Since(start).Milliseconds()
 	if totalMs < 300 {
 		return
@@ -3692,7 +3815,21 @@ func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID 
 // causing the new task to resume against a stale (or NULL) session.
 // durableWorkDir is terminal delivery metadata, not a resume pointer: it is
 // populated only after the daemon confirms a disposable worktree is gone.
-func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir, branchName string, sessionRolloutMissing bool, retiredSessionID, durableWorkDir string) (*db.AgentTaskQueue, error) {
+// CompleteTaskParams bundles CompleteTask's fields so the function signature
+// stays under the parameter-count lint.
+type CompleteTaskParams struct {
+	TaskID                pgtype.UUID
+	Result                []byte
+	SessionID             string
+	WorkDir               string
+	BranchName            string
+	SessionRolloutMissing bool
+	RetiredSessionID      string
+	DurableWorkDir        string
+}
+
+func (s *TaskService) CompleteTask(ctx context.Context, p CompleteTaskParams) (*db.AgentTaskQueue, error) {
+	taskID, result, sessionID, workDir, branchName, sessionRolloutMissing, retiredSessionID, durableWorkDir := p.TaskID, p.Result, p.SessionID, p.WorkDir, p.BranchName, p.SessionRolloutMissing, p.RetiredSessionID, p.DurableWorkDir
 	var task db.AgentTaskQueue
 	// chatAssistantMsg is the single assistant outcome row written for a chat
 	// task inside the completion transaction below. It is broadcast (chat:done)
@@ -4101,7 +4238,22 @@ func (s *TaskService) observeChatOutputLocalPath(task db.AgentTaskQueue, body st
 // coarse bucket. Daemon callers that already produced a refined reason
 // (via classifyPoisonedError, the timeout / runtime classifier, etc.)
 // will have their value preserved untouched.
-func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, branchName, failureReason string, sessionRolloutMissing bool, retiredSessionID, durableWorkDir string) (*db.AgentTaskQueue, error) {
+// FailTaskParams bundles FailTask's fields so the function signature stays
+// under the parameter-count lint.
+type FailTaskParams struct {
+	TaskID                pgtype.UUID
+	ErrMsg                string
+	SessionID             string
+	WorkDir               string
+	BranchName            string
+	FailureReason         string
+	SessionRolloutMissing bool
+	RetiredSessionID      string
+	DurableWorkDir        string
+}
+
+func (s *TaskService) FailTask(ctx context.Context, p FailTaskParams) (*db.AgentTaskQueue, error) {
+	taskID, errMsg, sessionID, workDir, branchName, failureReason, sessionRolloutMissing, retiredSessionID, durableWorkDir := p.TaskID, p.ErrMsg, p.SessionID, p.WorkDir, p.BranchName, p.FailureReason, p.SessionRolloutMissing, p.RetiredSessionID, p.DurableWorkDir
 	// Strip bytes PostgreSQL cannot store before anything else reads errMsg, so
 	// the classifier, the transaction and every downstream consumer see the one
 	// text we will actually persist (GH #7098). Kept at the service boundary
@@ -4919,7 +5071,16 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 	// sourceTaskID is the rerun lineage: it rides the CreateAgentTask insert
 	// (rerun_of_task_id) so the queued event / daemon claim never sees a NULL
 	// lineage, and it stays distinct from system-retry's retry_of_task_id (§5).
-	task, err := s.enqueueRerunTask(ctx, issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, actorUserID, sourceTaskID)
+	task, err := s.enqueueRerunTask(ctx, enqueueRerunTaskParams{
+		Issue:               issue,
+		AgentID:             agentID,
+		TriggerCommentID:    triggerCommentID,
+		CoalescedCommentIDs: coalescedCommentIDs,
+		IsLeader:            isLeader,
+		SquadID:             squadID,
+		ActorUserID:         actorUserID,
+		RerunOfTaskID:       sourceTaskID,
+	})
 	if pendingSlotTakenErr(err) {
 		// The clear above and this enqueue are separate commits, so a system
 		// retry created by a concurrent FailTask can take the pending slot in
@@ -4935,7 +5096,16 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 			"agent_id", util.UUIDToString(agentID),
 		)
 		cancelledCount += clearPendingSlot()
-		task, err = s.enqueueRerunTask(ctx, issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, actorUserID, sourceTaskID)
+		task, err = s.enqueueRerunTask(ctx, enqueueRerunTaskParams{
+			Issue:               issue,
+			AgentID:             agentID,
+			TriggerCommentID:    triggerCommentID,
+			CoalescedCommentIDs: coalescedCommentIDs,
+			IsLeader:            isLeader,
+			SquadID:             squadID,
+			ActorUserID:         actorUserID,
+			RerunOfTaskID:       sourceTaskID,
+		})
 	}
 	if err != nil {
 		return nil, err
@@ -5015,12 +5185,43 @@ func (s *TaskService) promoteNewestSurvivingComment(ctx context.Context, ids []p
 // handler ignores this flag for reruns and instead reads the exact source task
 // (rerun_of_task_id) to reuse its workdir and, when the failure did not poison
 // the conversation, resume its session (MUL-4869).
-func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, coalescedCommentIDs []pgtype.UUID, isLeader bool, squadID pgtype.UUID, actorUserID pgtype.UUID, rerunOfTaskID pgtype.UUID) (db.AgentTaskQueue, error) {
+// enqueueRerunTaskParams bundles enqueueRerunTask's fields so the function
+// signature stays under the parameter-count lint.
+type enqueueRerunTaskParams struct {
+	Issue               db.Issue
+	AgentID             pgtype.UUID
+	TriggerCommentID    pgtype.UUID
+	CoalescedCommentIDs []pgtype.UUID
+	IsLeader            bool
+	SquadID             pgtype.UUID
+	ActorUserID         pgtype.UUID
+	RerunOfTaskID       pgtype.UUID
+}
+
+func (s *TaskService) enqueueRerunTask(ctx context.Context, p enqueueRerunTaskParams) (db.AgentTaskQueue, error) {
+	issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, actorUserID, rerunOfTaskID := p.Issue, p.AgentID, p.TriggerCommentID, p.CoalescedCommentIDs, p.IsLeader, p.SquadID, p.ActorUserID, p.RerunOfTaskID
 	if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
-		return s.enqueueIssueTaskWithCommentPlan(ctx, issue, triggerCommentID, coalescedCommentIDs, true, "", actorUserID, rerunOfTaskID, pgtype.Timestamptz{})
+		return s.enqueueIssueTaskWithCommentPlan(ctx, enqueueIssueTaskParams{
+			Issue:               issue,
+			TriggerCommentID:    triggerCommentID,
+			CoalescedCommentIDs: coalescedCommentIDs,
+			ForceFreshSession:   true,
+			ActorUserID:         actorUserID,
+			RerunOfTaskID:       rerunOfTaskID,
+		})
 	}
-	return s.enqueueMentionTaskWithCommentPlan(ctx, issue, agentID, triggerCommentID, coalescedCommentIDs, isLeader, squadID, true, "", actorUserID, rerunOfTaskID)
+	return s.enqueueMentionTaskWithCommentPlan(ctx, enqueueMentionTaskParams{
+		Issue:               issue,
+		AgentID:             agentID,
+		TriggerCommentID:    triggerCommentID,
+		CoalescedCommentIDs: coalescedCommentIDs,
+		IsLeader:            isLeader,
+		SquadID:             squadID,
+		ForceFreshSession:   true,
+		ActorUserID:         actorUserID,
+		RerunOfTaskID:       rerunOfTaskID,
+	})
 }
 
 // HandleFailedTasks runs the post-failure side effects for a batch of

@@ -395,7 +395,17 @@ func prepareOpenclawConfig(envRoot, workDir string, opts OpenclawConfigPrep) (Op
 		}
 	}
 
-	cfg := buildPerTaskOpenclawConfig(activePath, exists, snapshotPath, resolvedList, agentsFromRegistry, workDir, managedMcp, hasManagedMcp, opts.Gateway)
+	cfg := buildPerTaskOpenclawConfig(buildPerTaskOpenclawConfigParams{
+		ActivePath:         activePath,
+		Exists:             exists,
+		SnapshotPath:       snapshotPath,
+		ResolvedList:       resolvedList,
+		AgentsFromRegistry: agentsFromRegistry,
+		WorkDir:            workDir,
+		ManagedMcp:         managedMcp,
+		HasManagedMcp:      hasManagedMcp,
+		Gateway:            opts.Gateway,
+	})
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -512,7 +522,23 @@ func discoverOpenclawConfig(bin string, timeout time.Duration, opts OpenclawConf
 // snapshot $include has already dropped the user's `mcp` block, the
 // resulting view of `mcp.servers` is exactly the managed set — including
 // `{}` for "admin saved no servers" (mirrors `hasManagedCodexMcpConfig`).
-func buildPerTaskOpenclawConfig(activePath string, exists bool, snapshotPath string, resolvedList []any, agentsFromRegistry bool, workDir string, managedMcp map[string]any, hasManagedMcp bool, gateway OpenclawGatewayPin) map[string]any {
+
+// buildPerTaskOpenclawConfigParams bundles buildPerTaskOpenclawConfig's fields
+// so the function signature stays under the parameter-count lint.
+type buildPerTaskOpenclawConfigParams struct {
+	ActivePath         string
+	Exists             bool
+	SnapshotPath       string
+	ResolvedList       []any
+	AgentsFromRegistry bool
+	WorkDir            string
+	ManagedMcp         map[string]any
+	HasManagedMcp      bool
+	Gateway            OpenclawGatewayPin
+}
+
+func buildPerTaskOpenclawConfig(p buildPerTaskOpenclawConfigParams) map[string]any {
+	activePath, exists, snapshotPath, resolvedList, agentsFromRegistry, workDir, managedMcp, hasManagedMcp, gateway := p.ActivePath, p.Exists, p.SnapshotPath, p.ResolvedList, p.AgentsFromRegistry, p.WorkDir, p.ManagedMcp, p.HasManagedMcp, p.Gateway
 	agents := map[string]any{
 		"defaults": map[string]any{"workspace": workDir},
 	}

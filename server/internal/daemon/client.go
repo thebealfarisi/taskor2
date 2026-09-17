@@ -438,27 +438,40 @@ func (c *Client) ReportTaskMessages(ctx context.Context, taskID string, messages
 	}, nil)
 }
 
-func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, sessionID, workDir string, sessionRolloutMissing bool, retiredSessionID, durableWorkDir string) error {
-	body := map[string]any{"output": output}
-	if branchName != "" {
-		body["branch_name"] = branchName
+// CompleteTaskParams bundles CompleteTask's fields so the function signature
+// stays under the parameter-count lint.
+type CompleteTaskParams struct {
+	TaskID                string
+	Output                string
+	BranchName            string
+	SessionID             string
+	WorkDir               string
+	SessionRolloutMissing bool
+	RetiredSessionID      string
+	DurableWorkDir        string
+}
+
+func (c *Client) CompleteTask(ctx context.Context, p CompleteTaskParams) error {
+	body := map[string]any{"output": p.Output}
+	if p.BranchName != "" {
+		body["branch_name"] = p.BranchName
 	}
-	if sessionID != "" {
-		body["session_id"] = sessionID
+	if p.SessionID != "" {
+		body["session_id"] = p.SessionID
 	}
-	if workDir != "" {
-		body["work_dir"] = workDir
+	if p.WorkDir != "" {
+		body["work_dir"] = p.WorkDir
 	}
-	if durableWorkDir != "" {
-		body["durable_work_dir"] = durableWorkDir
+	if p.DurableWorkDir != "" {
+		body["durable_work_dir"] = p.DurableWorkDir
 	}
-	if sessionRolloutMissing {
+	if p.SessionRolloutMissing {
 		body["session_rollout_missing"] = true
 	}
-	if retiredSessionID != "" {
-		body["retired_session_id"] = retiredSessionID
+	if p.RetiredSessionID != "" {
+		body["retired_session_id"] = p.RetiredSessionID
 	}
-	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/complete", taskID), body, nil, defaultTerminalRetrySchedule)
+	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/complete", p.TaskID), body, nil, defaultTerminalRetrySchedule)
 }
 
 func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []TaskUsageEntry) error {
@@ -470,33 +483,47 @@ func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []Tas
 	}, nil)
 }
 
-func (c *Client) FailTask(ctx context.Context, taskID, errMsg, sessionID, workDir, branchName, failureReason string, sessionRolloutMissing bool, retiredSessionID, durableWorkDir string) error {
-	body := map[string]any{"error": errMsg}
-	if sessionID != "" {
-		body["session_id"] = sessionID
+// FailTaskParams bundles FailTask's fields so the function signature stays
+// under the parameter-count lint.
+type FailTaskParams struct {
+	TaskID                string
+	ErrMsg                string
+	SessionID             string
+	WorkDir               string
+	BranchName            string
+	FailureReason         string
+	SessionRolloutMissing bool
+	RetiredSessionID      string
+	DurableWorkDir        string
+}
+
+func (c *Client) FailTask(ctx context.Context, p FailTaskParams) error {
+	body := map[string]any{"error": p.ErrMsg}
+	if p.SessionID != "" {
+		body["session_id"] = p.SessionID
 	}
-	if workDir != "" {
-		body["work_dir"] = workDir
+	if p.WorkDir != "" {
+		body["work_dir"] = p.WorkDir
 	}
-	if durableWorkDir != "" {
-		body["durable_work_dir"] = durableWorkDir
+	if p.DurableWorkDir != "" {
+		body["durable_work_dir"] = p.DurableWorkDir
 	}
 	// A failed run can still have delivered a branch: worktree mode commits
 	// whatever the agent left before removing the worktree, so partial work
 	// survives — but only if its name travels with the failure report.
-	if branchName != "" {
-		body["branch_name"] = branchName
+	if p.BranchName != "" {
+		body["branch_name"] = p.BranchName
 	}
-	if failureReason != "" {
-		body["failure_reason"] = failureReason
+	if p.FailureReason != "" {
+		body["failure_reason"] = p.FailureReason
 	}
-	if sessionRolloutMissing {
+	if p.SessionRolloutMissing {
 		body["session_rollout_missing"] = true
 	}
-	if retiredSessionID != "" {
-		body["retired_session_id"] = retiredSessionID
+	if p.RetiredSessionID != "" {
+		body["retired_session_id"] = p.RetiredSessionID
 	}
-	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", taskID), body, nil, defaultTerminalRetrySchedule)
+	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/fail", p.TaskID), body, nil, defaultTerminalRetrySchedule)
 }
 
 // PinTaskSession persists the agent's session_id and work_dir on the task

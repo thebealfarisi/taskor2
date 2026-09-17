@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -86,8 +87,17 @@ func failTaskSuccessorCase(t *testing.T, failureReason string) {
 
 	// The retry child for this reason is created immediately as 'queued' — the
 	// exact shape that collides with the rerun already holding the slot.
-	if _, err := testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
-		"run died", "", "", "", failureReason, false, "", ""); err != nil {
+	if _, err := testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
+		TaskID:                parseUUID(runningID),
+		ErrMsg:                "run died",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         failureReason,
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("FailTask with a manual rerun already queued: %v", err)
 	}
 
@@ -213,8 +223,17 @@ func TestFailTaskAndRerunConcurrently_NeverStrandsRunningTask(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, failErr = testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
-				"run died", "", "", "", "timeout", false, "", "")
+			_, failErr = testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
+		TaskID:                parseUUID(runningID),
+		ErrMsg:                "run died",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "timeout",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 		}()
 		go func() {
 			defer wg.Done()
@@ -430,8 +449,17 @@ func TestFailTaskAndRerunConcurrently_NonAssigneeTarget(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, failErr = testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
-				"run died", "", "", "", "timeout", false, "", "")
+			_, failErr = testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
+		TaskID:                parseUUID(runningID),
+		ErrMsg:                "run died",
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		FailureReason:         "timeout",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	})
 		}()
 		go func() {
 			defer wg.Done()

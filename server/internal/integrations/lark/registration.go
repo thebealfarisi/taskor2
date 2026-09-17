@@ -394,10 +394,6 @@ func (c *RegistrationClient) Poll(ctx context.Context, domain, deviceCode string
 	switch resp.Error {
 	case "authorization_pending", "slow_down":
 		return &PollResult{Status: resp.Error}, nil
-	case "access_denied", "expired_token":
-		return &PollResult{
-			Err: &RegistrationError{Code: resp.Error, Description: resp.ErrorDescription},
-		}, nil
 	case "":
 		// Empty error AND empty credentials = keep polling; this
 		// matches the upstream SDK's tolerant handling for the case
@@ -405,6 +401,8 @@ func (c *RegistrationClient) Poll(ctx context.Context, domain, deviceCode string
 		// authorize-redirect window.
 		return &PollResult{Status: "authorization_pending"}, nil
 	default:
+		// Covers "access_denied", "expired_token", and any other/unknown
+		// error code: report it as a terminal registration error.
 		return &PollResult{
 			Err: &RegistrationError{Code: resp.Error, Description: resp.ErrorDescription},
 		}, nil

@@ -128,7 +128,13 @@ func (s *AutopilotService) DispatchAutopilot(
 	// callers don't surface a per-run reason code to a human, so it is dropped.
 	// webhookDeliveryID is invalid here — durable webhook deliveries admit through
 	// AdmitAutopilotWebhookDelivery instead of this entry point.
-	run, _, err := s.dispatchAutopilot(ctx, autopilot, triggerID, source, payload, pgtype.Timestamptz{}, pgtype.UUID{}, pgtype.UUID{}, source+":"+newAutopilotIdempotencyKey())
+	run, _, err := s.dispatchAutopilot(ctx, dispatchAutopilotParams{
+		Autopilot:      autopilot,
+		TriggerID:      triggerID,
+		Source:         source,
+		Payload:        payload,
+		IdempotencyKey: source + ":" + newAutopilotIdempotencyKey(),
+	})
 	return run, err
 }
 
@@ -162,7 +168,14 @@ func (s *AutopilotService) DispatchAutopilotManualWithKey(
 	// so it returns the typed reason code decided at the admission source. No
 	// webhook delivery on the manual path.
 	key := "manual:" + util.UUIDToString(autopilot.ID) + ":" + idempotencyKey
-	return s.dispatchAutopilot(ctx, autopilot, triggerID, "manual", payload, pgtype.Timestamptz{}, pgtype.UUID{}, actorUserID, key)
+	return s.dispatchAutopilot(ctx, dispatchAutopilotParams{
+		Autopilot:      autopilot,
+		TriggerID:      triggerID,
+		Source:         "manual",
+		Payload:        payload,
+		ActorUserID:    actorUserID,
+		IdempotencyKey: key,
+	})
 }
 
 // AdmitAutopilotWebhookDelivery creates or reuses the idempotent run for a
@@ -192,16 +205,15 @@ func (s *AutopilotService) AdmitAutopilotWebhookDelivery(
 	// Webhook admission has no member actor → automation principal (rule_owner);
 	// the per-run reason code is not surfaced to a human here, so it is dropped.
 	if reason, _, skip := s.shouldSkipDispatch(ctx, autopilot, pgtype.UUID{}); skip {
-		run, err := s.recordSkippedRun(
-			ctx,
-			autopilot,
-			triggerID,
-			"webhook",
-			payload,
-			pgtype.Timestamptz{},
-			deliveryID,
-			reason,
-		)
+		run, err := s.recordSkippedRun(ctx, recordSkippedRunParams{
+			Autopilot:         autopilot,
+			TriggerID:         triggerID,
+			Source:            "webhook",
+			Payload:           payload,
+			PlannedAt:         pgtype.Timestamptz{},
+			WebhookDeliveryID: deliveryID,
+			Reason:            reason,
+		})
 		if err != nil {
 			return s.recoverConcurrentWebhookAdmission(
 				ctx,
@@ -467,7 +479,14 @@ func (s *AutopilotService) DispatchAutopilotForPlan(
 	// human surface for a per-run reason code, so it is dropped. No webhook
 	// delivery on the scheduled-plan path.
 	key := "schedule:" + util.UUIDToString(triggerID) + ":" + plannedAt.UTC().Format(time.RFC3339Nano)
-	run, _, err := s.dispatchAutopilot(ctx, autopilot, triggerID, source, payload, plannedTS, pgtype.UUID{}, pgtype.UUID{}, key)
+	run, _, err := s.dispatchAutopilot(ctx, dispatchAutopilotParams{
+		Autopilot:      autopilot,
+		TriggerID:      triggerID,
+		Source:         source,
+		Payload:        payload,
+		PlannedAt:      plannedTS,
+		IdempotencyKey: key,
+	})
 	return run, err
 }
 
@@ -511,19 +530,31 @@ func isAutopilotRunComplete(run db.AutopilotRun) bool {
 // for manual / webhook / api dispatch it is the zero pgtype.Timestamptz and
 // the resulting autopilot_run row has planned_at IS NULL. webhookDeliveryID
 // is set only by the durable webhook worker.
-func (s *AutopilotService) dispatchAutopilot(
-	ctx context.Context,
-	autopilot db.Autopilot,
-	triggerID pgtype.UUID,
-	source string,
-	payload []byte,
-	plannedAt pgtype.Timestamptz,
-	webhookDeliveryID pgtype.UUID,
-	actorUserID pgtype.UUID,
-	idempotencyKey string,
-) (*db.AutopilotRun, dispatch.ReasonCode, error) {
+// dispatchAutopilotParams bundles dispatchAutopilot's fields so the function
+// signature stays under the parameter-count lint.
+type dispatchAutopilotParams struct {
+	Autopilot         db.Autopilot
+	TriggerID         pgtype.UUID
+	Source            string
+	Payload           []byte
+	PlannedAt         pgtype.Timestamptz
+	WebhookDeliveryID pgtype.UUID
+	ActorUserID       pgtype.UUID
+	IdempotencyKey    string
+}
+
+func (s *AutopilotService) dispatchAutopilot(ctx context.Context, p dispatchAutopilotParams) (*db.AutopilotRun, dispatch.ReasonCode, error) {
+	autopilot, triggerID, source, payload, plannedAt, webhookDeliveryID, actorUserID, idempotencyKey := p.Autopilot, p.TriggerID, p.Source, p.Payload, p.PlannedAt, p.WebhookDeliveryID, p.ActorUserID, p.IdempotencyKey
 	if reason, code, skip := s.shouldSkipDispatch(ctx, autopilot, actorUserID); skip {
-		run, err := s.recordSkippedRun(ctx, autopilot, triggerID, source, payload, plannedAt, webhookDeliveryID, reason)
+		run, err := s.recordSkippedRun(ctx, recordSkippedRunParams{
+			Autopilot:         autopilot,
+			TriggerID:         triggerID,
+			Source:            source,
+			Payload:           payload,
+			PlannedAt:         plannedAt,
+			WebhookDeliveryID: webhookDeliveryID,
+			Reason:            reason,
+		})
 		return run, code, err
 	}
 
@@ -547,7 +578,16 @@ func (s *AutopilotService) dispatchAutopilot(
 	if err != nil {
 		var quotaErr *AutopilotQuotaExceededError
 		if errors.As(err, &quotaErr) && source == "schedule" {
-			skipped, skipErr := s.recordSkippedRun(ctx, autopilot, triggerID, source, payload, plannedAt, webhookDeliveryID, quotaErr.Error(), dispatch.ReasonQuotaExceeded)
+			skipped, skipErr := s.recordSkippedRun(ctx, recordSkippedRunParams{
+				Autopilot:         autopilot,
+				TriggerID:         triggerID,
+				Source:            source,
+				Payload:           payload,
+				PlannedAt:         plannedAt,
+				WebhookDeliveryID: webhookDeliveryID,
+				Reason:            quotaErr.Error(),
+				ReasonCode:        dispatch.ReasonQuotaExceeded,
+			})
 			return skipped, dispatch.ReasonQuotaExceeded, skipErr
 		}
 		return nil, dispatch.ReasonInternalError, fmt.Errorf("create run: %w", err)
@@ -1435,20 +1475,24 @@ func autopilotSquadAttribution(ap db.Autopilot) pgtype.UUID {
 // and emits the same WS / analytics signals that a normal terminal transition
 // would. Returns the run + nil error so callers (scheduler tick, manual
 // trigger handler) treat this as a successful — but no-op — dispatch.
-func (s *AutopilotService) recordSkippedRun(
-	ctx context.Context,
-	autopilot db.Autopilot,
-	triggerID pgtype.UUID,
-	source string,
-	payload []byte,
-	plannedAt pgtype.Timestamptz,
-	webhookDeliveryID pgtype.UUID,
-	reason string,
-	reasonCode ...dispatch.ReasonCode,
-) (*db.AutopilotRun, error) {
+// recordSkippedRunParams bundles recordSkippedRun's fields so the function
+// signature stays under the parameter-count lint.
+type recordSkippedRunParams struct {
+	Autopilot         db.Autopilot
+	TriggerID         pgtype.UUID
+	Source            string
+	Payload           []byte
+	PlannedAt         pgtype.Timestamptz
+	WebhookDeliveryID pgtype.UUID
+	Reason            string
+	ReasonCode        dispatch.ReasonCode
+}
+
+func (s *AutopilotService) recordSkippedRun(ctx context.Context, p recordSkippedRunParams) (*db.AutopilotRun, error) {
+	autopilot, triggerID, source, payload, plannedAt, webhookDeliveryID, reason, reasonCode := p.Autopilot, p.TriggerID, p.Source, p.Payload, p.PlannedAt, p.WebhookDeliveryID, p.Reason, p.ReasonCode
 	code := pgtype.Text{}
-	if len(reasonCode) > 0 && reasonCode[0] != "" {
-		code = pgtype.Text{String: string(reasonCode[0]), Valid: true}
+	if reasonCode != "" {
+		code = pgtype.Text{String: string(reasonCode), Valid: true}
 	}
 	run, err := s.Queries.CreateAutopilotRun(ctx, db.CreateAutopilotRunParams{
 		ID:                dbid.NewV7(),
@@ -1513,16 +1557,15 @@ func (s *AutopilotService) captureIssueCreatedFromAutopilot(ap db.Autopilot, run
 	// For PostHog the agent_id should be the agent that will actually run
 	// the work (the resolved leader for squad autopilots) so per-agent task
 	// counts line up with what daemons report.
-	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.IssueCreated(
-		autopilotActorID(ap),
-		util.UUIDToString(ap.WorkspaceID),
-		util.UUIDToString(issue.ID),
-		util.UUIDToString(leaderID),
-		"",
-		util.UUIDToString(run.ID),
-		analytics.SourceAutopilot,
-		analytics.PlatformServer,
-	))
+	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
+		ActorID:        autopilotActorID(ap),
+		WorkspaceID:    util.UUIDToString(ap.WorkspaceID),
+		IssueID:        util.UUIDToString(issue.ID),
+		AgentID:        util.UUIDToString(leaderID),
+		AutopilotRunID: util.UUIDToString(run.ID),
+		Source:         analytics.SourceAutopilot,
+		Platform:       analytics.PlatformServer,
+	}))
 }
 
 func (s *AutopilotService) captureAutopilotRunStarted(ap db.Autopilot, run db.AutopilotRun, triggerSource string) {
@@ -1544,16 +1587,16 @@ func (s *AutopilotService) captureAutopilotRunCompleted(ap db.Autopilot, run db.
 	if s.TaskSvc == nil || s.TaskSvc.Analytics == nil {
 		return
 	}
-	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.AutopilotRunCompleted(
-		autopilotActorID(ap),
-		util.UUIDToString(ap.WorkspaceID),
-		util.UUIDToString(ap.ID),
-		util.UUIDToString(run.ID),
-		run.Source,
-		s.autopilotAssigneeAnalytics(ap),
-		run.Source,
-		autopilotRunDurationMS(run),
-	))
+	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.AutopilotRunCompleted(analytics.AutopilotRunCompletedParams{
+		ActorID:       autopilotActorID(ap),
+		WorkspaceID:   util.UUIDToString(ap.WorkspaceID),
+		AutopilotID:   util.UUIDToString(ap.ID),
+		RunID:         util.UUIDToString(run.ID),
+		Cadence:       run.Source,
+		Assignee:      s.autopilotAssigneeAnalytics(ap),
+		TriggerSource: run.Source,
+		DurationMS:    autopilotRunDurationMS(run),
+	}))
 }
 
 func (s *AutopilotService) captureAutopilotRunFailed(ap db.Autopilot, run db.AutopilotRun, triggerSource, reason string) {
@@ -1563,19 +1606,19 @@ func (s *AutopilotService) captureAutopilotRunFailed(ap db.Autopilot, run db.Aut
 	if reason == "" {
 		reason = "unknown"
 	}
-	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.AutopilotRunFailed(
-		autopilotActorID(ap),
-		util.UUIDToString(ap.WorkspaceID),
-		util.UUIDToString(ap.ID),
-		util.UUIDToString(run.ID),
-		triggerSource,
-		s.autopilotAssigneeAnalytics(ap),
-		triggerSource,
-		reason,
-		autopilotErrorType(reason),
-		false,
-		autopilotRunDurationMS(run),
-	))
+	obsmetrics.RecordEvent(s.TaskSvc.Analytics, s.TaskSvc.Metrics, analytics.AutopilotRunFailed(analytics.AutopilotRunFailedParams{
+		ActorID:       autopilotActorID(ap),
+		WorkspaceID:   util.UUIDToString(ap.WorkspaceID),
+		AutopilotID:   util.UUIDToString(ap.ID),
+		RunID:         util.UUIDToString(run.ID),
+		Cadence:       triggerSource,
+		Assignee:      s.autopilotAssigneeAnalytics(ap),
+		TriggerSource: triggerSource,
+		FailureReason: reason,
+		ErrorType:     autopilotErrorType(reason),
+		WillRetry:     false,
+		DurationMS:    autopilotRunDurationMS(run),
+	}))
 }
 
 // autopilotAssigneeAnalytics builds the PostHog assignee descriptor for an

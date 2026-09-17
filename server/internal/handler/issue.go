@@ -2590,7 +2590,18 @@ func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 		parentIssueUUID = pid
 	}
 
-	task, err := h.TaskService.EnqueueQuickCreateTask(r.Context(), wsUUID, requesterUUID, agentUUID, squadUUID, prompt, priority, dueDate, projectUUID, parentIssueUUID, attachmentIDs)
+	task, err := h.TaskService.EnqueueQuickCreateTask(r.Context(), service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   wsUUID,
+		RequesterID:   requesterUUID,
+		AgentID:       agentUUID,
+		SquadID:       squadUUID,
+		Prompt:        prompt,
+		Priority:      priority,
+		DueDate:       dueDate,
+		ProjectID:     projectUUID,
+		ParentIssueID: parentIssueUUID,
+		AttachmentIDs: attachmentIDs,
+	})
 	if err != nil {
 		slog.Warn("quick-create enqueue failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to enqueue quick-create task")
@@ -2660,17 +2671,10 @@ func (h *Handler) checkQuickCreateDaemonVersionAtLeast(ctx context.Context, runt
 	switch err := agentpkg.CheckMinCLIVersionFor(current, minimum); {
 	case err == nil:
 		return 0, nil
-	case errors.Is(err, agentpkg.ErrCLIVersionMissing), errors.Is(err, agentpkg.ErrCLIVersionTooOld):
-		return http.StatusUnprocessableEntity, map[string]any{
-			"code":            "daemon_version_unsupported",
-			"current_version": current,
-			"min_version":     minimum,
-			"runtime_id":      uuidToString(runtimeID),
-		}
 	default:
-		// Defensive fall-through: unknown error from the version check is
-		// also fail-closed, since the gate exists precisely because we
-		// can't trust older daemons with this flow.
+		// Covers both a known version-mismatch error and any unknown error
+		// from the version check — both fail-closed, since the gate exists
+		// precisely because we can't trust older daemons with this flow.
 		return http.StatusUnprocessableEntity, map[string]any{
 			"code":            "daemon_version_unsupported",
 			"current_version": current,
@@ -3139,7 +3143,20 @@ func refreshUntouchedNullableIssueParams(params *db.UpdateIssueParams, current d
 
 var errIssueFieldConflict = errors.New("issue text field conflict")
 
-func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.UUID, params db.UpdateIssueParams, rawFields map[string]json.RawMessage, titleBase, descriptionBase *string, attachmentIDs []pgtype.UUID, statusKey string) (db.Issue, db.Issue, bool, error) {
+// updateIssueAtomicallyParams bundles updateIssueAtomically's fields so the
+// function signature stays under the parameter-count lint.
+type updateIssueAtomicallyParams struct {
+	WorkspaceID     pgtype.UUID
+	Params          db.UpdateIssueParams
+	RawFields       map[string]json.RawMessage
+	TitleBase       *string
+	DescriptionBase *string
+	AttachmentIDs   []pgtype.UUID
+	StatusKey       string
+}
+
+func (h *Handler) updateIssueAtomically(ctx context.Context, p updateIssueAtomicallyParams) (db.Issue, db.Issue, bool, error) {
+	workspaceID, params, rawFields, titleBase, descriptionBase, attachmentIDs, statusKey := p.WorkspaceID, p.Params, p.RawFields, p.TitleBase, p.DescriptionBase, p.AttachmentIDs, p.StatusKey
 	if h.TxStarter == nil {
 		return db.Issue{}, db.Issue{}, false, errors.New("atomic issue update requires transaction starter")
 	}
@@ -3451,9 +3468,15 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	attachmentsChanged := false
 	if req.Description != nil || req.TitleBase != nil || req.DescriptionBase != nil || len(attachmentIDs) > 0 {
 		var lockedPrev db.Issue
-		issue, lockedPrev, attachmentsChanged, err = h.updateIssueAtomically(
-			r.Context(), prevIssue.WorkspaceID, params, rawFields, req.TitleBase, req.DescriptionBase, attachmentIDs, statusKeyForGuard,
-		)
+		issue, lockedPrev, attachmentsChanged, err = h.updateIssueAtomically(r.Context(), updateIssueAtomicallyParams{
+			WorkspaceID:     prevIssue.WorkspaceID,
+			Params:          params,
+			RawFields:       rawFields,
+			TitleBase:       req.TitleBase,
+			DescriptionBase: req.DescriptionBase,
+			AttachmentIDs:   attachmentIDs,
+			StatusKey:       statusKeyForGuard,
+		})
 		if lockedPrev.ID.Valid {
 			prevIssue = lockedPrev
 		}
@@ -4114,9 +4137,12 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			// Preserve every marked channel-media block conservatively, matching
 			// legacy single-update clients that omit description_base.
 			var lockedPrev db.Issue
-			issue, lockedPrev, _, err = h.updateIssueAtomically(
-				r.Context(), prevIssue.WorkspaceID, params, rawUpdates, nil, nil, nil, batchStatusKey,
-			)
+			issue, lockedPrev, _, err = h.updateIssueAtomically(r.Context(), updateIssueAtomicallyParams{
+				WorkspaceID: prevIssue.WorkspaceID,
+				Params:      params,
+				RawFields:   rawUpdates,
+				StatusKey:   batchStatusKey,
+			})
 			if err == nil {
 				prevIssue = lockedPrev
 			}

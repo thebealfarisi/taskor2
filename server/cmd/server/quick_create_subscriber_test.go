@@ -44,18 +44,18 @@ func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
-		parseUUID(testWorkspaceID),
-		parseUUID(testUserID),
-		parseUUID(agentID),
-		pgtype.UUID{},
-		"another bug",
-		"",
-		"",
-		pgtype.UUID{},
-		pgtype.UUID{},
-		nil,
-	)
+	task, err := taskSvc.EnqueueQuickCreateTask(ctx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   parseUUID(testWorkspaceID),
+		RequesterID:   parseUUID(testUserID),
+		AgentID:       parseUUID(agentID),
+		SquadID:       pgtype.UUID{},
+		Prompt:        "another bug",
+		Priority:      "",
+		DueDate:       "",
+		ProjectID:     pgtype.UUID{},
+		ParentIssueID: pgtype.UUID{},
+		AttachmentIDs: nil,
+	})
 	if err != nil {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
@@ -75,7 +75,16 @@ func TestQuickCreateFailure_DoesNotSubscribeRequester(t *testing.T) {
 
 	// No issue with origin_type=quick_create + this task id exists. Completion
 	// hits the failure branch and writes a failure inbox; no subscriber row.
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, []byte(`{"output":"done"}`), "", "", "", false, "", ""); err != nil {
+	if _, err := taskSvc.CompleteTask(ctx, service.CompleteTaskParams{
+		TaskID:                task.ID,
+		Result:                []byte(`{"output":"done"}`),
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -113,18 +122,18 @@ func TestQuickCreateFailure_SurfacesAgentOutput(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
-		parseUUID(testWorkspaceID),
-		parseUUID(testUserID),
-		parseUUID(agentID),
-		pgtype.UUID{},
-		"file that same bug again",
-		"",
-		"",
-		pgtype.UUID{},
-		pgtype.UUID{},
-		nil,
-	)
+	task, err := taskSvc.EnqueueQuickCreateTask(ctx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   parseUUID(testWorkspaceID),
+		RequesterID:   parseUUID(testUserID),
+		AgentID:       parseUUID(agentID),
+		SquadID:       pgtype.UUID{},
+		Prompt:        "file that same bug again",
+		Priority:      "",
+		DueDate:       "",
+		ProjectID:     pgtype.UUID{},
+		ParentIssueID: pgtype.UUID{},
+		AttachmentIDs: nil,
+	})
 	if err != nil {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
@@ -147,7 +156,16 @@ func TestQuickCreateFailure_SurfacesAgentOutput(t *testing.T) {
 	// only output (per the quick-create prompt contract).
 	const agentErr = "Error: an active issue already exists: JKY-30 (blocked). Pass --allow-duplicate to override."
 	result, _ := json.Marshal(map[string]any{"output": agentErr})
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, result, "", "", "", false, "", ""); err != nil {
+	if _, err := taskSvc.CompleteTask(ctx, service.CompleteTaskParams{
+		TaskID:                task.ID,
+		Result:                result,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -185,18 +203,18 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
-		parseUUID(testWorkspaceID),
-		parseUUID(testUserID),
-		parseUUID(agentID),
-		pgtype.UUID{},
-		"file a bug while the db is flaky",
-		"",
-		"",
-		pgtype.UUID{},
-		pgtype.UUID{},
-		nil,
-	)
+	task, err := taskSvc.EnqueueQuickCreateTask(ctx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   parseUUID(testWorkspaceID),
+		RequesterID:   parseUUID(testUserID),
+		AgentID:       parseUUID(agentID),
+		SquadID:       pgtype.UUID{},
+		Prompt:        "file a bug while the db is flaky",
+		Priority:      "",
+		DueDate:       "",
+		ProjectID:     pgtype.UUID{},
+		ParentIssueID: pgtype.UUID{},
+		AttachmentIDs: nil,
+	})
 	if err != nil {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
@@ -229,7 +247,16 @@ func TestQuickCreateLookupFault_WritesUnconfirmedInbox(t *testing.T) {
 	result, _ := json.Marshal(map[string]any{
 		"output": "Error: an active issue already exists: JKY-30 (blocked).",
 	})
-	if _, err := faulting.CompleteTask(ctx, task.ID, result, "", "", "", false, "", ""); err != nil {
+	if _, err := faulting.CompleteTask(ctx, service.CompleteTaskParams{
+		TaskID:                task.ID,
+		Result:                result,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -266,18 +293,18 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(ctx,
-		parseUUID(testWorkspaceID),
-		parseUUID(testUserID),
-		parseUUID(agentID),
-		pgtype.UUID{},
-		"file a bug and leak a token",
-		"",
-		"",
-		pgtype.UUID{},
-		pgtype.UUID{},
-		nil,
-	)
+	task, err := taskSvc.EnqueueQuickCreateTask(ctx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   parseUUID(testWorkspaceID),
+		RequesterID:   parseUUID(testUserID),
+		AgentID:       parseUUID(agentID),
+		SquadID:       pgtype.UUID{},
+		Prompt:        "file a bug and leak a token",
+		Priority:      "",
+		DueDate:       "",
+		ProjectID:     pgtype.UUID{},
+		ParentIssueID: pgtype.UUID{},
+		AttachmentIDs: nil,
+	})
 	if err != nil {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
@@ -301,7 +328,16 @@ func TestQuickCreateFailure_RedactsAgentOutput(t *testing.T) {
 	result, _ := json.Marshal(map[string]any{
 		"output": "Error: create failed while authenticating with " + fakeToken,
 	})
-	if _, err := taskSvc.CompleteTask(ctx, task.ID, result, "", "", "", false, "", ""); err != nil {
+	if _, err := taskSvc.CompleteTask(ctx, service.CompleteTaskParams{
+		TaskID:                task.ID,
+		Result:                result,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 
@@ -335,18 +371,18 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 		t.Fatalf("load fixture agent: %v", err)
 	}
 
-	task, err := taskSvc.EnqueueQuickCreateTask(setupCtx,
-		parseUUID(testWorkspaceID),
-		parseUUID(testUserID),
-		parseUUID(agentID),
-		pgtype.UUID{},
-		"file a bug while the request is cancelled",
-		"",
-		"",
-		pgtype.UUID{},
-		pgtype.UUID{},
-		nil,
-	)
+	task, err := taskSvc.EnqueueQuickCreateTask(setupCtx, service.EnqueueQuickCreateTaskParams{
+		WorkspaceID:   parseUUID(testWorkspaceID),
+		RequesterID:   parseUUID(testUserID),
+		AgentID:       parseUUID(agentID),
+		SquadID:       pgtype.UUID{},
+		Prompt:        "file a bug while the request is cancelled",
+		Priority:      "",
+		DueDate:       "",
+		ProjectID:     pgtype.UUID{},
+		ParentIssueID: pgtype.UUID{},
+		AttachmentIDs: nil,
+	})
 	if err != nil {
 		t.Fatalf("EnqueueQuickCreateTask: %v", err)
 	}
@@ -375,7 +411,16 @@ func TestQuickCreateLookupCancelled_StillWritesUnconfirmedInbox(t *testing.T) {
 	)
 
 	result, _ := json.Marshal(map[string]any{"output": "Error: something went wrong"})
-	if _, err := faulting.CompleteTask(ctx, task.ID, result, "", "", "", false, "", ""); err != nil {
+	if _, err := faulting.CompleteTask(ctx, service.CompleteTaskParams{
+		TaskID:                task.ID,
+		Result:                result,
+		SessionID:             "",
+		WorkDir:               "",
+		BranchName:            "",
+		SessionRolloutMissing: false,
+		RetiredSessionID:      "",
+		DurableWorkDir:        "",
+	}); err != nil {
 		t.Fatalf("CompleteTask: %v", err)
 	}
 	if ctx.Err() == nil {

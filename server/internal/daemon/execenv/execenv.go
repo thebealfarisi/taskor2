@@ -522,7 +522,16 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 	// Emptying an agent's own skill list is NOT a way to opt out of the overlay.
 	if params.Provider == "hermes" && len(params.Task.AgentSkills) > 0 {
 		hermesHome := filepath.Join(envRoot, "hermes-home")
-		sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
+		sessions, err := prepareHermesHome(prepareHermesHomeParams{
+		HermesHome:      hermesHome,
+		SourceHome:      params.HermesSourceHome,
+		SourceMustExist: params.HermesSourceMustExist,
+		WorkspaceSkills: params.Task.AgentSkills,
+		Env:             params.HermesEnv,
+		MemoryStore:     params.HermesMemoryStore,
+		SessionStore:    params.HermesSessionStore,
+		Logger:          logger,
+	})
 		if err != nil {
 			return nil, fmt.Errorf("execenv: prepare hermes-home: %w", err)
 		}
@@ -812,7 +821,16 @@ func Reuse(params ReuseParams, logger *slog.Logger) *Environment {
 	if params.Provider == "hermes" && env.RootDir != "" {
 		hermesHome := filepath.Join(env.RootDir, "hermes-home")
 		if len(params.Task.AgentSkills) > 0 {
-			sessions, err := prepareHermesHome(hermesHome, params.HermesSourceHome, params.HermesSourceMustExist, params.Task.AgentSkills, params.HermesEnv, params.HermesMemoryStore, params.HermesSessionStore, logger)
+			sessions, err := prepareHermesHome(prepareHermesHomeParams{
+		HermesHome:      hermesHome,
+		SourceHome:      params.HermesSourceHome,
+		SourceMustExist: params.HermesSourceMustExist,
+		WorkspaceSkills: params.Task.AgentSkills,
+		Env:             params.HermesEnv,
+		MemoryStore:     params.HermesMemoryStore,
+		SessionStore:    params.HermesSessionStore,
+		Logger:          logger,
+	})
 			if err != nil {
 				// Fail closed: a half-built overlay must not run. Returning nil
 				// makes the daemon fall back to a fresh Prepare, whose error
