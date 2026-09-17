@@ -262,17 +262,18 @@ function ShortcutRow({
   const { t } = useT("settings");
   const label = t(($) => $.shortcuts.actions[action.id].label);
   const description = t(($) => $.shortcuts.actions[action.id].description);
-  const errorText = error?.kind === "reserved"
-    ? t(($) => $.shortcuts.reserved_error)
-    : error?.kind === "send"
-      ? t(($) => $.shortcuts.send_error)
-    : error?.kind === "unsafe"
-      ? t(($) => $.shortcuts.unsafe_error)
-    : error?.kind === "conflict"
-      ? t(($) => $.shortcuts.conflict_error, {
-          action: t(($) => $.shortcuts.actions[error.actionId].label),
-        })
-      : null;
+  let errorText: string | null = null;
+  if (error?.kind === "reserved") {
+    errorText = t(($) => $.shortcuts.reserved_error);
+  } else if (error?.kind === "send") {
+    errorText = t(($) => $.shortcuts.send_error);
+  } else if (error?.kind === "unsafe") {
+    errorText = t(($) => $.shortcuts.unsafe_error);
+  } else if (error?.kind === "conflict") {
+    errorText = t(($) => $.shortcuts.conflict_error, {
+      action: t(($) => $.shortcuts.actions[error.actionId].label),
+    });
+  }
 
   return (
     <SettingsRow

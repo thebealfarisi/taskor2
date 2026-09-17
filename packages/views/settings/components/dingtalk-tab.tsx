@@ -469,13 +469,14 @@ function InstallationRow({
 // prefixes (English has none), matching the convention used elsewhere in the
 // app for doc links.
 function dingtalkDocsUrl(lang: string | undefined): string {
-  const prefix = lang?.startsWith("zh")
-    ? "/zh"
-    : lang?.startsWith("ja")
-      ? "/ja"
-      : lang?.startsWith("ko")
-        ? "/ko"
-        : "";
+  let prefix = "";
+  if (lang?.startsWith("zh")) {
+    prefix = "/zh";
+  } else if (lang?.startsWith("ja")) {
+    prefix = "/ja";
+  } else if (lang?.startsWith("ko")) {
+    prefix = "/ko";
+  }
   return `https://multica.ai/docs${prefix}/dingtalk-bot-integration`;
 }
 

@@ -187,20 +187,26 @@ export function GitHubTab() {
                         </p>
                       )}
                     </>
-                  ) : canManage ? (
-                    <p className="text-caption text-muted-foreground">
-                      {t(($) => $.github.connection_description_prefix)}{" "}
-                      <code className="rounded bg-muted px-1 py-0.5 text-micro">
-                        {t(($) => $.github.connection_identifier_example)}
-                      </code>{" "}
-                      {t(($) => $.github.connection_description_suffix)}{" "}
-                      <strong>{t(($) => $.github.connection_description_done)}</strong>.
-                    </p>
-                  ) : (
-                    <p className="text-caption text-muted-foreground">
-                      {t(($) => $.github.contact_admin_to_connect)}
-                    </p>
-                  )}
+                  ) : (() => {
+                    if (canManage) {
+                      return (
+                        <p className="text-caption text-muted-foreground">
+                          {t(($) => $.github.connection_description_prefix)}{" "}
+                          <code className="rounded bg-muted px-1 py-0.5 text-micro">
+                            {t(($) => $.github.connection_identifier_example)}
+                          </code>{" "}
+                          {t(($) => $.github.connection_description_suffix)}{" "}
+                          <strong>{t(($) => $.github.connection_description_done)}</strong>.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <p className="text-caption text-muted-foreground">
+                        {t(($) => $.github.contact_admin_to_connect)}
+                      </p>
+                    );
+                  })()}
                 </div>
               </div>
               {canManage && (

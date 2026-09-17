@@ -136,6 +136,10 @@ export function PropertiesTab() {
       .filter((p) => !normalized || p.name.toLowerCase().includes(normalized));
   }, [properties, query, showArchived]);
 
+  const emptyTitle = query
+    ? t(($) => $.properties.no_results)
+    : t(($) => $.properties.empty);
+
   return (
     <SettingsTab
       title={t(($) => $.properties.title)}
@@ -199,11 +203,7 @@ export function PropertiesTab() {
           ) : visible.length === 0 ? (
             <div className="px-4 py-12 text-center">
               <SlidersHorizontal className="mx-auto size-6 text-faint-foreground" />
-              <p className="mt-3 text-body font-medium">
-                {query
-                  ? t(($) => $.properties.no_results)
-                  : t(($) => $.properties.empty)}
-              </p>
+              <p className="mt-3 text-body font-medium">{emptyTitle}</p>
               {!query && (
                 <p className="mx-auto mt-1 max-w-sm text-caption text-muted-foreground">
                   {t(($) => $.properties.empty_hint)}

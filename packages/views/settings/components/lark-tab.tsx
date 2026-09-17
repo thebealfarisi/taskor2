@@ -121,7 +121,57 @@ export function LarkTab() {
             </p>
           </CardContent>
         </Card>
-      ) : !installSupported && installations.length === 0 ? (
+      ) : (() => {
+        if (!installSupported && installations.length === 0) {
+          return (
+            <Card>
+              <CardContent className="space-y-2">
+                <p className="text-body font-medium">{t(($) => $.lark.preview_title)}</p>
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.lark.preview_description)}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        }
+
+        return (
+          <section className="space-y-3">
+            <h2 className="text-body font-semibold">{t(($) => $.lark.connected_bots)}</h2>
+            {isLoading ? (
+              <Card>
+                <CardContent>
+                  <p className="text-body text-muted-foreground">{t(($) => $.lark.loading)}</p>
+                </CardContent>
+              </Card>
+            ) : installations.length === 0 ? (
+              <Card>
+                <CardContent className="space-y-2">
+                  <p className="text-body font-medium">{t(($) => $.lark.empty_title)}</p>
+                  <p className="text-caption text-muted-foreground">
+                    {t(($) => $.lark.empty_description_prefix)}{" "}
+                    <strong>{t(($) => $.lark.empty_description_cta)}</strong>{" "}
+                    {t(($) => $.lark.empty_description_suffix)}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="divide-y">
+                  {installations.map((inst) => (
+                    <InstallationRow
+                      key={inst.id}
+                      installation={inst}
+                      canManage={canManage}
+                      onDisconnect={() => setDisconnectTarget(inst.id)}
+                    />
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+          </section>
+        );
+      })()}
         // Device-flow install path is not wired (HTTP client is the stub
         // or RegistrationService didn't initialize). We deliberately do
         // NOT direct users to the agent-detail "Bind" button because the

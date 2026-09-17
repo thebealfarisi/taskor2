@@ -40,12 +40,12 @@ export function BrowserNotificationSetting() {
     setPermission(await requestWebNotificationPermission());
   };
 
-  const statusHint =
-    permission === "granted"
-      ? t(($) => $.notifications.browser.granted)
-      : permission === "denied"
-        ? t(($) => $.notifications.browser.denied)
-        : t(($) => $.notifications.browser.hint);
+  let statusHint = t(($) => $.notifications.browser.hint);
+  if (permission === "granted") {
+    statusHint = t(($) => $.notifications.browser.granted);
+  } else if (permission === "denied") {
+    statusHint = t(($) => $.notifications.browser.denied);
+  }
 
   return (
     <SettingsCard>

@@ -71,11 +71,12 @@ export function ComposioTab() {
   // full page load that resets this ref) still fires.
   const consumedCallbackKey = useRef<string | null>(null);
   useEffect(() => {
-    const callbackKey = connectedParam
-      ? `connected:${connectedParam}`
-      : errorParam === "composio_connect_failed"
-        ? "error:composio_connect_failed"
-        : null;
+    let callbackKey: string | null = null;
+    if (connectedParam) {
+      callbackKey = `connected:${connectedParam}`;
+    } else if (errorParam === "composio_connect_failed") {
+      callbackKey = "error:composio_connect_failed";
+    }
     if (!callbackKey) return;
     if (consumedCallbackKey.current === callbackKey) return;
     consumedCallbackKey.current = callbackKey;

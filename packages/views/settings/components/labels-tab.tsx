@@ -155,9 +155,7 @@ export function LabelsTab() {
             <div className="px-4 py-12 text-center">
               <Tag className="mx-auto size-6 text-faint-foreground" />
               <p className="mt-3 text-body font-medium">
-                {query
-                  ? t(($) => $.labels.no_results)
-                  : t(($) => $.labels.empty, { scope: scopeLabel })}
+                {query ? t(($) => $.labels.no_results) : t(($) => $.labels.empty, { scope: scopeLabel })}
               </p>
             </div>
           ) : (

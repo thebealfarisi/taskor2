@@ -147,15 +147,14 @@ export function formatStripeMinorAmount(
   if (!normalizedCurrency) return null;
 
   try {
-    const fractionDigits = STRIPE_TWO_DECIMAL_COMPAT_CURRENCIES.has(
-      normalizedCurrency,
-    )
-      ? 2
-      : STRIPE_ZERO_DECIMAL_CURRENCIES.has(normalizedCurrency)
-        ? 0
-        : STRIPE_THREE_DECIMAL_CURRENCIES.has(normalizedCurrency)
-          ? 3
-          : 2;
+    let fractionDigits = 2;
+    if (STRIPE_TWO_DECIMAL_COMPAT_CURRENCIES.has(normalizedCurrency)) {
+      fractionDigits = 2;
+    } else if (STRIPE_ZERO_DECIMAL_CURRENCIES.has(normalizedCurrency)) {
+      fractionDigits = 0;
+    } else if (STRIPE_THREE_DECIMAL_CURRENCIES.has(normalizedCurrency)) {
+      fractionDigits = 3;
+    }
     const majorAmount = amount / 10 ** fractionDigits;
     const showStripeFraction = !Number.isInteger(majorAmount);
     const formatter = new Intl.NumberFormat(locale, {

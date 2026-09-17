@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
 export function HighlightText({ text, query }: { text: string; query: string }) {
   const parts = useMemo(() => {
@@ -33,15 +33,17 @@ export function HighlightText({ text, query }: { text: string; query: string }) 
 
   return (
     <>
-      {parts.map((part, i) =>
-        part.highlight ? (
-          <mark key={i} className="bg-yellow-200 dark:bg-yellow-900/60 text-inherit rounded-sm">
-            {part.text}
-          </mark>
-        ) : (
-          part.text
-        ),
-      )}
+      {parts.map((part, i) => {
+        if (part.highlight) {
+          return (
+            <mark key={`${part.text}-${i}`} className="bg-yellow-200 dark:bg-yellow-900/60 text-inherit rounded-sm">
+              {part.text}
+            </mark>
+          );
+        }
+
+        return <Fragment key={`${part.text}-${i}`}>{part.text}</Fragment>;
+      })}
     </>
   );
 }

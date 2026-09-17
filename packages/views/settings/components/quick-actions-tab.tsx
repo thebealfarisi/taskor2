@@ -224,6 +224,10 @@ export function QuickActionsTab() {
     );
   }, [sorted, query]);
 
+  const emptyTitle = query
+    ? t(($) => $.quick_actions.no_results)
+    : t(($) => $.quick_actions.empty_title);
+
   const handleArchiveToggle = async (action: QuickAction) => {
     const next = action.status === "active" ? "archived" : "active";
     try {
@@ -282,11 +286,7 @@ export function QuickActionsTab() {
           ) : filtered.length === 0 ? (
             <div className="px-4 py-12 text-center">
               <Zap className="mx-auto size-6 text-faint-foreground" />
-              <p className="mt-3 text-body font-medium">
-                {query
-                  ? t(($) => $.quick_actions.no_results)
-                  : t(($) => $.quick_actions.empty_title)}
-              </p>
+              <p className="mt-3 text-body font-medium">{emptyTitle}</p>
               {!query ? (
                 <p className="mx-auto mt-1 max-w-sm text-caption text-muted-foreground">
                   {t(($) => $.quick_actions.empty_hint)}

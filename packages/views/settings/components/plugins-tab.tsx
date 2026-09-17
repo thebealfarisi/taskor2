@@ -173,71 +173,93 @@ function ConfigField({
     </div>
   );
 
+  const renderFieldInput = () => {
+    if (field.type === "secret") {
+      return (
+        <Input
+          type="password"
+          autoComplete="off"
+          disabled={disabled}
+          value={secretValue}
+          placeholder={secretConfigured
+            ? t(($) => $.plugins.config.secret_set)
+            : field.placeholder ?? ""}
+          onChange={(event) => onSecretChange(event.target.value)}
+        />
+      );
+    }
+
+    if (field.type === "bool") {
+      return (
+        <Switch
+          disabled={disabled}
+          checked={value === true}
+          onCheckedChange={(checked) => onValueChange(checked === true)}
+        />
+      );
+    }
+
+    if (field.type === "enum") {
+      return (
+        <Select
+          items={(field.options ?? []).map((option) => ({ value: option, label: option }))}
+          value={typeof value === "string" ? value : ""}
+          onValueChange={(next) => next && onValueChange(next)}
+        >
+          <SelectTrigger disabled={disabled}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(field.options ?? []).map((option) => (
+              <SelectItem key={option} value={option}>{option}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      );
+    }
+
+    if (field.type === "number") {
+      return (
+        <Input
+          type="number"
+          disabled={disabled}
+          value={typeof value === "number" ? String(value) : ""}
+          placeholder={field.placeholder ?? ""}
+          onChange={(event) => {
+            const parsed = Number(event.target.value);
+            onValueChange(event.target.value === "" || Number.isNaN(parsed) ? undefined : parsed);
+          }}
+        />
+      );
+    }
+
+    if (field.multiline === true) {
+      // A field whose value is a list of lines is unreadable in a
+      // single-line input — and the generated form is the one piece of
+      // plugin UI the host owns, so getting it wrong is our bug.
+      return (
+        <Textarea
+          rows={4}
+          disabled={disabled}
+          value={typeof value === "string" ? value : ""}
+          placeholder={field.placeholder ?? ""}
+          onChange={(event) => onValueChange(event.target.value)}
+        />
+      );
+    }
+
+    return (
+      <Input
+        disabled={disabled}
+        value={typeof value === "string" ? value : ""}
+        placeholder={field.placeholder ?? ""}
+        onChange={(event) => onValueChange(event.target.value)}
+      />
+    );
+  };
+
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       {label}
-      <div className="w-full sm:w-96">
-        {field.type === "secret" ? (
-          <Input
-            type="password"
-            autoComplete="off"
-            disabled={disabled}
-            value={secretValue}
-            placeholder={secretConfigured
-              ? t(($) => $.plugins.config.secret_set)
-              : field.placeholder ?? ""}
-            onChange={(event) => onSecretChange(event.target.value)}
-          />
-        ) : field.type === "bool" ? (
-          <Switch
-            disabled={disabled}
-            checked={value === true}
-            onCheckedChange={(checked) => onValueChange(checked === true)}
-          />
-        ) : field.type === "enum" ? (
-          <Select
-            items={(field.options ?? []).map((option) => ({ value: option, label: option }))}
-            value={typeof value === "string" ? value : ""}
-            onValueChange={(next) => next && onValueChange(next)}
-          >
-            <SelectTrigger disabled={disabled}><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(field.options ?? []).map((option) => (
-                <SelectItem key={option} value={option}>{option}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : field.type === "number" ? (
-          <Input
-            type="number"
-            disabled={disabled}
-            value={typeof value === "number" ? String(value) : ""}
-            placeholder={field.placeholder ?? ""}
-            onChange={(event) => {
-              const parsed = Number(event.target.value);
-              onValueChange(event.target.value === "" || Number.isNaN(parsed) ? undefined : parsed);
-            }}
-          />
-        ) : field.multiline === true ? (
-          // A field whose value is a list of lines is unreadable in a
-          // single-line input — and the generated form is the one piece of
-          // plugin UI the host owns, so getting it wrong is our bug.
-          <Textarea
-            rows={4}
-            disabled={disabled}
-            value={typeof value === "string" ? value : ""}
-            placeholder={field.placeholder ?? ""}
-            onChange={(event) => onValueChange(event.target.value)}
-          />
-        ) : (
-          <Input
-            disabled={disabled}
-            value={typeof value === "string" ? value : ""}
-            placeholder={field.placeholder ?? ""}
-            onChange={(event) => onValueChange(event.target.value)}
-          />
-        )}
-      </div>
+      <div className="w-full sm:w-96">{renderFieldInput()}</div>
     </div>
   );
 }

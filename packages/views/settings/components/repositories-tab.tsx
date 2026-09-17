@@ -173,6 +173,10 @@ export function RepositoriesTab() {
     );
   }, [githubRepositories, repositorySearch]);
 
+  const githubEmptyMessage = repositorySearch
+    ? t(($) => $.repositories.github_no_search_results)
+    : t(($) => $.repositories.github_empty);
+
   useEffect(() => {
     setRepositories(workspace?.repos ?? EMPTY_REPOSITORIES);
     // A cache update after auto-save replaces the Workspace object. Keying on
@@ -556,9 +560,7 @@ export function RepositoriesTab() {
               </div>
             ) : filteredGitHubRepositories.length === 0 ? (
               <div className="px-6 py-12 text-center text-body text-muted-foreground">
-                {repositorySearch
-                  ? t(($) => $.repositories.github_no_search_results)
-                  : t(($) => $.repositories.github_empty)}
+                {githubEmptyMessage}
               </div>
             ) : (
               <div className="divide-y">
