@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LoaderCircle, Plus, Search, Trash2 } from "lucide-react";
 import { Input } from "@multica/ui/components/ui/input";
 import { Button } from "@multica/ui/components/ui/button";
@@ -97,7 +97,7 @@ export function repositoryIdentity(rawURL: string): string | null {
   }
 
   const normalizedPath = path
-    .replace(/^\/+|\/+$/g, "")
+    .replace(/(?:^\/+)|(?:\/+$)/g, "")
     .replace(/\.git$/i, "");
   if (!host || !normalizedPath) return null;
   return `${host.toLowerCase()}/${normalizedPath}`;
@@ -220,7 +220,8 @@ export function RepositoriesTab() {
     next.delete("github_connected");
     next.delete("github_error");
     const search = next.toString();
-    navigation.replace(`${navigation.pathname}${search ? `?${search}` : ""}`);
+    const query = search ? `?${search}` : "";
+    navigation.replace(`${navigation.pathname}${query}`);
   }, [
     canManageWorkspace,
     githubBrowseConfigured,
@@ -365,6 +366,130 @@ export function RepositoriesTab() {
 
   if (!workspace) return null;
 
+  let githubAccountSelector: ReactNode = null;
+  if (githubInstallations.length > 1) {
+    githubAccountSelector = (
+      <Select
+        items={githubInstallations.map((installation) => ({
+          value: installation.id,
+          label: installation.account_login,
+        }))}
+        value={selectedInstallationID}
+        onValueChange={(value) =>
+          setSelectedInstallationID(value ?? "")
+        }
+      >
+        <SelectTrigger
+          aria-label={t(($) => $.repositories.github_account)}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {githubInstallations.map((installation) => (
+            <SelectItem
+              key={installation.id}
+              value={installation.id}
+            >
+              {installation.account_login}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
+  } else if (githubInstallations[0]) {
+    githubAccountSelector = (
+      <p className="text-caption text-muted-foreground">
+        {t(($) => $.repositories.github_account)}:{" "}
+        <span className="font-medium text-foreground">
+          {githubInstallations[0].account_login}
+        </span>
+      </p>
+    );
+  }
+
+  let githubRepositoriesBody: ReactNode;
+  if (githubRepositoriesQuery.isPending) {
+    githubRepositoriesBody = (
+      <div className="flex items-center justify-center gap-2 px-6 py-12 text-body text-muted-foreground">
+        <LoaderCircle className="size-4 animate-spin" />
+        {t(($) => $.repositories.github_loading)}
+      </div>
+    );
+  } else if (githubRepositoriesQuery.isError) {
+    githubRepositoriesBody = (
+      <div className="px-6 py-12 text-center text-body text-muted-foreground">
+        {t(($) => $.repositories.github_load_failed)}
+      </div>
+    );
+  } else if (filteredGitHubRepositories.length === 0) {
+    githubRepositoriesBody = (
+      <div className="px-6 py-12 text-center text-body text-muted-foreground">
+        {githubEmptyMessage}
+      </div>
+    );
+  } else {
+    githubRepositoriesBody = (
+      <div className="divide-y">
+        {filteredGitHubRepositories.map((repository) => {
+          const identity = repositoryIdentity(repository.clone_url);
+          const alreadyAdded =
+            !!identity && existingRepositoryIdentities.has(identity);
+          const disabled = alreadyAdded || repository.archived;
+          return (
+            <label
+              key={repository.id}
+              htmlFor={`github-repository-${repository.id}`}
+              className="flex items-start gap-3 px-6 py-3.5"
+            >
+              <Checkbox
+                id={`github-repository-${repository.id}`}
+                checked={
+                  alreadyAdded ||
+                  selectedRepositories.has(repository.id)
+                }
+                disabled={disabled}
+                onCheckedChange={(checked) =>
+                  toggleGitHubRepository(
+                    repository,
+                    checked === true,
+                  )
+                }
+                className="mt-0.5"
+              />
+              <span className="min-w-0 flex-1 space-y-1">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-body font-medium">
+                    {repository.full_name}
+                  </span>
+                  {repository.private ? (
+                    <Badge variant="secondary">
+                      {t(($) => $.repositories.github_private)}
+                    </Badge>
+                  ) : null}
+                  {repository.archived ? (
+                    <Badge variant="outline">
+                      {t(($) => $.repositories.github_archived)}
+                    </Badge>
+                  ) : null}
+                  {alreadyAdded ? (
+                    <Badge variant="outline">
+                      {t(($) => $.repositories.github_added)}
+                    </Badge>
+                  ) : null}
+                </span>
+                {repository.description ? (
+                  <span className="block truncate text-caption text-muted-foreground">
+                    {repository.description}
+                  </span>
+                ) : null}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <SettingsTab title={t(($) => $.page.tabs.repositories)}>
       <SettingsSection
@@ -387,7 +512,7 @@ export function RepositoriesTab() {
 
           {repositories.map((repository, index) => (
             <div
-              key={index}
+              key={`${repository.url}-${index}`}
               className="grid gap-2 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_auto] sm:items-center"
             >
               <Input
@@ -496,41 +621,7 @@ export function RepositoriesTab() {
           </DialogHeader>
 
           <div className="space-y-3 px-6 py-4">
-            {githubInstallations.length > 1 ? (
-              <Select
-                items={githubInstallations.map((installation) => ({
-                  value: installation.id,
-                  label: installation.account_login,
-                }))}
-                value={selectedInstallationID}
-                onValueChange={(value) =>
-                  setSelectedInstallationID(value ?? "")
-                }
-              >
-                <SelectTrigger
-                  aria-label={t(($) => $.repositories.github_account)}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {githubInstallations.map((installation) => (
-                    <SelectItem
-                      key={installation.id}
-                      value={installation.id}
-                    >
-                      {installation.account_login}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : githubInstallations[0] ? (
-              <p className="text-caption text-muted-foreground">
-                {t(($) => $.repositories.github_account)}:{" "}
-                <span className="font-medium text-foreground">
-                  {githubInstallations[0].account_login}
-                </span>
-              </p>
-            ) : null}
+            {githubAccountSelector}
 
             <div className="relative">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -549,79 +640,7 @@ export function RepositoriesTab() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto border-y">
-            {githubRepositoriesQuery.isPending ? (
-              <div className="flex items-center justify-center gap-2 px-6 py-12 text-body text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" />
-                {t(($) => $.repositories.github_loading)}
-              </div>
-            ) : githubRepositoriesQuery.isError ? (
-              <div className="px-6 py-12 text-center text-body text-muted-foreground">
-                {t(($) => $.repositories.github_load_failed)}
-              </div>
-            ) : filteredGitHubRepositories.length === 0 ? (
-              <div className="px-6 py-12 text-center text-body text-muted-foreground">
-                {githubEmptyMessage}
-              </div>
-            ) : (
-              <div className="divide-y">
-                {filteredGitHubRepositories.map((repository) => {
-                  const identity = repositoryIdentity(repository.clone_url);
-                  const alreadyAdded =
-                    !!identity && existingRepositoryIdentities.has(identity);
-                  const disabled = alreadyAdded || repository.archived;
-                  return (
-                    <label
-                      key={repository.id}
-                      htmlFor={`github-repository-${repository.id}`}
-                      className="flex items-start gap-3 px-6 py-3.5"
-                    >
-                      <Checkbox
-                        id={`github-repository-${repository.id}`}
-                        checked={
-                          alreadyAdded ||
-                          selectedRepositories.has(repository.id)
-                        }
-                        disabled={disabled}
-                        onCheckedChange={(checked) =>
-                          toggleGitHubRepository(
-                            repository,
-                            checked === true,
-                          )
-                        }
-                        className="mt-0.5"
-                      />
-                      <span className="min-w-0 flex-1 space-y-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-body font-medium">
-                            {repository.full_name}
-                          </span>
-                          {repository.private ? (
-                            <Badge variant="secondary">
-                              {t(($) => $.repositories.github_private)}
-                            </Badge>
-                          ) : null}
-                          {repository.archived ? (
-                            <Badge variant="outline">
-                              {t(($) => $.repositories.github_archived)}
-                            </Badge>
-                          ) : null}
-                          {alreadyAdded ? (
-                            <Badge variant="outline">
-                              {t(($) => $.repositories.github_added)}
-                            </Badge>
-                          ) : null}
-                        </span>
-                        {repository.description ? (
-                          <span className="block truncate text-caption text-muted-foreground">
-                            {repository.description}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
+            {githubRepositoriesBody}
 
             {githubRepositoriesQuery.hasNextPage ? (
               <div className="flex justify-center border-t p-3">

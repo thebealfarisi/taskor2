@@ -172,11 +172,14 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
   );
 
   const tabFromUrl = navigation.searchParams.get(TAB_QUERY_KEY);
-  const candidateTab = tabFromUrl
-    ? tabFromUrl === "billing" && !billingEnabled
-      ? "workspace"
-      : LEGACY_WORKSPACE_TAB_REDIRECTS[tabFromUrl] ?? tabFromUrl
-    : null;
+  let candidateTab: string | null;
+  if (!tabFromUrl) {
+    candidateTab = null;
+  } else if (tabFromUrl === "billing" && !billingEnabled) {
+    candidateTab = "workspace";
+  } else {
+    candidateTab = LEGACY_WORKSPACE_TAB_REDIRECTS[tabFromUrl] ?? tabFromUrl;
+  }
   const activeTab =
     candidateTab && validTabs.has(candidateTab) ? candidateTab : DEFAULT_TAB;
 

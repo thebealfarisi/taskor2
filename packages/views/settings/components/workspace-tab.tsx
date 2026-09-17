@@ -300,19 +300,31 @@ export function WorkspaceTab() {
 
   if (!workspace) return null;
 
+  let saveStatus: typeof prefixSaveStatus | typeof detailsAutoSave.status;
+  if (prefixSaveStatus === "saving" || prefixSaveStatus === "error") {
+    saveStatus = prefixSaveStatus;
+  } else if (detailsAutoSave.status === "idle") {
+    saveStatus = prefixSaveStatus;
+  } else {
+    saveStatus = detailsAutoSave.status;
+  }
+
+  let leaveDescription: string;
+  if (!isSoleOwner) {
+    leaveDescription = t(($) => $.workspace.leave_default);
+  } else if (isSoleMember) {
+    leaveDescription = t(($) => $.workspace.leave_sole_member);
+  } else {
+    leaveDescription = t(($) => $.workspace.leave_sole_owner);
+  }
+
   return (
     <SettingsTab title={t(($) => $.page.tabs.general)}>
       <SettingsSection
         title={t(($) => $.workspace.section_general)}
         action={
           <SettingsSaveState
-            status={
-              prefixSaveStatus === "saving" || prefixSaveStatus === "error"
-                ? prefixSaveStatus
-                : detailsAutoSave.status === "idle"
-                  ? prefixSaveStatus
-                  : detailsAutoSave.status
-            }
+            status={saveStatus}
             savingLabel={t(($) => $.auto_save.saving)}
             savedLabel={t(($) => $.auto_save.saved)}
             errorLabel={t(($) => $.auto_save.failed)}
@@ -479,13 +491,7 @@ export function WorkspaceTab() {
           <SettingsCard>
             <SettingsRow
               label={t(($) => $.workspace.leave_title)}
-              description={
-                isSoleOwner
-                  ? isSoleMember
-                    ? t(($) => $.workspace.leave_sole_member)
-                    : t(($) => $.workspace.leave_sole_owner)
-                  : t(($) => $.workspace.leave_default)
-              }
+              description={leaveDescription}
             >
               <Button
                 variant="outline"

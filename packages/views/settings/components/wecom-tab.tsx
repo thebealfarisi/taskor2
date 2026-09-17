@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ChevronRight, Trash2 } from "lucide-react";
@@ -86,67 +86,85 @@ export function WecomTab() {
     }
   }
 
+  let connectedBotsBody: ReactNode;
+  if (isLoading) {
+    connectedBotsBody = (
+      <Card>
+        <CardContent>
+          <p className="text-body text-muted-foreground">{t(($) => $.wecom.loading)}</p>
+        </CardContent>
+      </Card>
+    );
+  } else if (installations.length === 0) {
+    connectedBotsBody = (
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="text-body font-medium">{t(($) => $.wecom.empty_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.wecom.empty_description_prefix)}{" "}
+            <strong>{t(($) => $.wecom.empty_description_cta)}</strong>{" "}
+            {t(($) => $.wecom.empty_description_suffix)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else {
+    connectedBotsBody = (
+      <Card>
+        <CardContent className="divide-y">
+          {installations.map((inst) => (
+            <InstallationRow
+              key={inst.id}
+              installation={inst}
+              canManage={canManage}
+              onDisconnect={() => setDisconnectTarget(inst.id)}
+            />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  let mainBody: ReactNode;
+  if (!configured) {
+    mainBody = (
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="text-body font-medium">{t(($) => $.wecom.not_enabled_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.wecom.not_enabled_description_prefix)}{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-micro">
+              MULTICA_WECOM_SECRET_KEY
+            </code>{" "}
+            {t(($) => $.wecom.not_enabled_description_suffix)}{" "}
+            {t(($) => $.wecom.not_enabled_self_host_hint)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else if (!installSupported && installations.length === 0) {
+    mainBody = (
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="text-body font-medium">{t(($) => $.wecom.preview_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.wecom.preview_description)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else {
+    mainBody = (
+      <section className="space-y-3">
+        <h2 className="text-body font-semibold">{t(($) => $.wecom.connected_bots)}</h2>
+        {connectedBotsBody}
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      {!configured ? (
-        <Card>
-          <CardContent className="space-y-2">
-            <p className="text-body font-medium">{t(($) => $.wecom.not_enabled_title)}</p>
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.wecom.not_enabled_description_prefix)}{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-micro">
-                MULTICA_WECOM_SECRET_KEY
-              </code>{" "}
-              {t(($) => $.wecom.not_enabled_description_suffix)}{" "}
-              {t(($) => $.wecom.not_enabled_self_host_hint)}
-            </p>
-          </CardContent>
-        </Card>
-      ) : !installSupported && installations.length === 0 ? (
-        <Card>
-          <CardContent className="space-y-2">
-            <p className="text-body font-medium">{t(($) => $.wecom.preview_title)}</p>
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.wecom.preview_description)}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <section className="space-y-3">
-          <h2 className="text-body font-semibold">{t(($) => $.wecom.connected_bots)}</h2>
-          {isLoading ? (
-            <Card>
-              <CardContent>
-                <p className="text-body text-muted-foreground">{t(($) => $.wecom.loading)}</p>
-              </CardContent>
-            </Card>
-          ) : installations.length === 0 ? (
-            <Card>
-              <CardContent className="space-y-2">
-                <p className="text-body font-medium">{t(($) => $.wecom.empty_title)}</p>
-                <p className="text-caption text-muted-foreground">
-                  {t(($) => $.wecom.empty_description_prefix)}{" "}
-                  <strong>{t(($) => $.wecom.empty_description_cta)}</strong>{" "}
-                  {t(($) => $.wecom.empty_description_suffix)}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="divide-y">
-                {installations.map((inst) => (
-                  <InstallationRow
-                    key={inst.id}
-                    installation={inst}
-                    canManage={canManage}
-                    onDisconnect={() => setDisconnectTarget(inst.id)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </section>
-      )}
+      {mainBody}
 
       <AlertDialog
         open={!!disconnectTarget}

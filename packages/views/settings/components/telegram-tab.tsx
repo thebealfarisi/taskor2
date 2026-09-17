@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ChevronRight, ExternalLink, Trash2 } from "lucide-react";
@@ -84,66 +84,84 @@ export function TelegramTab() {
     }
   }
 
+  let connectedBotsBody: ReactNode;
+  if (installations.length === 0) {
+    connectedBotsBody = (
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="text-body font-medium">{t(($) => $.telegram.empty_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.telegram.empty_description_prefix)}{" "}
+            <strong>{t(($) => $.telegram.empty_description_cta)}</strong>{" "}
+            {t(($) => $.telegram.empty_description_suffix)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else {
+    connectedBotsBody = (
+      <Card>
+        <CardContent className="divide-y">
+          {installations.map((inst) => (
+            <InstallationRow
+              key={inst.id}
+              installation={inst}
+              canManage={canManage}
+              onDisconnect={() => setDisconnectTarget(inst.id)}
+            />
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  let mainBody: ReactNode;
+  if (isError) {
+    mainBody = (
+      <Card>
+        <CardContent>
+          <p className="text-body text-muted-foreground">
+            {t(($) => $.telegram.load_failed)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else if (isLoading) {
+    mainBody = (
+      <Card>
+        <CardContent>
+          <p className="text-body text-muted-foreground">{t(($) => $.telegram.loading)}</p>
+        </CardContent>
+      </Card>
+    );
+  } else if (!configured) {
+    mainBody = (
+      <Card>
+        <CardContent className="space-y-2">
+          <p className="text-body font-medium">{t(($) => $.telegram.not_enabled_title)}</p>
+          <p className="text-caption text-muted-foreground">
+            {t(($) => $.telegram.not_enabled_description_prefix)}{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-micro">
+              MULTICA_TELEGRAM_SECRET_KEY
+            </code>{" "}
+            {t(($) => $.telegram.not_enabled_description_suffix)}{" "}
+            {t(($) => $.telegram.not_enabled_self_host_hint)}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  } else {
+    mainBody = (
+      <section className="space-y-3">
+        <h2 className="text-body font-semibold">{t(($) => $.telegram.connected_bots)}</h2>
+        {connectedBotsBody}
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-8">
-      {isError ? (
-        <Card>
-          <CardContent>
-            <p className="text-body text-muted-foreground">
-              {t(($) => $.telegram.load_failed)}
-            </p>
-          </CardContent>
-        </Card>
-      ) : isLoading ? (
-        <Card>
-          <CardContent>
-            <p className="text-body text-muted-foreground">{t(($) => $.telegram.loading)}</p>
-          </CardContent>
-        </Card>
-      ) : !configured ? (
-        <Card>
-          <CardContent className="space-y-2">
-            <p className="text-body font-medium">{t(($) => $.telegram.not_enabled_title)}</p>
-            <p className="text-caption text-muted-foreground">
-              {t(($) => $.telegram.not_enabled_description_prefix)}{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-micro">
-                MULTICA_TELEGRAM_SECRET_KEY
-              </code>{" "}
-              {t(($) => $.telegram.not_enabled_description_suffix)}{" "}
-              {t(($) => $.telegram.not_enabled_self_host_hint)}
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <section className="space-y-3">
-          <h2 className="text-body font-semibold">{t(($) => $.telegram.connected_bots)}</h2>
-          {installations.length === 0 ? (
-            <Card>
-              <CardContent className="space-y-2">
-                <p className="text-body font-medium">{t(($) => $.telegram.empty_title)}</p>
-                <p className="text-caption text-muted-foreground">
-                  {t(($) => $.telegram.empty_description_prefix)}{" "}
-                  <strong>{t(($) => $.telegram.empty_description_cta)}</strong>{" "}
-                  {t(($) => $.telegram.empty_description_suffix)}
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="divide-y">
-                {installations.map((inst) => (
-                  <InstallationRow
-                    key={inst.id}
-                    installation={inst}
-                    canManage={canManage}
-                    onDisconnect={() => setDisconnectTarget(inst.id)}
-                  />
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </section>
-      )}
+      {mainBody}
 
       <AlertDialog
         open={!!disconnectTarget}
@@ -233,13 +251,16 @@ function InstallationRow({
 // telegramDocsUrl points at the Telegram integration guide on the docs site,
 // localized like the Slack docs link.
 function telegramDocsUrl(lang: string | undefined): string {
-  const prefix = lang?.startsWith("zh")
-    ? "/zh"
-    : lang?.startsWith("ja")
-      ? "/ja"
-      : lang?.startsWith("ko")
-        ? "/ko"
-        : "";
+  let prefix: string;
+  if (lang?.startsWith("zh")) {
+    prefix = "/zh";
+  } else if (lang?.startsWith("ja")) {
+    prefix = "/ja";
+  } else if (lang?.startsWith("ko")) {
+    prefix = "/ko";
+  } else {
+    prefix = "";
+  }
   return `https://multica.ai/docs${prefix}/telegram-bot-integration`;
 }
 

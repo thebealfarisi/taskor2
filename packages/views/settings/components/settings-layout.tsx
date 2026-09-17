@@ -157,23 +157,29 @@ export function SettingsSaveState({
 }) {
   if (status === "idle") return null;
 
-  const content =
-    status === "saving" ? (
+  let content: ReactNode;
+  if (status === "saving") {
+    content = (
       <>
         <Loader2 className="size-3 animate-spin" />
         {savingLabel}
       </>
-    ) : status === "saved" ? (
+    );
+  } else if (status === "saved") {
+    content = (
       <>
         <Check className="size-3 text-success" />
         {savedLabel}
       </>
-    ) : (
+    );
+  } else {
+    content = (
       <>
         <AlertCircle className="size-3 text-destructive" />
         {errorLabel}
       </>
     );
+  }
 
   return (
     <span

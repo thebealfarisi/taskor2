@@ -130,6 +130,44 @@ export function McpTab() {
     }
   };
 
+  let serversContent: React.ReactNode;
+  if (serversQuery.isLoading) {
+    serversContent = (
+      <div className="flex items-center justify-center py-8 text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+      </div>
+    );
+  } else if (servers.length === 0) {
+    serversContent = (
+      <div className="px-4 py-8 text-center">
+        <Server className="mx-auto h-5 w-5 text-muted-foreground" />
+        <p className="mt-3 text-body font-medium">
+          {t(($) => $.mcp.empty_title)}
+        </p>
+        <p className="mx-auto mt-1 max-w-md text-caption leading-5 text-muted-foreground">
+          {t(($) => $.mcp.empty_description)}
+        </p>
+      </div>
+    );
+  } else {
+    serversContent = (
+      <ul className="divide-y divide-surface-border">
+        {servers.map((server) => (
+          <McpServerRow
+            key={server.name}
+            server={server}
+            canManage={canManage}
+            onEdit={() => {
+              setEditingServer(server);
+              setEditorOpen(true);
+            }}
+            onDelete={() => setDeletingServer(server)}
+          />
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <SettingsTab
       title={t(($) => $.mcp.title)}
@@ -153,38 +191,7 @@ export function McpTab() {
           ) : null
         }
       >
-        <SettingsCard>
-          {serversQuery.isLoading ? (
-            <div className="flex items-center justify-center py-8 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-            </div>
-          ) : servers.length === 0 ? (
-            <div className="px-4 py-8 text-center">
-              <Server className="mx-auto h-5 w-5 text-muted-foreground" />
-              <p className="mt-3 text-body font-medium">
-                {t(($) => $.mcp.empty_title)}
-              </p>
-              <p className="mx-auto mt-1 max-w-md text-caption leading-5 text-muted-foreground">
-                {t(($) => $.mcp.empty_description)}
-              </p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-surface-border">
-              {servers.map((server) => (
-                <McpServerRow
-                  key={server.name}
-                  server={server}
-                  canManage={canManage}
-                  onEdit={() => {
-                    setEditingServer(server);
-                    setEditorOpen(true);
-                  }}
-                  onDelete={() => setDeletingServer(server)}
-                />
-              ))}
-            </ul>
-          )}
-        </SettingsCard>
+        <SettingsCard>{serversContent}</SettingsCard>
         {!canManage && !currentMember.isLoading ? (
           <p className="px-0.5 text-caption text-muted-foreground">
             {t(($) => $.mcp.admin_only_note)}
