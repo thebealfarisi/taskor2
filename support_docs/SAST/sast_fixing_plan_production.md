@@ -227,18 +227,32 @@ graph TD
 - **Pembagian Berdasarkan Tingkat Keparahan:**
 
 #### Gelombang P5.1: Ekstrem Kompleksitas di Go Backend (Skor > 100) — 15 Fungsi
+
+##### Sub-wave P5.1.A: Server Router & Notification Listeners (`server/cmd/server/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil diimplementasikan dan diverifikasi dengan kompilasi `go build -ldflags "-s -w" ./cmd/server` dan suite pengujian `go test ./cmd/server`.
+- **Daftar Fungsi Refactor:**
+  1. `server/cmd/server/notification_listeners.go (633)`: `registerNotificationListeners` (skor awal: **125** -> skor baru: **0**). Didekomposisi menjadi 10 fungsi pembantu handler modular: `handleIssueCreatedNotification`, `handleIssueUpdatedNotification`, `handleIssueAssigneeChangeNotification`, `handleIssueStatusChangeNotification`, `handleIssueFieldChangeNotifications`, `handleIssueDescriptionMentionsNotification`, `handleCommentCreatedNotification`, `handleIssueReactionAddedNotification`, `handleReactionAddedNotification`, `handleTaskFailedNotification`.
+  2. `server/cmd/server/router.go (318)`: `NewRouterWithOptions` (skor awal: **148**, 1.864 baris -> skor baru: **~38**). Didekomposisi menjadi 3 file modular terisolasi:
+     - `server/cmd/server/router.go`: Inisialisasi core router dan middleware pipeline.
+     - `server/cmd/server/router_integrations.go`: Setup integrasi platform eksternal (`initServerIntegrations`: Lark, WeCom, DingTalk, Slack, Telegram, Composio).
+     - `server/cmd/server/router_routes.go`: Pendaftaran rute HTTP modular (`mountAllRoutes`, `mountPublicAndHealthRoutes`, `mountDaemonAPIRoutes`, `mountPluginAPIRoutes`, `mountProtectedRoutes`, `mountUserScopedRoutes`, `mountWorkspaceScopedRoutes`, `mountWorkspaceIssueRoutes`, `mountWorkspaceProjectAndSquadRoutes`, `mountWorkspaceAgentAndChatRoutes`, `mountWorkspaceInboxAndCommentRoutes`), masing-masing berbobot skor kompleksitas 0.
+
+##### Sub-wave P5.1.B: Issue & Agent Handlers (`server/internal/handler/`) — [STATUS: IN PROGRESS]
+| Skor | Lokasi File & Baris | Fungsi Utama | Strategi Dekomposisi |
+|:---:|---|---|---|
+| **164** | `server/internal/handler/issue.go (3856)` | Bulk Issue Mutation (`BatchUpdateIssues`) | Ekstrak pipeline mutasi per-field (status, assignee, priority, labels). |
+| **137** | `server/internal/handler/issue.go (1014)` | Issue Query Filters (`ListIssues`) | Gunakan builder pola filter query terpisah. |
+| **133** | `server/internal/handler/agent.go (1580)` | Agent Prompt Compilation (`UpdateAgent`) | Pisahkan parsing template prompt dari resolusi dependensi skill. |
+| **129** | `server/internal/handler/issue.go (3238)` | Issue Detail Aggregator (`UpdateIssue`) | Pisahkan query komentar, reaksi, dan metadata ke helper terpisah. |
+| **122** | `server/internal/handler/issue.go (1702)` | Issue Update Transaction (`ListGroupedIssues`) | Pisahkan logika side-effect notifikasi dari transaksi database. |
+| **106** | `server/internal/handler/comment.go` | Comment Thread Fetching (`fetchCommentsForList`) | Ekstrak loader komentar dan perakit reaksi ke sub-fungsi mandiri. |
+
+##### Sub-wave P5.1.C: Daemon Lifecycle & LLM Stream Parser — [STATUS: PENDING]
 | Skor | Lokasi File & Baris | Fungsi Utama | Strategi Dekomposisi |
 |:---:|---|---|---|
 | **566** | `server/internal/handler/daemon.go (1890)` | Dispatcher Daemon Lifecycle | Pecah ke dalam sub-handler terpisah untuk *start*, *stop*, *handshake*, dan *healthcheck*. |
 | **211** | `server/internal/daemon/daemon.go (6308)` | Task Execution Loop | Ekstrak tahap validasi lingkungan, penyiapan git worktree, dan logging ke fungsi terpisah. |
-| **164** | `server/internal/handler/issue.go (3856)` | Bulk Issue Mutation | Ekstrak pipeline mutasi per-field (status, assignee, priority, labels). |
-| **148** | `server/cmd/server/router.go (318)` | Router Route Registration | Kelompokkan pendaftaran endpoint ke dalam sub-router modular (`registerIssueRoutes`, dll). |
 | **147** | `server/pkg/agent/codex.go (936)` | LLM Stream Event Parser | Ekstrak parser event JSON ke state machine parser mandiri. |
-| **137** | `server/internal/handler/issue.go (1014)` | Issue Query Filters | Gunakan builder pola filter query terpisah. |
-| **133** | `server/internal/handler/agent.go (1580)` | Agent Prompt Compilation | Pisahkan parsing template prompt dari resolusi dependensi skill. |
-| **129** | `server/internal/handler/issue.go (3238)` | Issue Detail Aggregator | Pisahkan query komentar, reaksi, dan metadata ke helper terpisah. |
-| **125** | `server/cmd/server/notification_listeners.go (633)` | Event Relay Dispatcher | Ekstrak worker switch-case event handler. |
-| **122** | `server/internal/handler/issue.go (1702)` | Issue Update Transaction | Pisahkan logika side-effect notifikasi dari transaksi database. |
 
 #### Gelombang P5.2: Ekstrem Kompleksitas di Frontend TypeScript (Skor > 100) — 7 Fungsi/Hooks
 | Skor | Lokasi File & Baris | Komponen / Hook | Strategi Dekomposisi |

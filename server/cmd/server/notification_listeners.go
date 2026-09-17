@@ -635,390 +635,404 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 
 	// issue:created — Direct notification to assignee if assignee != actor
 	bus.Subscribe(protocol.EventIssueCreated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
-		if !ok {
-			return
-		}
-
-		// Track who already got notified to avoid duplicates
-		skip := map[string]bool{e.ActorID: true}
-
-		// Direct notification to assignees that own an inbox.
-		if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
-			skip[*issue.AssigneeID] = true
-			notifyDirect(ctx, queries, bus,
-				*issue.AssigneeType, *issue.AssigneeID,
-				issue.WorkspaceID, e, issue.ID, issue.Status,
-				"issue_assigned", "action_required",
-				issue.Title,
-				"",
-				emptyDetails,
-			)
-		}
-
-		// Notify @mentions in description
-		if issue.Description != nil && *issue.Description != "" {
-			mentions := parseMentions(*issue.Description)
-			notifyMentionedMembers(bus, queries, e, mentions, issue.ID, issue.Title, issue.Status,
-				issue.Title, skip, emptyDetails)
-		}
+		handleIssueCreatedNotification(ctx, queries, bus, e)
 	})
 
 	// issue:updated — handle assignee changes, status changes, priority, due date
 	bus.Subscribe(protocol.EventIssueUpdated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
-		if !ok {
-			return
-		}
-		assigneeChanged, _ := payload["assignee_changed"].(bool)
-		statusChanged, _ := payload["status_changed"].(bool)
-		descriptionChanged, _ := payload["description_changed"].(bool)
-		prevAssigneeType, _ := payload["prev_assignee_type"].(*string)
-		prevAssigneeID, _ := payload["prev_assignee_id"].(*string)
-		prevDescription, _ := payload["prev_description"].(*string)
-
-		if assigneeChanged {
-			// Build structured details for assignee change.
-			//
-			// map[string]string, not map[string]any: every client parses inbox
-			// `details` as a string->string map, and because the inbox endpoint
-			// returns an ARRAY, one non-string value fails the whole parse and
-			// blanks the entire list rather than one row. `any` let that be a
-			// convention a reviewer had to notice; the concrete type makes it a
-			// compile error. This is the only details map in this file that was
-			// not already string-typed.
-			detailsMap := map[string]string{}
-			if prevAssigneeType != nil {
-				detailsMap["prev_assignee_type"] = *prevAssigneeType
-			}
-			if prevAssigneeID != nil {
-				detailsMap["prev_assignee_id"] = *prevAssigneeID
-			}
-			if issue.AssigneeType != nil {
-				detailsMap["new_assignee_type"] = *issue.AssigneeType
-			}
-			if issue.AssigneeID != nil {
-				detailsMap["new_assignee_id"] = *issue.AssigneeID
-			}
-			assigneeDetails, _ := json.Marshal(detailsMap)
-
-			// Direct: notify new assignee about assignment when it owns an inbox.
-			if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
-				notifyDirect(ctx, queries, bus,
-					*issue.AssigneeType, *issue.AssigneeID,
-					e.WorkspaceID, e, issue.ID, issue.Status,
-					"issue_assigned", "action_required",
-					issue.Title,
-					"",
-					assigneeDetails,
-				)
-			}
-
-			// Direct: notify only a previous member assignee about unassignment.
-			// This is intentionally narrower than isAssignmentRecipientType: agents
-			// do not receive unassigned notifications.
-			if prevAssigneeType != nil && prevAssigneeID != nil && *prevAssigneeType == "member" {
-				notifyDirect(ctx, queries, bus,
-					"member", *prevAssigneeID,
-					e.WorkspaceID, e, issue.ID, issue.Status,
-					"unassigned", "info",
-					issue.Title,
-					"",
-					assigneeDetails,
-				)
-			}
-
-			// Subscriber: notify remaining subscribers about assignee change,
-			// excluding actor, old assignee, and new assignee
-			exclude := map[string]bool{}
-			if prevAssigneeID != nil {
-				exclude[*prevAssigneeID] = true
-			}
-			if issue.AssigneeID != nil {
-				exclude[*issue.AssigneeID] = true
-			}
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
-				exclude, "assignee_changed", "info",
-				issue.Title, "",
-				assigneeDetails)
-		}
-
-		if statusChanged {
-			prevStatus, _ := payload["prev_status"].(string)
-			statusDetails, _ := json.Marshal(map[string]string{
-				"from": prevStatus,
-				"to":   issue.Status,
-			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
-				nil, "status_changed", "info",
-				issue.Title, "",
-				statusDetails)
-
-			// When the issue progresses past the failure (in_review / done /
-			// cancelled), retire any stale task_failed inbox rows so the
-			// inbox reflects the current state of the work, not its history.
-			// The activity log keeps the full failure history for audit.
-			if terminalStatusForTaskFailedDismiss[issuestatus.Effective(
-				ctx, queries, parseUUID(e.WorkspaceID), issue.Status,
-			)] {
-				archiveStaleTaskFailedInbox(ctx, queries, bus, e.WorkspaceID, issue.ID)
-			}
-		}
-
-		if priorityChanged, _ := payload["priority_changed"].(bool); priorityChanged {
-			prevPriority, _ := payload["prev_priority"].(string)
-			priorityDetails, _ := json.Marshal(map[string]string{
-				"from": prevPriority,
-				"to":   issue.Priority,
-			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
-				nil, "priority_changed", "info",
-				issue.Title, "",
-				priorityDetails)
-		}
-
-		if startDateChanged, _ := payload["start_date_changed"].(bool); startDateChanged {
-			prevStartDateStr := ""
-			if prevStartDate, ok := payload["prev_start_date"].(*string); ok && prevStartDate != nil {
-				prevStartDateStr = *prevStartDate
-			}
-			newStartDateStr := ""
-			if issue.StartDate != nil {
-				newStartDateStr = *issue.StartDate
-			}
-			startDateDetails, _ := json.Marshal(map[string]string{
-				"from": prevStartDateStr,
-				"to":   newStartDateStr,
-			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
-				nil, "start_date_changed", "info",
-				issue.Title, "",
-				startDateDetails)
-		}
-
-		if dueDateChanged, _ := payload["due_date_changed"].(bool); dueDateChanged {
-			prevDueDateStr := ""
-			if prevDueDate, ok := payload["prev_due_date"].(*string); ok && prevDueDate != nil {
-				prevDueDateStr = *prevDueDate
-			}
-			newDueDateStr := ""
-			if issue.DueDate != nil {
-				newDueDateStr = *issue.DueDate
-			}
-			dueDateDetails, _ := json.Marshal(map[string]string{
-				"from": prevDueDateStr,
-				"to":   newDueDateStr,
-			})
-			notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
-				nil, "due_date_changed", "info",
-				issue.Title, "",
-				dueDateDetails)
-		}
-
-		// Notify NEW @mentions in description
-		if descriptionChanged && issue.Description != nil {
-			newMentions := parseMentions(*issue.Description)
-			if len(newMentions) > 0 {
-				prevMentioned := map[string]bool{}
-				if prevDescription != nil {
-					for _, m := range parseMentions(*prevDescription) {
-						prevMentioned[m.Type+":"+m.ID] = true
-					}
-				}
-				var added []mention
-				for _, m := range newMentions {
-					if !prevMentioned[m.Type+":"+m.ID] {
-						added = append(added, m)
-					}
-				}
-				skip := map[string]bool{e.ActorID: true}
-				notifyMentionedMembers(bus, queries, e, added, issue.ID, issue.Title, issue.Status,
-					issue.Title, skip, emptyDetails)
-			}
-		}
+		handleIssueUpdatedNotification(ctx, queries, bus, e)
 	})
 
 	// comment:created — notify all subscribers except the commenter
 	bus.Subscribe(protocol.EventCommentCreated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-
-		// The comment payload can come as handler.CommentResponse from the
-		// HTTP handler, or as map[string]any from the agent comment path in
-		// task.go. Handle both.
-		var issueID, commentID, commentContent, authorType string
-		switch c := payload["comment"].(type) {
-		case handler.CommentResponse:
-			issueID = c.IssueID
-			commentID = c.ID
-			commentContent = c.Content
-			authorType = c.AuthorType
-		case map[string]any:
-			issueID, _ = c["issue_id"].(string)
-			commentID, _ = c["id"].(string)
-			commentContent, _ = c["content"].(string)
-			authorType, _ = c["author_type"].(string)
-		default:
-			return
-		}
-
-		// Platform-authored system comments (MUL-2538 child-done parent
-		// notify) must NOT create inbox rows or parse mentions from their
-		// body — the comment is a controlled platform signal, not a human
-		// commenter. Mention parsing is the dangerous bit: if the body
-		// transcluded a child title containing `mention://member/<uuid>`,
-		// the parent's assignee inbox would light up via the generic path.
-		// Skip the listener entirely; the WS broadcast still delivers the
-		// comment to the issue timeline.
-		if authorType == "system" {
-			return
-		}
-
-		issueTitle, _ := payload["issue_title"].(string)
-		issueStatus, _ := payload["issue_status"].(string)
-
-		commentDetails := emptyDetails
-		if commentID != "" {
-			commentDetails, _ = json.Marshal(map[string]string{
-				"comment_id": commentID,
-			})
-		}
-
-		notifySubscribers(ctx, queries, bus, issueID, issueStatus, e.WorkspaceID, e,
-			nil, "new_comment", "info",
-			issueTitle, commentContent,
-			commentDetails)
-
-		// Notify @mentions in comment content.
-		mentions := parseMentions(commentContent)
-		if len(mentions) > 0 {
-			skip := map[string]bool{e.ActorID: true}
-			notifyMentionedMembers(bus, queries, e, mentions, issueID, issueTitle, issueStatus,
-				issueTitle, skip, commentDetails)
-		}
+		handleCommentCreatedNotification(ctx, queries, bus, e)
 	})
 
 	// issue_reaction:added — notify the issue creator
 	bus.Subscribe(protocol.EventIssueReactionAdded, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-
-		reaction, ok := payload["reaction"].(handler.IssueReactionResponse)
-		if !ok {
-			return
-		}
-
-		creatorType, _ := payload["creator_type"].(string)
-		creatorID, _ := payload["creator_id"].(string)
-		issueID, _ := payload["issue_id"].(string)
-		issueTitle, _ := payload["issue_title"].(string)
-		issueStatus, _ := payload["issue_status"].(string)
-
-		if creatorType == "" || creatorID == "" {
-			return
-		}
-
-		details, _ := json.Marshal(map[string]string{
-			"emoji": reaction.Emoji,
-		})
-
-		notifyDirect(ctx, queries, bus,
-			creatorType, creatorID,
-			e.WorkspaceID, e, issueID, issueStatus,
-			"reaction_added", "info",
-			issueTitle, "",
-			details,
-		)
+		handleIssueReactionAddedNotification(ctx, queries, bus, e)
 	})
 
 	// reaction:added — notify the comment author
 	bus.Subscribe(protocol.EventReactionAdded, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-
-		reaction, ok := payload["reaction"].(handler.ReactionResponse)
-		if !ok {
-			return
-		}
-
-		commentAuthorType, _ := payload["comment_author_type"].(string)
-		commentAuthorID, _ := payload["comment_author_id"].(string)
-		commentID, _ := payload["comment_id"].(string)
-		issueID, _ := payload["issue_id"].(string)
-		issueTitle, _ := payload["issue_title"].(string)
-		issueStatus, _ := payload["issue_status"].(string)
-
-		if commentAuthorType == "" || commentAuthorID == "" {
-			return
-		}
-
-		detailsMap := map[string]string{
-			"emoji": reaction.Emoji,
-		}
-		if commentID != "" {
-			detailsMap["comment_id"] = commentID
-		}
-		details, _ := json.Marshal(detailsMap)
-
-		notifyDirect(ctx, queries, bus,
-			commentAuthorType, commentAuthorID,
-			e.WorkspaceID, e, issueID, issueStatus,
-			"reaction_added", "info",
-			issueTitle, "",
-			details,
-		)
+		handleReactionAddedNotification(ctx, queries, bus, e)
 	})
 
 	// task:completed — no inbox notification (completion is visible from status change)
 
 	// task:failed — notify all subscribers except the agent
 	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		agentID, _ := payload["agent_id"].(string)
-		issueID, _ := payload["issue_id"].(string)
-		if issueID == "" {
-			return
-		}
-
-		issue, err := queries.GetIssue(ctx, parseUUID(issueID))
-		if err != nil {
-			slog.Error("task:failed notification: failed to get issue", "issue_id", issueID, "error", err)
-			return
-		}
-
-		exclude := map[string]bool{}
-		if agentID != "" {
-			exclude[agentID] = true
-		}
-
-		notifySubscribers(ctx, queries, bus, issueID, issue.Status, e.WorkspaceID,
-			events.Event{
-				Type:        e.Type,
-				WorkspaceID: e.WorkspaceID,
-				ActorType:   "agent",
-				ActorID:     agentID,
-			},
-			exclude, "task_failed", "action_required",
-			issue.Title, "",
-			emptyDetails)
+		handleTaskFailedNotification(ctx, queries, bus, e)
 	})
+}
+
+func handleIssueCreatedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := payload["issue"].(handler.IssueResponse)
+	if !ok {
+		return
+	}
+
+	// Track who already got notified to avoid duplicates
+	skip := map[string]bool{e.ActorID: true}
+
+	// Direct notification to assignees that own an inbox.
+	if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
+		skip[*issue.AssigneeID] = true
+		notifyDirect(ctx, queries, bus,
+			*issue.AssigneeType, *issue.AssigneeID,
+			issue.WorkspaceID, e, issue.ID, issue.Status,
+			"issue_assigned", "action_required",
+			issue.Title,
+			"",
+			emptyDetails,
+		)
+	}
+
+	// Notify @mentions in description
+	if issue.Description != nil && *issue.Description != "" {
+		mentions := parseMentions(*issue.Description)
+		notifyMentionedMembers(bus, queries, e, mentions, issue.ID, issue.Title, issue.Status,
+			issue.Title, skip, emptyDetails)
+	}
+}
+
+func handleIssueUpdatedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := payload["issue"].(handler.IssueResponse)
+	if !ok {
+		return
+	}
+
+	handleIssueAssigneeChangeNotification(ctx, queries, bus, e, issue, payload)
+	handleIssueStatusChangeNotification(ctx, queries, bus, e, issue, payload)
+	handleIssueFieldChangeNotifications(ctx, queries, bus, e, issue, payload)
+	handleIssueDescriptionMentionsNotification(bus, queries, e, issue, payload)
+}
+
+func handleIssueAssigneeChangeNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	assigneeChanged, _ := payload["assignee_changed"].(bool)
+	if !assigneeChanged {
+		return
+	}
+	prevAssigneeType, _ := payload["prev_assignee_type"].(*string)
+	prevAssigneeID, _ := payload["prev_assignee_id"].(*string)
+
+	detailsMap := map[string]string{}
+	if prevAssigneeType != nil {
+		detailsMap["prev_assignee_type"] = *prevAssigneeType
+	}
+	if prevAssigneeID != nil {
+		detailsMap["prev_assignee_id"] = *prevAssigneeID
+	}
+	if issue.AssigneeType != nil {
+		detailsMap["new_assignee_type"] = *issue.AssigneeType
+	}
+	if issue.AssigneeID != nil {
+		detailsMap["new_assignee_id"] = *issue.AssigneeID
+	}
+	assigneeDetails, _ := json.Marshal(detailsMap)
+
+	// Direct: notify new assignee about assignment when it owns an inbox.
+	if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
+		notifyDirect(ctx, queries, bus,
+			*issue.AssigneeType, *issue.AssigneeID,
+			e.WorkspaceID, e, issue.ID, issue.Status,
+			"issue_assigned", "action_required",
+			issue.Title,
+			"",
+			assigneeDetails,
+		)
+	}
+
+	// Direct: notify only a previous member assignee about unassignment.
+	if prevAssigneeType != nil && prevAssigneeID != nil && *prevAssigneeType == "member" {
+		notifyDirect(ctx, queries, bus,
+			"member", *prevAssigneeID,
+			e.WorkspaceID, e, issue.ID, issue.Status,
+			"unassigned", "info",
+			issue.Title,
+			"",
+			assigneeDetails,
+		)
+	}
+
+	// Subscriber: notify remaining subscribers about assignee change,
+	// excluding actor, old assignee, and new assignee
+	exclude := map[string]bool{}
+	if prevAssigneeID != nil {
+		exclude[*prevAssigneeID] = true
+	}
+	if issue.AssigneeID != nil {
+		exclude[*issue.AssigneeID] = true
+	}
+	notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+		exclude, "assignee_changed", "info",
+		issue.Title, "",
+		assigneeDetails)
+}
+
+func handleIssueStatusChangeNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	statusChanged, _ := payload["status_changed"].(bool)
+	if !statusChanged {
+		return
+	}
+	prevStatus, _ := payload["prev_status"].(string)
+	statusDetails, _ := json.Marshal(map[string]string{
+		"from": prevStatus,
+		"to":   issue.Status,
+	})
+	notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+		nil, "status_changed", "info",
+		issue.Title, "",
+		statusDetails)
+
+	if terminalStatusForTaskFailedDismiss[issuestatus.Effective(
+		ctx, queries, parseUUID(e.WorkspaceID), issue.Status,
+	)] {
+		archiveStaleTaskFailedInbox(ctx, queries, bus, e.WorkspaceID, issue.ID)
+	}
+}
+
+func handleIssueFieldChangeNotifications(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if priorityChanged, _ := payload["priority_changed"].(bool); priorityChanged {
+		prevPriority, _ := payload["prev_priority"].(string)
+		priorityDetails, _ := json.Marshal(map[string]string{
+			"from": prevPriority,
+			"to":   issue.Priority,
+		})
+		notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			nil, "priority_changed", "info",
+			issue.Title, "",
+			priorityDetails)
+	}
+
+	if startDateChanged, _ := payload["start_date_changed"].(bool); startDateChanged {
+		prevStartDateStr := ""
+		if prevStartDate, ok := payload["prev_start_date"].(*string); ok && prevStartDate != nil {
+			prevStartDateStr = *prevStartDate
+		}
+		newStartDateStr := ""
+		if issue.StartDate != nil {
+			newStartDateStr = *issue.StartDate
+		}
+		startDateDetails, _ := json.Marshal(map[string]string{
+			"from": prevStartDateStr,
+			"to":   newStartDateStr,
+		})
+		notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			nil, "start_date_changed", "info",
+			issue.Title, "",
+			startDateDetails)
+	}
+
+	if dueDateChanged, _ := payload["due_date_changed"].(bool); dueDateChanged {
+		prevDueDateStr := ""
+		if prevDueDate, ok := payload["prev_due_date"].(*string); ok && prevDueDate != nil {
+			prevDueDateStr = *prevDueDate
+		}
+		newDueDateStr := ""
+		if issue.DueDate != nil {
+			newDueDateStr = *issue.DueDate
+		}
+		dueDateDetails, _ := json.Marshal(map[string]string{
+			"from": prevDueDateStr,
+			"to":   newDueDateStr,
+		})
+		notifySubscribers(ctx, queries, bus, issue.ID, issue.Status, e.WorkspaceID, e,
+			nil, "due_date_changed", "info",
+			issue.Title, "",
+			dueDateDetails)
+	}
+}
+
+func handleIssueDescriptionMentionsNotification(bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	descriptionChanged, _ := payload["description_changed"].(bool)
+	if !descriptionChanged || issue.Description == nil {
+		return
+	}
+	newMentions := parseMentions(*issue.Description)
+	if len(newMentions) == 0 {
+		return
+	}
+	prevDescription, _ := payload["prev_description"].(*string)
+	prevMentioned := map[string]bool{}
+	if prevDescription != nil {
+		for _, m := range parseMentions(*prevDescription) {
+			prevMentioned[m.Type+":"+m.ID] = true
+		}
+	}
+	var added []mention
+	for _, m := range newMentions {
+		if !prevMentioned[m.Type+":"+m.ID] {
+			added = append(added, m)
+		}
+	}
+	skip := map[string]bool{e.ActorID: true}
+	notifyMentionedMembers(bus, queries, e, added, issue.ID, issue.Title, issue.Status,
+		issue.Title, skip, emptyDetails)
+}
+
+func handleCommentCreatedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+
+	var issueID, commentID, commentContent, authorType string
+	switch c := payload["comment"].(type) {
+	case handler.CommentResponse:
+		issueID = c.IssueID
+		commentID = c.ID
+		commentContent = c.Content
+		authorType = c.AuthorType
+	case map[string]any:
+		issueID, _ = c["issue_id"].(string)
+		commentID, _ = c["id"].(string)
+		commentContent, _ = c["content"].(string)
+		authorType, _ = c["author_type"].(string)
+	default:
+		return
+	}
+
+	if authorType == "system" {
+		return
+	}
+
+	issueTitle, _ := payload["issue_title"].(string)
+	issueStatus, _ := payload["issue_status"].(string)
+
+	commentDetails := emptyDetails
+	if commentID != "" {
+		commentDetails, _ = json.Marshal(map[string]string{
+			"comment_id": commentID,
+		})
+	}
+
+	notifySubscribers(ctx, queries, bus, issueID, issueStatus, e.WorkspaceID, e,
+		nil, "new_comment", "info",
+		issueTitle, commentContent,
+		commentDetails)
+
+	mentions := parseMentions(commentContent)
+	if len(mentions) > 0 {
+		skip := map[string]bool{e.ActorID: true}
+		notifyMentionedMembers(bus, queries, e, mentions, issueID, issueTitle, issueStatus,
+			issueTitle, skip, commentDetails)
+	}
+}
+
+func handleIssueReactionAddedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+
+	reaction, ok := payload["reaction"].(handler.IssueReactionResponse)
+	if !ok {
+		return
+	}
+
+	creatorType, _ := payload["creator_type"].(string)
+	creatorID, _ := payload["creator_id"].(string)
+	issueID, _ := payload["issue_id"].(string)
+	issueTitle, _ := payload["issue_title"].(string)
+	issueStatus, _ := payload["issue_status"].(string)
+
+	if creatorType == "" || creatorID == "" {
+		return
+	}
+
+	details, _ := json.Marshal(map[string]string{
+		"emoji": reaction.Emoji,
+	})
+
+	notifyDirect(ctx, queries, bus,
+		creatorType, creatorID,
+		e.WorkspaceID, e, issueID, issueStatus,
+		"reaction_added", "info",
+		issueTitle, "",
+		details,
+	)
+}
+
+func handleReactionAddedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+
+	reaction, ok := payload["reaction"].(handler.ReactionResponse)
+	if !ok {
+		return
+	}
+
+	commentAuthorType, _ := payload["comment_author_type"].(string)
+	commentAuthorID, _ := payload["comment_author_id"].(string)
+	commentID, _ := payload["comment_id"].(string)
+	issueID, _ := payload["issue_id"].(string)
+	issueTitle, _ := payload["issue_title"].(string)
+	issueStatus, _ := payload["issue_status"].(string)
+
+	if commentAuthorType == "" || commentAuthorID == "" {
+		return
+	}
+
+	detailsMap := map[string]string{
+		"emoji": reaction.Emoji,
+	}
+	if commentID != "" {
+		detailsMap["comment_id"] = commentID
+	}
+	details, _ := json.Marshal(detailsMap)
+
+	notifyDirect(ctx, queries, bus,
+		commentAuthorType, commentAuthorID,
+		e.WorkspaceID, e, issueID, issueStatus,
+		"reaction_added", "info",
+		issueTitle, "",
+		details,
+	)
+}
+
+func handleTaskFailedNotification(ctx context.Context, queries *db.Queries, bus *events.Bus, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	agentID, _ := payload["agent_id"].(string)
+	issueID, _ := payload["issue_id"].(string)
+	if issueID == "" {
+		return
+	}
+
+	issue, err := queries.GetIssue(ctx, parseUUID(issueID))
+	if err != nil {
+		slog.Error("task:failed notification: failed to get issue", "issue_id", issueID, "error", err)
+		return
+	}
+
+	exclude := map[string]bool{}
+	if agentID != "" {
+		exclude[agentID] = true
+	}
+
+	notifySubscribers(ctx, queries, bus, issueID, issue.Status, e.WorkspaceID,
+		events.Event{
+			Type:        e.Type,
+			WorkspaceID: e.WorkspaceID,
+			ActorType:   "agent",
+			ActorID:     agentID,
+		},
+		exclude, "task_failed", "action_required",
+		issue.Title, "",
+		emptyDetails)
 }
 
 // inboxItemToResponse converts a db.InboxItem into a map suitable for
