@@ -28,7 +28,7 @@ var traecliBlockedArgs = map[string]blockedArgMode{
 	"-p":                blockedStandalone,
 	"--print":           blockedStandalone,
 	"--output-format":   blockedWithValue,
-	"--permission-mode": blockedWithValue,
+	flagPermissionMode: blockedWithValue,
 }
 
 // traecliBackend implements Backend by spawning `traecli acp serve --yolo` and
@@ -348,7 +348,7 @@ func (b *traecliBackend) Execute(ctx context.Context, prompt string, opts ExecOp
 		}
 
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": userText},

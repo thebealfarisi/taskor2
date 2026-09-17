@@ -103,7 +103,7 @@ func AgentReadiness(ctx context.Context, q *db.Queries, agent db.Agent) (AgentVe
 		return AgentVerdict{
 			Availability: AgentBlocked,
 			Reason:       dispatch.ReasonTargetUnavailable,
-			Detail:       "agent is archived",
+			Detail:       errMsgAgentArchived,
 		}, nil
 	}
 	if !agent.RuntimeID.Valid {

@@ -15,14 +15,14 @@ import (
 // Returns the git root path and true if found.
 func detectGitRepo(dir string) (string, bool) {
 	// Try regular repo first.
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel")
+	cmd := exec.Command("git", "-C", dir, gitRevParse, "--show-toplevel")
 
 	if out, err := cmd.Output(); err == nil {
 		return strings.TrimSpace(string(out)), true
 	}
 
 	// Try bare repo: git-dir is "." for bare repos when -C points at the repo.
-	cmd = exec.Command("git", "-C", dir, "rev-parse", "--is-bare-repository")
+	cmd = exec.Command("git", "-C", dir, gitRevParse, "--is-bare-repository")
 
 	if out, err := cmd.Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
 		return dir, true
@@ -57,14 +57,14 @@ func getRemoteDefaultBranch(gitRoot string) string {
 	}
 
 	// Fallback: check if origin/main exists.
-	cmd = exec.Command("git", "-C", gitRoot, "rev-parse", "--verify", "origin/main")
+	cmd = exec.Command("git", "-C", gitRoot, gitRevParse, gitFlagVerify, "origin/main")
 
 	if err := cmd.Run(); err == nil {
 		return "origin/main"
 	}
 
 	// Fallback: check if origin/master exists.
-	cmd = exec.Command("git", "-C", gitRoot, "rev-parse", "--verify", "origin/master")
+	cmd = exec.Command("git", "-C", gitRoot, gitRevParse, gitFlagVerify, "origin/master")
 
 	if err := cmd.Run(); err == nil {
 		return "origin/master"
@@ -120,7 +120,7 @@ func removeGitWorktree(gitRoot, worktreePath, branchName string, logger *slog.Lo
 // excludeFromGit adds a pattern to the worktree's .git/info/exclude file.
 func excludeFromGit(worktreePath, pattern string) error {
 	// Resolve the actual git dir for this worktree.
-	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--git-dir")
+	cmd := exec.Command("git", "-C", worktreePath, gitRevParse, "--git-dir")
 
 	out, err := cmd.Output()
 	if err != nil {

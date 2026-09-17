@@ -531,7 +531,7 @@ func (b *dimBackend) Execute(ctx context.Context, prompt string, opts ExecOption
 				// Best-effort close so a partially configured session is not
 				// left behind for the next resume to inherit.
 				closeCtx, closeCancel := context.WithTimeout(context.Background(), dimSessionCloseTimeout)
-				_, _ = c.request(closeCtx, "session/close", map[string]any{"sessionId": sessionID})
+				_, _ = c.request(closeCtx, methodSessionClose, map[string]any{"sessionId": sessionID})
 				closeCancel()
 				resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), SessionID: sessionID, ResumeRejected: resumeRejected}
 				return
@@ -550,7 +550,7 @@ func (b *dimBackend) Execute(ctx context.Context, prompt string, opts ExecOption
 				// Close the session so a partially configured one (permission/mode
 				// set, model not) is not left for the next resume to inherit.
 				closeCtx, closeCancel := context.WithTimeout(context.Background(), dimSessionCloseTimeout)
-				_, _ = c.request(closeCtx, "session/close", map[string]any{"sessionId": sessionID})
+				_, _ = c.request(closeCtx, methodSessionClose, map[string]any{"sessionId": sessionID})
 				closeCancel()
 				resCh <- Result{
 					Status:         finalStatus,
@@ -576,7 +576,7 @@ func (b *dimBackend) Execute(ctx context.Context, prompt string, opts ExecOption
 			userText = opts.SystemPrompt + "\n\n---\n\n" + prompt
 		}
 
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": userText},
@@ -627,7 +627,7 @@ func (b *dimBackend) Execute(ctx context.Context, prompt string, opts ExecOption
 		// waits up to 5s for the lock.
 		if sessionID != "" {
 			closeCtx, closeCancel := context.WithTimeout(context.Background(), dimSessionCloseTimeout)
-			_, _ = c.request(closeCtx, "session/close", map[string]any{"sessionId": sessionID})
+			_, _ = c.request(closeCtx, methodSessionClose, map[string]any{"sessionId": sessionID})
 			closeCancel()
 		}
 

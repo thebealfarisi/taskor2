@@ -380,7 +380,7 @@ func envDurationOrZero(name string, def time.Duration) time.Duration {
 	}
 	v, err := time.ParseDuration(raw)
 	if err != nil {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def.String(), "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def.String(), "error", err)
 		return def
 	}
 	return v
@@ -393,7 +393,7 @@ func envDurationPositive(name string, def time.Duration) time.Duration {
 	}
 	v, err := time.ParseDuration(raw)
 	if err != nil || v <= 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def.String(), "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def.String(), "error", err)
 		return def
 	}
 	return v
@@ -406,7 +406,7 @@ func envDurationNonNegative(name string, def time.Duration) time.Duration {
 	}
 	v, err := time.ParseDuration(raw)
 	if err != nil || v < 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def.String(), "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def.String(), "error", err)
 		return def
 	}
 	return v

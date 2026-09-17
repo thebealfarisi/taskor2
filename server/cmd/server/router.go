@@ -1398,9 +1398,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/issues/{id}/comments", h.ListPluginComments)
 			r.Post("/issues/{id}/comments", h.CreatePluginComment)
 			r.Get("/storage/{scope}", h.ListPluginStorage)
-			r.Get("/storage/{scope}/{key}", h.GetPluginStorage)
-			r.Put("/storage/{scope}/{key}", h.PutPluginStorage)
-			r.Delete("/storage/{scope}/{key}", h.DeletePluginStorage)
+			r.Get(routeStorageScopeKey, h.GetPluginStorage)
+			r.Put(routeStorageScopeKey, h.PutPluginStorage)
+			r.Delete(routeStorageScopeKey, h.DeletePluginStorage)
 			// ui / manual only. `event` is dispatched by the host off the event
 			// bus and never requested; `agent` arrives over MCP in PR 4.
 			r.Post("/hooks/{key}", h.InvokePluginHook)
@@ -1466,7 +1466,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Group(func(r chi.Router) {
 					r.Use(middleware.RequireWorkspaceMemberFromURL(queries, "id"))
 					r.Get("/", h.GetWorkspace)
-					r.Get("/members", h.ListMembersWithUser)
+					r.Get(routeMembers, h.ListMembersWithUser)
 					r.Post("/leave", h.LeaveWorkspace)
 					r.Get("/invitations", h.ListWorkspaceInvitations)
 					// Listing GitHub installations is member-visible so the
@@ -1482,12 +1482,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// (the Runtime page renders for everyone; create/edit/delete
 					// are admin-gated below).
 					r.Get("/runtime-profiles", h.ListRuntimeProfiles)
-					r.Get("/runtime-profiles/{profileId}", h.GetRuntimeProfile)
+					r.Get(routeRuntimeProfilesWithID, h.GetRuntimeProfile)
 					// The workspace MCP library — member-visible so an agent
 					// owner can see what is available to add to their agent.
 					// The payload is names and transports only; the stored
 					// entries are write-only.
-					r.Get("/mcp-servers", h.ListWorkspaceMcpServers)
+					r.Get(routeMCPServers, h.ListWorkspaceMcpServers)
 					// Installed Plugins are member-visible so a member can
 					// see what is mounted in their workspace and which scopes
 					// it holds; install / configure / remove stay admin-only.
@@ -1498,7 +1498,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Use(middleware.RequireWorkspaceRoleFromURL(queries, "id", "owner", "admin"))
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
-					r.Post("/members", h.CreateInvitation)
+					r.Post(routeMembers, h.CreateInvitation)
 					r.Route("/members/{memberId}", func(r chi.Router) {
 						r.Patch("/", h.UpdateMember)
 						r.Delete("/", h.DeleteMember)
@@ -1507,17 +1507,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// Curating the shared MCP library is an admin action.
 					// Creating an entry binds it to no agent; an agent owner
 					// adds it to their own agent through the agent routes.
-					r.Post("/mcp-servers", h.CreateWorkspaceMcpServer)
-					r.Put("/mcp-servers/{serverId}", h.UpdateWorkspaceMcpServer)
-					r.Delete("/mcp-servers/{serverId}", h.DeleteWorkspaceMcpServer)
+					r.Post(routeMCPServers, h.CreateWorkspaceMcpServer)
+					r.Put(routeMCPServersWithID, h.UpdateWorkspaceMcpServer)
+					r.Delete(routeMCPServersWithID, h.DeleteWorkspaceMcpServer)
 					r.Post("/share-links", h.CreateShareLink)
 					r.Delete("/share-links/{linkId}", h.RevokeShareLink)
 					r.Get("/share-links", h.ListShareLinks)
 					// Custom runtime profile mutations (admin-only).
 					r.Post("/runtime-profiles", h.CreateRuntimeProfile)
-					r.Patch("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
-					r.Put("/runtime-profiles/{profileId}", h.UpdateRuntimeProfile)
-					r.Delete("/runtime-profiles/{profileId}", h.DeleteRuntimeProfile)
+					r.Patch(routeRuntimeProfilesWithID, h.UpdateRuntimeProfile)
+					r.Put(routeRuntimeProfilesWithID, h.UpdateRuntimeProfile)
+					r.Delete(routeRuntimeProfilesWithID, h.DeleteRuntimeProfile)
 					// Installing a Plugin is two steps on purpose: preview
 					// parses the manifest and returns the scope list without
 					// writing anything, so the consent screen has something to
@@ -1749,7 +1749,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Post("/table/groups", h.ListIssueTableGroups)
 				r.Post("/table/rows", h.ListIssueTableRows)
 				r.Post("/table/facets", h.ListIssueTableFacets)
-				r.Get("/search", h.SearchIssues)
+				r.Get(routeSearch, h.SearchIssues)
 				r.Get("/child-progress", h.ChildIssueProgress)
 				r.Get("/children", h.ListChildrenByParents)
 				r.Get("/grouped", h.ListGroupedIssues)
@@ -1781,14 +1781,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Post("/quick-actions/{quickActionId}/run", h.RunQuickAction)
 					r.Post("/quick-actions/{quickActionId}/render", h.RenderQuickAction)
 					r.Get("/task-runs", h.ListTasksByIssue)
-					r.Get("/usage", h.GetIssueUsage)
-					r.Post("/reactions", h.AddIssueReaction)
-					r.Delete("/reactions", h.RemoveIssueReaction)
+					r.Get(routeUsage, h.GetIssueUsage)
+					r.Post(routeReactions, h.AddIssueReaction)
+					r.Delete(routeReactions, h.RemoveIssueReaction)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
-					r.Get("/labels", h.ListLabelsForIssue)
-					r.Post("/labels", h.AttachLabel)
-					r.Delete("/labels/{labelId}", h.DetachLabel)
+					r.Get(routeLabels, h.ListLabelsForIssue)
+					r.Post(routeLabels, h.AttachLabel)
+					r.Delete(routeLabelsWithID, h.DetachLabel)
 					r.Get("/metadata", h.ListIssueMetadata)
 					r.Put("/metadata/{key}", h.SetIssueMetadataKey)
 					r.Delete("/metadata/{key}", h.DeleteIssueMetadataKey)
@@ -1848,7 +1848,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// Projects
 			r.Route("/api/projects", func(r chi.Router) {
-				r.Get("/search", h.SearchProjects)
+				r.Get(routeSearch, h.SearchProjects)
 				r.Get("/", h.ListProjects)
 				r.Post("/", h.CreateProject)
 				r.Route("/{id}", func(r chi.Router) {
@@ -1870,10 +1870,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/", h.GetSquad)
 					r.Put("/", h.UpdateSquad)
 					r.Delete("/", h.DeleteSquad)
-					r.Get("/members", h.ListSquadMembers)
+					r.Get(routeMembers, h.ListSquadMembers)
 					r.Get("/members/status", h.ListSquadMemberStatus)
-					r.Post("/members", h.AddSquadMember)
-					r.Delete("/members", h.RemoveSquadMember)
+					r.Post(routeMembers, h.AddSquadMember)
+					r.Delete(routeMembers, h.RemoveSquadMember)
 					r.Patch("/members/role", h.UpdateSquadMemberRole)
 				})
 			})
@@ -1886,7 +1886,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.ListAutopilots)
 				r.Post("/", h.CreateAutopilot)
 				r.Get("/cron-preview", h.CronPreview)
-				r.Get("/usage", h.GetAutopilotQuotaUsage)
+				r.Get(routeUsage, h.GetAutopilotQuotaUsage)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetAutopilot)
 					r.Patch("/", h.UpdateAutopilot)
@@ -1946,8 +1946,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Delete("/", h.DeleteComment)
 				r.Post("/resolve", h.ResolveComment)
 				r.Delete("/resolve", h.UnresolveComment)
-				r.Post("/reactions", h.AddReaction)
-				r.Delete("/reactions", h.RemoveReaction)
+				r.Post(routeReactions, h.AddReaction)
+				r.Delete(routeReactions, h.RemoveReaction)
 			})
 
 			// Agents
@@ -1969,9 +1969,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/skills", h.ListAgentSkills)
 					r.Put("/skills", h.SetAgentSkills)
 					r.Post("/skills/add", h.AddAgentSkills)
-					r.Get("/labels", h.ListLabelsForAgent)
-					r.Post("/labels", h.AttachLabelToAgent)
-					r.Delete("/labels/{labelId}", h.DetachLabelFromAgent)
+					r.Get(routeLabels, h.ListLabelsForAgent)
+					r.Post(routeLabels, h.AttachLabelToAgent)
+					r.Delete(routeLabelsWithID, h.DetachLabelFromAgent)
 					r.Put("/skills/{skillId}/enabled", h.SetAgentSkillEnabled)
 					r.Put("/runtime-skills/enabled", h.SetAgentRuntimeSkillEnabled)
 					r.Delete("/skills/{skillId}", h.RemoveAgentSkill)
@@ -1979,10 +1979,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					// the skills routes above: a library entry does nothing
 					// until it is added here, and the binding carries its own
 					// enabled toggle.
-					r.Get("/mcp-servers", h.ListAgentMcpServers)
-					r.Post("/mcp-servers", h.AddAgentMcpServer)
+					r.Get(routeMCPServers, h.ListAgentMcpServers)
+					r.Post(routeMCPServers, h.AddAgentMcpServer)
 					r.Put("/mcp-servers/{serverId}/enabled", h.SetAgentMcpServerEnabled)
-					r.Delete("/mcp-servers/{serverId}", h.RemoveAgentMcpServer)
+					r.Delete(routeMCPServersWithID, h.RemoveAgentMcpServer)
 					// Dedicated env-management endpoint. Admits the agent
 					// owner or a workspace owner/admin; agent actors are
 					// denied. Every reveal / write is audited to
@@ -2009,16 +2009,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Route("/api/skills", func(r chi.Router) {
 				r.Get("/", h.ListSkills)
 				r.Post("/", h.CreateSkill)
-				r.Get("/search", h.SearchSkills)
+				r.Get(routeSearch, h.SearchSkills)
 				r.Post("/import", h.ImportSkill)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetSkill)
 					r.Put("/", h.UpdateSkill)
 					r.Delete("/", h.DeleteSkill)
 					r.Post("/refresh", h.RefreshSkill)
-					r.Get("/labels", h.ListLabelsForSkill)
-					r.Post("/labels", h.AttachLabelToSkill)
-					r.Delete("/labels/{labelId}", h.DetachLabelFromSkill)
+					r.Get(routeLabels, h.ListLabelsForSkill)
+					r.Post(routeLabels, h.AttachLabelToSkill)
+					r.Delete(routeLabelsWithID, h.DetachLabelFromSkill)
 					r.Get("/files", h.ListSkillFiles)
 					r.Put("/files", h.UpsertSkillFile)
 					r.Delete("/files/{fileId}", h.DeleteSkillFile)
@@ -2042,7 +2042,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.ListAgentRuntimes)
 				r.Route("/{runtimeId}", func(r chi.Router) {
 					r.Patch("/", h.UpdateAgentRuntime)
-					r.Get("/usage", h.GetRuntimeUsage)
+					r.Get(routeUsage, h.GetRuntimeUsage)
 					r.Get("/usage/by-agent", h.GetRuntimeUsageByAgent)
 					r.Get("/usage/by-hour", h.GetRuntimeUsageByHour)
 					r.Get("/activity", h.GetRuntimeTaskActivity)
@@ -2076,9 +2076,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.GetCloudRuntimeService)
 				r.Get("/healthz", h.GetCloudRuntimeHealth)
 				r.Get("/readyz", h.GetCloudRuntimeReady)
-				r.Get("/nodes", h.ListCloudRuntimeNodes)
-				r.Post("/nodes", h.CreateCloudRuntimeNode)
-				r.Delete("/nodes", h.DeleteCloudRuntimeNode)
+				r.Get(routeNodes, h.ListCloudRuntimeNodes)
+				r.Post(routeNodes, h.CreateCloudRuntimeNode)
+				r.Delete(routeNodes, h.DeleteCloudRuntimeNode)
 				r.Post("/nodes/start", h.StartCloudRuntimeNode)
 				r.Post("/nodes/stop", h.StopCloudRuntimeNode)
 				r.Post("/nodes/reboot", h.RebootCloudRuntimeNode)

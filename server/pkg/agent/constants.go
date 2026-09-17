@@ -1,0 +1,26 @@
+package agent
+
+const (
+	binaryDevecoExe = "deveco.exe"
+	copilotGithubMention = "@github"
+	eventItemCompleted = "item/completed"
+	eventItemStarted = "item/started"
+	eventTurnCompleted = "turn/completed"
+	eventTurnStarted = "turn/started"
+	flagJSON = "--json"
+	flagPermissionMode = "--permission-mode"
+	flagThinking = "--thinking"
+	logCodexLifecycle = "codex lifecycle"
+	methodSessionClose = "session/close"
+	methodSessionPrompt = "session/prompt"
+	methodThreadStart = "thread/start"
+	methodTurnStart = "turn/start"
+	modelClaudeOpus47 = "Claude Opus 4.7"
+	modelClaudeSonnet46 = "Claude Sonnet 4.6"
+	modelDiscoverySource = "multica-model-discovery"
+	modelGPT55 = "gpt-5.5"
+	prefixClaudeModel = "claude-"
+	prefixGeminiModel = "gemini-"
+	statusRunningPrefix = "status:running"
+	thinkingExtraHigh = "Extra high"
+)

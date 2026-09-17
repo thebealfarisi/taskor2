@@ -77,9 +77,9 @@ func resolveCopilotNativeFromShim(shimPath string, statFn func(string) (os.FileI
 	for _, pkg := range copilotWindowsPackageCandidates(runtime.GOARCH) {
 		candidates := []string{
 			// npm's current layout: optional platform dep nested under the parent.
-			filepath.Join(prefix, "node_modules", "@github", "copilot", "node_modules", "@github", pkg, "copilot.exe"),
+			filepath.Join(prefix, "node_modules", copilotGithubMention, "copilot", "node_modules", copilotGithubMention, pkg, "copilot.exe"),
 			// Hoisted layout used by older npm versions and other installers.
-			filepath.Join(prefix, "node_modules", "@github", pkg, "copilot.exe"),
+			filepath.Join(prefix, "node_modules", copilotGithubMention, pkg, "copilot.exe"),
 		}
 		for _, candidate := range candidates {
 			if _, err := statFn(candidate); err == nil {

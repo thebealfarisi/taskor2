@@ -634,7 +634,7 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		// initialize / session setup stays dropped, but every notification
 		// belonging to this turn is processed.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": hermesTurnText(prompt, opts.ResumeExpected, resumeLanded, opts.ResumeContinuityNotice)},
@@ -1360,7 +1360,7 @@ func (c *hermesClient) handleResponse(raw map[string]json.RawMessage) {
 		pr.ch <- rpcResult{err: &acpRPCError{Method: pr.method, Code: rpcErr.Code, Message: rpcErr.Message, Data: detail}}
 	} else {
 		// If this is a prompt response, extract usage and stop reason.
-		if pr.method == "session/prompt" {
+		if pr.method == methodSessionPrompt {
 			c.extractPromptResult(raw["result"])
 		}
 		pr.ch <- rpcResult{result: raw["result"]}

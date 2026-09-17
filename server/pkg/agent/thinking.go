@@ -96,7 +96,7 @@ var claudeEffortLabel = map[string]string{
 	"low":    "Low",
 	"medium": "Medium",
 	"high":   "High",
-	"xhigh":  "Extra high",
+	"xhigh":  thinkingExtraHigh,
 	"max":    "Max",
 }
 
@@ -277,7 +277,7 @@ var codexEffortLabel = map[string]string{
 	"low":     "Low",
 	"medium":  "Medium",
 	"high":    "High",
-	"xhigh":   "Extra high",
+	"xhigh":   thinkingExtraHigh,
 	"max":     "Max",
 	"ultra":   "Ultra",
 }
@@ -466,7 +466,7 @@ var codebuddyEffortLabel = map[string]string{
 	"low":     "Low",
 	"medium":  "Medium",
 	"high":    "High",
-	"xhigh":   "Extra high",
+	"xhigh":   thinkingExtraHigh,
 	"max":     "Max",
 }
 

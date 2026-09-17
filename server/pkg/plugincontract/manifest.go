@@ -504,7 +504,7 @@ func (m Manifest) validateConfig() error {
 				optionSeen[option] = true
 			}
 		default:
-			return fmt.Errorf("%s.type is unsupported: %q", label, field.Type)
+			return fmt.Errorf(errFmtTypeUnsupported, label, field.Type)
 		}
 		if field.Multiline && field.Type != ConfigString {
 			return fmt.Errorf("%s.multiline is only valid for string fields", label)
@@ -535,7 +535,7 @@ func (m Manifest) validateContributions() error {
 	for index, surface := range m.Contributes.Surfaces {
 		field := fmt.Sprintf("contributes.surfaces[%d]", index)
 		if !contributionKeyPattern.MatchString(surface.Key) {
-			return fmt.Errorf("%s.key is invalid", field)
+			return fmt.Errorf(errFmtKeyInvalid, field)
 		}
 		if surfaceKeys[surface.Key] {
 			return fmt.Errorf("duplicate surface key %q", surface.Key)
@@ -544,7 +544,7 @@ func (m Manifest) validateContributions() error {
 		switch surface.Type {
 		case SurfaceIssuePanel, SurfaceSidebarPanel, SurfaceModal:
 		default:
-			return fmt.Errorf("%s.type is unsupported: %q", field, surface.Type)
+			return fmt.Errorf(errFmtTypeUnsupported, field, surface.Type)
 		}
 		if err := validateDisplayText(field+".name", surface.Name, 160); err != nil {
 			return err
@@ -576,7 +576,7 @@ func (m Manifest) validateContributions() error {
 	for index, hook := range m.Contributes.Hooks {
 		field := fmt.Sprintf("contributes.hooks[%d]", index)
 		if !contributionKeyPattern.MatchString(hook.Key) {
-			return fmt.Errorf("%s.key is invalid", field)
+			return fmt.Errorf(errFmtKeyInvalid, field)
 		}
 		if hookKeys[hook.Key] {
 			return fmt.Errorf("duplicate hook key %q", hook.Key)
@@ -652,10 +652,10 @@ func (m Manifest) validateContributions() error {
 	for index, resource := range m.Contributes.Resources {
 		field := fmt.Sprintf("contributes.resources[%d]", index)
 		if resource.Type != ResourceSkill {
-			return fmt.Errorf("%s.type is unsupported: %q", field, resource.Type)
+			return fmt.Errorf(errFmtTypeUnsupported, field, resource.Type)
 		}
 		if !contributionKeyPattern.MatchString(resource.Key) {
-			return fmt.Errorf("%s.key is invalid", field)
+			return fmt.Errorf(errFmtKeyInvalid, field)
 		}
 		if resourceKeys[resource.Key] {
 			return fmt.Errorf("duplicate resource key %q", resource.Key)

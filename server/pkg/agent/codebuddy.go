@@ -28,7 +28,7 @@ var codebuddyBlockedArgs = map[string]blockedArgMode{
 	"-p":                blockedStandalone, // non-interactive mode
 	"--output-format":   blockedWithValue,  // stream-json protocol
 	"--input-format":    blockedWithValue,  // stream-json protocol
-	"--permission-mode": blockedWithValue,  // bypassPermissions for autonomous operation
+	flagPermissionMode: blockedWithValue,  // bypassPermissions for autonomous operation
 	"--mcp-config":      blockedWithValue,  // set by daemon from agent.mcp_config
 	// `--effort` is owned by the per-agent thinking_level picker so a
 	// user-supplied custom_arg cannot silently outvote it.
@@ -41,7 +41,7 @@ func buildCodebuddyArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--output-format", "stream-json",
 		"--input-format", "stream-json",
 		"--verbose",
-		"--permission-mode", "bypassPermissions",
+		flagPermissionMode, "bypassPermissions",
 		// CodeBuddy's interactive tools have no UI to render in under the
 		// daemon's headless stream-json transport. AskUserQuestion and
 		// ExitPlanMode are both exempted from CodeBuddy's permission-mode

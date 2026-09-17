@@ -96,7 +96,7 @@ const hermesTaskLocalStateMarker = ".multica-task-local-state-v1"
 
 var hermesOverriddenEntries = map[string]struct{}{
 	"skills":                   {},
-	"config.yaml":              {},
+	fileConfigYAML:              {},
 	"memories":                 {},
 	"active_profile":           {},
 	"profiles":                 {},
@@ -639,8 +639,8 @@ func linkSharedHermesEntry(src, dst string) error {
 // is written 0600 (it can hold inline api_key secrets) via atomic replace, so
 // reuse also repairs a prior file's permissions.
 func writeDerivedHermesConfig(sharedHome, hermesHome string, env map[string]string, logger *slog.Logger) error {
-	srcConfig := filepath.Join(sharedHome, "config.yaml")
-	dstConfig := filepath.Join(hermesHome, "config.yaml")
+	srcConfig := filepath.Join(sharedHome, fileConfigYAML)
+	dstConfig := filepath.Join(hermesHome, fileConfigYAML)
 
 	data, err := os.ReadFile(srcConfig)
 	if err != nil {

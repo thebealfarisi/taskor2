@@ -235,14 +235,14 @@ func CLIConfigPathForProfile(profile string) (string, error) {
 	}
 	if profile == "" {
 		if taskLocal {
-			return filepath.Join(root, "config.json"), nil
+			return filepath.Join(root, fileConfigJSON), nil
 		}
 		return filepath.Join(root, defaultCLIConfigPath), nil
 	}
 	if taskLocal {
-		return filepath.Join(root, "profiles", profile, "config.json"), nil
+		return filepath.Join(root, "profiles", profile, fileConfigJSON), nil
 	}
-	return filepath.Join(root, ".multica", "profiles", profile, "config.json"), nil
+	return filepath.Join(root, dirMultica, "profiles", profile, fileConfigJSON), nil
 }
 
 // ProfileDir returns the base directory for a profile's state files (pid, log).
@@ -262,12 +262,12 @@ func ProfileDir(profile string) (string, error) {
 		if taskLocal {
 			return root, nil
 		}
-		return filepath.Join(root, ".multica"), nil
+		return filepath.Join(root, dirMultica), nil
 	}
 	if taskLocal {
 		return filepath.Join(root, "profiles", profile), nil
 	}
-	return filepath.Join(root, ".multica", "profiles", profile), nil
+	return filepath.Join(root, dirMultica, "profiles", profile), nil
 }
 
 func multicaConfigRoot() (root string, taskLocal bool, err error) {

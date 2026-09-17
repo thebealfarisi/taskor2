@@ -915,7 +915,7 @@ func hydrateCodexSkills(codexHome string, workspaceSkills []SkillContextForEnv, 
 			return err
 		}
 	}
-	return ensureCodexDisabledSkillsConfig(filepath.Join(codexHome, "config.toml"), codexHome, disabledRuntimeSkills, workspaceSkills)
+	return ensureCodexDisabledSkillsConfig(filepath.Join(codexHome, fileConfigTOML), codexHome, disabledRuntimeSkills, workspaceSkills)
 }
 
 // GCMetaKind identifies which kind of parent record a task workdir belongs to.

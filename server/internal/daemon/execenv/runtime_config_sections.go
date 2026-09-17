@@ -430,13 +430,13 @@ func writeInstructionPrecedence(b *strings.Builder) {
 // Emitted into the per-turn user message rather than the runtime brief: it is
 // true of one run and false of the next on the same issue, so rendering it into
 // the brief broke prompt-cache prefix stability across resumes (MUL-5377).
-const SessionContinuityNoticeIssue = "## Session Continuity Notice\n\n" +
+const SessionContinuityNoticeIssue = sectionSessionContinuityNotice +
 	"This run was meant to continue an earlier conversation, but that provider session could not be restored, so you are on a fresh one. The issue and its full comment history are unaffected — that record is the authoritative version of this conversation, and reading it (which your workflow already requires) reconstructs it. What is gone is only your own working memory from earlier turns: what you already tried, what you ruled out, and how far you had got. Re-derive what you need instead of assuming it, and do not claim continuity the record cannot back up. Do not open your reply by announcing this — raise it only where it actually matters, such as when the user refers to reasoning you never wrote down.\n\n"
 
-const SessionContinuityNoticeChannelHistory = "## Session Continuity Notice\n\n" +
+const SessionContinuityNoticeChannelHistory = sectionSessionContinuityNotice +
 	"This run was meant to continue an earlier conversation, but that provider session could not be restored, so you are on a fresh one. The channel conversation itself is unaffected — read it back with `multica chat history` / `multica chat thread` before acting, and treat what you find there as the authoritative version. What is gone is only your own working memory from earlier turns: what you already tried, what you ruled out, and how far you had got. Re-derive what you need instead of assuming it. Do not open your reply by announcing this — raise it only where it actually matters.\n\n"
 
-const SessionContinuityNoticeChatTranscript = "## Session Continuity Notice\n\n" +
+const SessionContinuityNoticeChatTranscript = sectionSessionContinuityNotice +
 	"This run was meant to continue an earlier conversation, but that provider session could not be restored, so you are on a fresh one. The conversation itself is unaffected — Multica stored it, and you can read it back with `multica chat history` before acting; treat what you find there as the authoritative version. What is gone is only your own working memory from earlier turns: what you already tried, what you ruled out, and how far you had got. Re-derive what you need instead of assuming it. Do not open your reply by announcing this — raise it only where it actually matters.\n\n"
 
 // SessionContinuityNoticeUnrecoverable is the defensive fallback for a surface
@@ -447,7 +447,7 @@ const SessionContinuityNoticeChatTranscript = "## Session Continuity Notice\n\n"
 // "this is a new session" instead of silently pretending continuity. Unlike the
 // readable variants it scripts the user-facing disclosure, because here the
 // loss is real and the user must hear it.
-const SessionContinuityNoticeUnrecoverable = "## Session Continuity Notice\n\n" +
+const SessionContinuityNoticeUnrecoverable = sectionSessionContinuityNotice +
 	"This run was meant to continue an earlier conversation, but that session's context could NOT be restored — you are starting fresh with no memory of the previous turns. That history is not readable from anywhere now: there is no command that fetches it, and only the context already in this message survives. **When you reply, tell the user up front (one short sentence) that the previous conversation context was unavailable and this is a new session**, so they understand why the thread did not carry over.\n\n"
 
 // writeWorkflowHeader emits the unconditional `### Workflow` heading.

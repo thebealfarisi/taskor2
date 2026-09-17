@@ -153,7 +153,7 @@ func probeResourceMetadataURL(ctx context.Context, endpoint *url.URL) string {
 	if err != nil {
 		return ""
 	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(headerContentType, contentTypeJSON)
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	response, err := NewSecureHTTPClient(endpoint).Do(request)
 	if err != nil {
@@ -219,7 +219,7 @@ func getOAuthJSON(ctx context.Context, endpoint *url.URL, target any) error {
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", contentTypeJSON)
 	return doOAuthJSON(NewSecureHTTPClient(endpoint), request, target)
 }
 
@@ -268,8 +268,8 @@ func RegisterOAuthClient(ctx context.Context, metadata OAuthMetadata, redirectUR
 	if err != nil {
 		return OAuthClientRegistration{}, err
 	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set(headerContentType, contentTypeJSON)
+	request.Header.Set("Accept", contentTypeJSON)
 	var response struct {
 		ClientID                string `json:"client_id"`
 		ClientSecret            string `json:"client_secret"`
@@ -342,8 +342,8 @@ func requestOAuthToken(ctx context.Context, rawEndpoint string, values url.Value
 	if err != nil {
 		return OAuthTokenResponse{}, err
 	}
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set(headerContentType, "application/x-www-form-urlencoded")
+	request.Header.Set("Accept", contentTypeJSON)
 	if registration.ClientSecret != "" && registration.TokenEndpointAuthMethod == "client_secret_basic" {
 		request.SetBasicAuth(registration.ClientID, registration.ClientSecret)
 	}

@@ -190,8 +190,9 @@ graph TD
 
 ---
 
-### 🔵 BATCH P4: Go Production String Literal Constants (Total: 412 Temuan)
+### 🔵 BATCH P4: Go Production String Literal Constants (Total: 412 Temuan) — [STATUS: SELESAI / COMPLETED]
 *Karakteristik: Konsolidasi string literal yang berulang ≥ 3 kali pada 122 file Go backend produksi.*
+*Status: Berhasil dituntaskan 100% (Sub-batch P4.1: 121 temuan, Sub-batch P4.2: 174 temuan, Sub-batch P4.3: 117 temuan).*
 
 - **Rule Key:** `go:S1192` (412 temuan pada 122 file)
 - **Pengelompokan Sub-Modul:**
@@ -210,11 +211,12 @@ graph TD
 - **Literal Berulang:** `"workspace id"`, `"invalid request body"`, `"workspace not found"`, `"insufficient permissions"`, `"failed to start transaction"`, dll.
 - **Solusi:** File konstanta terpusat `server/internal/handler/constants.go` memuat 125 konstanta HTTP error, URL params, SQL column names, dan headers.
 
-#### Sub-batch P4.3: Core Daemon, Router & Agent Service (`server/internal/daemon/`, `router.go`, `pkg/agent/`) — 110 Temuan
+#### Sub-batch P4.3: Core Daemon, Router & Agent Service (`server/internal/daemon/`, `router.go`, `pkg/agent/`, dll.) — 117 Temuan — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil diimplementasikan dengan membuat `constants.go` pada 15 package internal Go dan memperbarui 64 file Go (513 substitusi literal); lolos validasi kompilasi `go build ./cmd/server` dan `go build ./cmd/multica`.
 - **File Utama:**
-  - `server/cmd/server/router.go` (11): `"Content-Type"`, `"application/json"`, `"X-User-ID"`.
-  - `server/internal/daemon/repocache/cache.go` (11), `server/internal/service/task.go` (8), `server/pkg/agent/codex.go` (8), `server/pkg/agent/models.go` (8).
-- **Solusi:** Gunakan `http.HeaderContentType` dari standard library dan ekstrak konstanta lokal di masing-masing package.
+  - `server/cmd/server/router.go` (11), `server/internal/daemon/repocache/cache.go` (11), `server/internal/service/task.go` (8), `server/pkg/agent/codex.go` (8), `server/pkg/agent/models.go` (8), `server/internal/cli/client.go` (7), `server/internal/daemon/runtime_mcp.go` (4), `server/internal/middleware/workspace.go` (3), `server/internal/storage/local.go` (2), dll.
+- **Literal Berulang:** `"/labels"`, `"/members"`, `"git command timed out after %s: %w"`, `"task enqueue failed"`, `"codex lifecycle"`, `"Content-Type"`, `"application/json"`, `"X-User-ID"`, dll.
+- **Solusi:** Dibuat 15 file `constants.go` terisolasi per package untuk mendefinisikan konstanta rute, pesan error, git flag, and mime types tanpa memicu dependency cycle.
 
 ---
 

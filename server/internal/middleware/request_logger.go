@@ -143,7 +143,7 @@ func RequestLogger(next http.Handler) http.Handler {
 		if rid := chimw.GetReqID(r.Context()); rid != "" {
 			attrs = append(attrs, "request_id", rid)
 		}
-		if uid := r.Header.Get("X-User-ID"); uid != "" {
+		if uid := r.Header.Get(headerXUserID); uid != "" {
 			attrs = append(attrs, "user_id", uid)
 		}
 		if tid := webhookTriggerIDFromContext(r.Context()); tid != "" {
@@ -163,17 +163,17 @@ func RequestLogger(next http.Handler) http.Handler {
 
 		switch {
 		case status >= 500:
-			slog.Error("http request", attrs...)
+			slog.Error(msgHTTPRequest, attrs...)
 		case status == http.StatusNotFound && isSoftNotFound(bodyPrefix.Bytes()):
 			// Lifecycle 404 — runtime/task was deleted server-side. The daemon
 			// catches this exact body and triggers its own self-heal, so it is
 			// neither noise nor a bug; logging at Info keeps the signal in
 			// structured logs without flooding the warn channel.
-			slog.Info("http request", attrs...)
+			slog.Info(msgHTTPRequest, attrs...)
 		case status >= 400:
-			slog.Warn("http request", attrs...)
+			slog.Warn(msgHTTPRequest, attrs...)
 		default:
-			slog.Info("http request", attrs...)
+			slog.Info(msgHTTPRequest, attrs...)
 		}
 	})
 }

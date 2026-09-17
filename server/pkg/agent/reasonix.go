@@ -396,7 +396,7 @@ func (b *reasonixBackend) Execute(ctx context.Context, prompt string, opts ExecO
 		// AGENTS.md from cwd, so the daemon deliberately does not duplicate the
 		// runtime brief in this user message.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": prompt},

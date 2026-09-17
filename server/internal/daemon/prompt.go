@@ -140,7 +140,7 @@ func buildPromptBody(task Task, provider string) string {
 		return buildQuickCreatePrompt(task)
 	}
 	var b strings.Builder
-	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
+	b.WriteString(promptLocalCodingAgent)
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
 	// Assignment handoff (MUL-3375): a free-text instruction the person who
 	// assigned/promoted this issue left for you. Frame it as a handoff, not a
@@ -266,7 +266,7 @@ func buildQuickCreatePrompt(task Task) string {
 // previous turn's --parent UUID.
 func buildCommentPrompt(task Task, provider string) string {
 	var b strings.Builder
-	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
+	b.WriteString(promptLocalCodingAgent)
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
 	if task.TriggerCommentContent != "" {
 		authorLabel := "A user"
@@ -612,7 +612,7 @@ func channelDisplayName(channelType string) string {
 // buildAutopilotPrompt constructs a prompt for run_only autopilot tasks.
 func buildAutopilotPrompt(task Task) string {
 	var b strings.Builder
-	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
+	b.WriteString(promptLocalCodingAgent)
 	b.WriteString("This task was triggered by an Autopilot in run-only mode. There is no assigned Multica issue for this run.\n\n")
 	fmt.Fprintf(&b, "Autopilot run ID: %s\n", task.AutopilotRunID)
 	if task.AutopilotID != "" {

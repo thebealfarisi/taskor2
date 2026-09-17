@@ -284,7 +284,7 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 		writeRemoteMCPError(w, rpcRequest.ID, -32603, "Remote MCP request failed")
 		return
 	}
-	upstream.Header.Set("Content-Type", "application/json")
+	upstream.Header.Set(headerContentType, contentTypeJSON)
 	upstream.Header.Set("Accept", "application/json, text/event-stream")
 	for _, header := range []string{"Mcp-Session-Id", "Mcp-Protocol-Version", "Last-Event-ID"} {
 		if value := request.Header.Get(header); value != "" {
@@ -324,7 +324,7 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 		return
 	}
 	if rpcRequest.Method == "tools/list" {
-		responseBody, err = decodeRemoteMCPSSEData(response.Header.Get("Content-Type"), responseBody)
+		responseBody, err = decodeRemoteMCPSSEData(response.Header.Get(headerContentType), responseBody)
 		if err != nil {
 			resultClass = "remote_error"
 			writeRemoteMCPError(w, rpcRequest.ID, -32000, "Remote MCP service returned an invalid response")
@@ -336,9 +336,9 @@ func (proxy *remoteMCPProxy) ServeHTTP(w http.ResponseWriter, request *http.Requ
 			writeRemoteMCPError(w, rpcRequest.ID, -32004, "Remote MCP tool schema changed and requires review")
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-	} else if contentType := response.Header.Get("Content-Type"); contentType != "" {
-		w.Header().Set("Content-Type", contentType)
+		w.Header().Set(headerContentType, contentTypeJSON)
+	} else if contentType := response.Header.Get(headerContentType); contentType != "" {
+		w.Header().Set(headerContentType, contentType)
 	}
 	for _, header := range []string{"Mcp-Session-Id", "Mcp-Protocol-Version"} {
 		if value := response.Header.Get(header); value != "" {
@@ -438,7 +438,7 @@ func writeRemoteMCPError(w http.ResponseWriter, id json.RawMessage, code int, me
 	if len(id) == 0 {
 		id = json.RawMessage("null")
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"jsonrpc": "2.0", "id": id,
