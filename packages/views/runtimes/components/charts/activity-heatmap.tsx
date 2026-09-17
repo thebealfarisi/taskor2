@@ -206,6 +206,20 @@ export function ActivityHeatmap({
   const labelWidth = 28;
   const svgWidth = labelWidth + HEATMAP_WEEKS * (CELL_SIZE + CELL_GAP);
   const svgHeight = 14 + 7 * (CELL_SIZE + CELL_GAP);
+  const renderWeekdayLabel = (label: string, index: number) => {
+    if (!LABELED_WEEKDAY_INDICES.has(index)) return null;
+    return (
+      <text
+        key={index}
+        x={0}
+        y={14 + index * (CELL_SIZE + CELL_GAP) + CELL_SIZE - 1}
+        className="fill-muted-foreground"
+        fontSize={9}
+      >
+        {label}
+      </text>
+    );
+  };
 
   // Vertical stack: heatmap centered up top, insights as a 4-cell stat
   // strip below (separated by a hairline). Stacking guarantees the parent
@@ -228,19 +242,7 @@ export function ActivityHeatmap({
                 {m.label}
               </text>
             ))}
-            {weekdayLabels.map((label, i) =>
-              LABELED_WEEKDAY_INDICES.has(i) ? (
-                <text
-                  key={i}
-                  x={0}
-                  y={14 + i * (CELL_SIZE + CELL_GAP) + CELL_SIZE - 1}
-                  className="fill-muted-foreground"
-                  fontSize={9}
-                >
-                  {label}
-                </text>
-              ) : null,
-            )}
+            {weekdayLabels.map(renderWeekdayLabel)}
             {cells.map((c) => (
               <rect
                 key={c.date}

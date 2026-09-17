@@ -158,9 +158,9 @@ function GanttAxis({
     >
       {/* Month row */}
       <div className="relative h-7 border-b">
-        {monthBlocks.map((b, i) => (
+        {monthBlocks.map((b) => (
           <div
-            key={i}
+            key={b.label}
             className="absolute top-0 bottom-0 flex items-center px-2 text-caption font-medium text-foreground"
             style={{ left: b.left, width: b.width }}
           >
@@ -178,16 +178,20 @@ function GanttAxis({
             zoom === "day" ||
             (zoom === "week" && isWeek) ||
             (zoom === "month" && isMonth);
+          let tickBorderClass: string;
+          if (isMonth) {
+            tickBorderClass = "border-foreground/15";
+          } else if (isWeek) {
+            tickBorderClass = "border-foreground/10";
+          } else {
+            tickBorderClass = "border-foreground/5";
+          }
           return (
             <div
-              key={i}
+              key={date.getTime()}
               className={cn(
                 "absolute top-0 bottom-0 flex items-center justify-center text-micro text-muted-foreground border-l",
-                isMonth
-                  ? "border-foreground/15"
-                  : isWeek
-                  ? "border-foreground/10"
-                  : "border-foreground/5",
+                tickBorderClass,
               )}
               style={{ left: i * dayPx, width: dayPx }}
             >
@@ -338,8 +342,15 @@ function ScheduledRow({
   // user notices instead of seeing a silently empty row.
   const inverted =
     start !== null && due !== null && start.getTime() > due.getTime();
-  const rangeStart = start && due ? (inverted ? due : start) : (start ?? due);
-  const rangeEnd = start && due ? (inverted ? start : due) : (start ?? due);
+  let rangeStart: Date | null;
+  let rangeEnd: Date | null;
+  if (start && due) {
+    rangeStart = inverted ? due : start;
+    rangeEnd = inverted ? start : due;
+  } else {
+    rangeStart = start ?? due;
+    rangeEnd = start ?? due;
+  }
 
   let bar: { left: number; width: number; isMarker: boolean } | null = null;
   if (rangeStart && rangeEnd) {

@@ -98,6 +98,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function renderWithQuery(ui: ReactElement) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
+
 describe("ReadonlyContent memoization", () => {
   // Long-timeline issues (Inbox + IssueDetail with thousands of comments)
   // freeze the tab when each comment re-runs the full react-markdown pipeline
@@ -607,13 +614,6 @@ describe("ReadonlyContent file-card → AttachmentBlock HTML routing", () => {
   // <AttachmentCard>. Reverting that line would skip the html+attachmentId
   // dispatcher branch and surface the bare file-card chrome (filename row)
   // instead of the rendered iframe — the exact regression MUL-2330 fixed.
-  function renderWithQuery(ui: ReactElement) {
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    });
-    return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
-  }
-
   it("renders the !file[](url) HTML attachment as an iframe (no file-card chrome)", async () => {
     getAttachmentTextContentMock.mockResolvedValueOnce({
       text: "<p>chart</p>",
@@ -702,13 +702,6 @@ describe("ReadonlyContent inline data-URI images", () => {
   // to strip the src and surface a broken image (MUL-3961).
   const PNG_1X1 =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
-
-  function renderWithQuery(ui: ReactElement) {
-    const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false, gcTime: 0 } },
-    });
-    return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
-  }
 
   it("preserves the src of an inline data:image/png image", () => {
     const { container } = renderWithQuery(

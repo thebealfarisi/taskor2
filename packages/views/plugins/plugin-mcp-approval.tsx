@@ -83,6 +83,61 @@ export function PluginMCPApproval({
       });
   };
 
+  let toolsBody: React.ReactNode;
+  if (isLoading) {
+    toolsBody = <Skeleton className="h-16 w-full" aria-label={t(($) => $.plugins.mcp.loading)} />;
+  } else if (isError) {
+    toolsBody = (
+      <Alert variant="destructive">
+        <AlertCircle />
+        <AlertTitle>{t(($) => $.plugins.mcp.unreachable)}</AlertTitle>
+        {/* The endpoint failing is the actionable part: it is the author's own
+            server, and the administrator can only fix it by telling them. */}
+        <AlertDescription>{error instanceof Error ? error.message : ""}</AlertDescription>
+      </Alert>
+    );
+  } else if (tools.length === 0) {
+    toolsBody = <p className="text-caption text-muted-foreground">{t(($) => $.plugins.mcp.empty)}</p>;
+  } else {
+    toolsBody = (
+      <>
+        <ul className="space-y-1.5">
+          {tools.map((tool) => (
+            <li key={tool.name} className="flex items-start gap-2">
+              <Checkbox
+                id={`${installationId}-${hook.key}-${tool.name}`}
+                className="mt-0.5"
+                disabled={!canManage || approve.isPending}
+                checked={current.includes(tool.name)}
+                onCheckedChange={(checked) => toggle(tool.name, checked === true)}
+              />
+              <label
+                htmlFor={`${installationId}-${hook.key}-${tool.name}`}
+                className="min-w-0 text-caption"
+              >
+                <span className="font-mono">{tool.name}</span>
+                {tool.drifted ? (
+                  <Badge variant="destructive" className="ml-2">
+                    {t(($) => $.plugins.mcp.drifted)}
+                  </Badge>
+                ) : null}
+                {tool.description ? (
+                  <span className="block text-muted-foreground">{tool.description}</span>
+                ) : null}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end">
+          <Button size="sm" disabled={!canManage || approve.isPending} onClick={save}>
+            {approve.isPending ? <Loader2 className="animate-spin" /> : null}
+            {t(($) => $.plugins.mcp.save)}
+          </Button>
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="space-y-2 rounded-md border border-surface-border px-3 py-3">
       <div className="flex items-center gap-2">
@@ -91,55 +146,7 @@ export function PluginMCPApproval({
       </div>
       <p className="text-caption text-muted-foreground">{t(($) => $.plugins.mcp.description)}</p>
 
-      {isLoading ? (
-        <Skeleton className="h-16 w-full" aria-label={t(($) => $.plugins.mcp.loading)} />
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertTitle>{t(($) => $.plugins.mcp.unreachable)}</AlertTitle>
-          {/* The endpoint failing is the actionable part: it is the author's own
-              server, and the administrator can only fix it by telling them. */}
-          <AlertDescription>{error instanceof Error ? error.message : ""}</AlertDescription>
-        </Alert>
-      ) : tools.length === 0 ? (
-        <p className="text-caption text-muted-foreground">{t(($) => $.plugins.mcp.empty)}</p>
-      ) : (
-        <>
-          <ul className="space-y-1.5">
-            {tools.map((tool) => (
-              <li key={tool.name} className="flex items-start gap-2">
-                <Checkbox
-                  id={`${installationId}-${hook.key}-${tool.name}`}
-                  className="mt-0.5"
-                  disabled={!canManage || approve.isPending}
-                  checked={current.includes(tool.name)}
-                  onCheckedChange={(checked) => toggle(tool.name, checked === true)}
-                />
-                <label
-                  htmlFor={`${installationId}-${hook.key}-${tool.name}`}
-                  className="min-w-0 text-caption"
-                >
-                  <span className="font-mono">{tool.name}</span>
-                  {tool.drifted ? (
-                    <Badge variant="destructive" className="ml-2">
-                      {t(($) => $.plugins.mcp.drifted)}
-                    </Badge>
-                  ) : null}
-                  {tool.description ? (
-                    <span className="block text-muted-foreground">{tool.description}</span>
-                  ) : null}
-                </label>
-              </li>
-            ))}
-          </ul>
-          <div className="flex justify-end">
-            <Button size="sm" disabled={!canManage || approve.isPending} onClick={save}>
-              {approve.isPending ? <Loader2 className="animate-spin" /> : null}
-              {t(($) => $.plugins.mcp.save)}
-            </Button>
-          </div>
-        </>
-      )}
+      {toolsBody}
     </div>
   );
 }

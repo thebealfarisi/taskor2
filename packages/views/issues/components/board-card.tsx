@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, memo } from "react";
+import { useCallback, memo, type ReactNode } from "react";
 import { AppLink } from "../../navigation";
 import { useSortable, defaultAnimateLayoutChanges } from "@dnd-kit/sortable";
 import type { AnimateLayoutChanges } from "@dnd-kit/sortable";
@@ -105,32 +105,37 @@ export const BoardCardContent = memo(function BoardCardContent({
       : null;
 
   const priorityLabel = t(($) => $.priority[issue.priority]);
-  const priorityIconNode = showPriority ? (
-    canEdit ? (
-      <PickerWrapper className="flex">
-        <PriorityPicker
-          priority={issue.priority}
-          onUpdate={handleUpdate}
-          triggerRender={
-            <button
-              type="button"
-              aria-label={priorityLabel}
-              className="inline-flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted/60"
-            >
-              <PriorityIcon priority={issue.priority} />
-            </button>
-          }
-        />
-      </PickerWrapper>
-    ) : (
-      <span
-        aria-label={priorityLabel}
-        className="inline-flex size-5 shrink-0 items-center justify-center"
-      >
-        <PriorityIcon priority={issue.priority} />
-      </span>
-    )
-  ) : null;
+  let priorityIconNode: ReactNode = null;
+  if (showPriority) {
+    if (canEdit) {
+      priorityIconNode = (
+        <PickerWrapper className="flex">
+          <PriorityPicker
+            priority={issue.priority}
+            onUpdate={handleUpdate}
+            triggerRender={
+              <button
+                type="button"
+                aria-label={priorityLabel}
+                className="inline-flex size-5 shrink-0 items-center justify-center rounded hover:bg-muted/60"
+              >
+                <PriorityIcon priority={issue.priority} />
+              </button>
+            }
+          />
+        </PickerWrapper>
+      );
+    } else {
+      priorityIconNode = (
+        <span
+          aria-label={priorityLabel}
+          className="inline-flex size-5 shrink-0 items-center justify-center"
+        >
+          <PriorityIcon priority={issue.priority} />
+        </span>
+      );
+    }
+  }
 
   // The parent row gives this container the leftover space; min-w-0 and
   // max-w-full make the nested picker trigger respect that limit.
@@ -156,20 +161,23 @@ export const BoardCardContent = memo(function BoardCardContent({
     <span className="text-caption text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
   );
 
-  const assigneeNode = showAssigneeSection ? (
-    canEdit ? (
-      <PickerWrapper className={assigneeContainerClass}>
-        <AssigneePicker
-          assigneeType={issue.assignee_type}
-          assigneeId={issue.assignee_id}
-          onUpdate={handleUpdate}
-          trigger={assigneeInner}
-        />
-      </PickerWrapper>
-    ) : (
-      <span className={assigneeContainerClass}>{assigneeInner}</span>
-    )
-  ) : null;
+  let assigneeNode: ReactNode = null;
+  if (showAssigneeSection) {
+    if (canEdit) {
+      assigneeNode = (
+        <PickerWrapper className={assigneeContainerClass}>
+          <AssigneePicker
+            assigneeType={issue.assignee_type}
+            assigneeId={issue.assignee_id}
+            onUpdate={handleUpdate}
+            trigger={assigneeInner}
+          />
+        </PickerWrapper>
+      );
+    } else {
+      assigneeNode = <span className={assigneeContainerClass}>{assigneeInner}</span>;
+    }
+  }
 
   const showMetaRow = showAssigneeSection || showStartDate || showDueDate || showChildProgress;
   const showRightMeta = !!showStartDate || !!showDueDate || !!showChildProgress || showUpdatedHint;

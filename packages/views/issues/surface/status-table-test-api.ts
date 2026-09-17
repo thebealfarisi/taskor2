@@ -164,6 +164,12 @@ function primaryDescriptor(
   const parent = issue.parent_issue_id
     ? issueById.get(issue.parent_issue_id) ?? null
     : null;
+  let valueState: "value" | "unavailable" | "unset";
+  if (!issue.parent_issue_id) {
+    valueState = "unset";
+  } else {
+    valueState = parent ? "value" : "unavailable";
+  }
   return {
     key: issue.parent_issue_id
       ? `parent:${issue.parent_issue_id}`
@@ -180,11 +186,7 @@ function primaryDescriptor(
             status: parent.status,
           }
         : null,
-      value_state: issue.parent_issue_id
-        ? parent
-          ? "value"
-          : "unavailable"
-        : "unset",
+      value_state: valueState,
     },
   };
 }
@@ -341,20 +343,22 @@ export function statusTableMethodsFromLegacy(
       return {
         query_fingerprint: "test",
         total: groups.reduce((sum, group) => sum + group.issues.length, 0),
-        facets: request.facets.map((facet) => ({
-          ...facet,
-          values:
-            facet.kind === "status"
-              ? groups
-                  .filter(({ issues }) => issues.length > 0)
-                  .map(({ status, issues }) => ({
-                    key: status,
-                    count: issues.length,
-                  }))
-              : facet.kind === "working_agents"
-                ? workingAgentFacetValues(request.query, workingAgents)
-                : [],
-        })),
+        facets: request.facets.map((facet) => {
+          let values;
+          if (facet.kind === "status") {
+            values = groups
+              .filter(({ issues }) => issues.length > 0)
+              .map(({ status, issues }) => ({
+                key: status,
+                count: issues.length,
+              }));
+          } else if (facet.kind === "working_agents") {
+            values = workingAgentFacetValues(request.query, workingAgents);
+          } else {
+            values = [];
+          }
+          return { ...facet, values };
+        }),
       };
     },
   };

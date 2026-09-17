@@ -34,6 +34,33 @@ export const tokenStackConfig = {
 
 export function DailyTokensChart({ data }: { data: DailyTokenData[] }) {
   const { t } = useT("runtimes");
+
+  const formatTooltipValue = (
+    value: string | number | readonly (string | number)[] | undefined,
+    name: string | number | undefined,
+  ) => {
+    const label = name == null ? "" : String(name);
+    if (typeof value === "number") {
+      return `${formatTokens(value)} ${label}`;
+    }
+    if (typeof value === "string") {
+      return `${value} ${label}`;
+    }
+    return `${String(value ?? "")} ${label}`;
+  };
+
+  const getTooltipTotal = (
+    payload: ReadonlyArray<{ value?: string | number | readonly (string | number)[] | undefined }>,
+  ) => {
+    let total = 0;
+    for (const item of payload) {
+      if (typeof item.value === "number") {
+        total += item.value;
+      }
+    }
+    return total;
+  };
+
   // No internal empty-state — same convention as DailyCostChart: the parent
   // decides what to render when there's nothing to show.
   return (
@@ -57,18 +84,9 @@ export function DailyTokensChart({ data }: { data: DailyTokenData[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              formatter={(value, name) =>
-                typeof value === "number"
-                  ? `${formatTokens(value)} ${name}`
-                  : `${value} ${name}`
-              }
+              formatter={(value, name) => formatTooltipValue(value, name)}
               footer={(payload) => {
-                const total = payload.reduce(
-                  (sum, item) =>
-                    sum +
-                    (typeof item.value === "number" ? item.value : 0),
-                  0,
-                );
+                const total = getTooltipTotal(payload);
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>

@@ -146,11 +146,14 @@ function PullRequestRowDetails({ pr }: { pr: GitHubPullRequest }) {
   // A stale snapshot (GitHub outage / revoked key) greys out both elements and
   // annotates them with the snapshot age instead of hiding the last-known data.
   const stale = !isTerminal && pr.snapshot_stale === true;
-  const staleTitle = stale
-    ? pr.snapshot_fetched_at
-      ? t(($) => $.detail.pull_request_snapshot_stale, { time: timeAgo(pr.snapshot_fetched_at) })
-      : t(($) => $.detail.pull_request_snapshot_stale_unknown)
-    : undefined;
+  let staleTitle: string | undefined;
+  if (!stale) {
+    staleTitle = undefined;
+  } else if (pr.snapshot_fetched_at) {
+    staleTitle = t(($) => $.detail.pull_request_snapshot_stale, { time: timeAgo(pr.snapshot_fetched_at) });
+  } else {
+    staleTitle = t(($) => $.detail.pull_request_snapshot_stale_unknown);
+  }
 
   if (!showStats && !checksBadge && !mergeBadge) return null;
 
@@ -315,13 +318,16 @@ function getMergeBadge(status: PullRequestMergeStatus, t: IssuesT): PullRequestB
 }
 
 function getStateLabel(state: GitHubPullRequestState, t: IssuesT): string {
-  return state === "open"
-    ? t(($) => $.detail.pull_request_state_open)
-    : state === "draft"
-      ? t(($) => $.detail.pull_request_state_draft)
-      : state === "merged"
-        ? t(($) => $.detail.pull_request_state_merged)
-        : state === "closed"
-          ? t(($) => $.detail.pull_request_state_closed)
-          : state;
+  switch (state) {
+    case "open":
+      return t(($) => $.detail.pull_request_state_open);
+    case "draft":
+      return t(($) => $.detail.pull_request_state_draft);
+    case "merged":
+      return t(($) => $.detail.pull_request_state_merged);
+    case "closed":
+      return t(($) => $.detail.pull_request_state_closed);
+    default:
+      return state;
+  }
 }

@@ -194,6 +194,15 @@ function CommentInput({ issueId, onSubmit, onAccepted }: CommentInputProps) {
     },
   });
 
+  let sendTooltip: string;
+  if (gate.uploading) {
+    sendTooltip = tEditor(($) => $.upload.in_progress);
+  } else if (sendShortcut) {
+    sendTooltip = `${t(($) => $.comment.send_tooltip)} · ${formatShortcut(sendShortcut)}`;
+  } else {
+    sendTooltip = t(($) => $.comment.send_tooltip);
+  }
+
   return (
     <div
       {...dropZoneProps}
@@ -288,11 +297,7 @@ function CommentInput({ issueId, onSubmit, onAccepted }: CommentInputProps) {
           disabled={isEmpty}
           loading={submitting}
           busy={gate.uploading}
-          tooltip={gate.uploading
-            ? tEditor(($) => $.upload.in_progress)
-            : sendShortcut
-              ? `${t(($) => $.comment.send_tooltip)} · ${formatShortcut(sendShortcut)}`
-              : t(($) => $.comment.send_tooltip)}
+          tooltip={sendTooltip}
           ariaLabel={gate.uploading
             ? tEditor(($) => $.upload.in_progress)
             : t(($) => $.comment.send_tooltip)}

@@ -27,6 +27,31 @@ import type {
 import { IssueSurface } from "./issue-surface";
 import { statusTableMethodsFromLegacy } from "./status-table-test-api";
 
+// Shared by tests that need pagination to actually advance: an
+// IntersectionObserver stub that fires its callback as intersecting the
+// moment a target is observed, so the footer sentinel drives continuation
+// without a real viewport.
+class ImmediatelyIntersectingObserver {
+  private readonly callback: IntersectionObserverCallback;
+  constructor(callback: IntersectionObserverCallback) {
+    this.callback = callback;
+  }
+  observe(target: Element) {
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as unknown as IntersectionObserver,
+    );
+  }
+  unobserve() {}
+  disconnect() {}
+  takeRecords() {
+    return [];
+  }
+  root = null;
+  rootMargin = "0px";
+  thresholds = [0];
+}
+
 // Mutable so tests can simulate a workspace switch — the workspace layout
 // does not remount its children on switch, so the surface must handle the
 // wsId change itself.
@@ -44,7 +69,7 @@ vi.mock("react-virtuoso", () => ({
   Virtuoso: ({ data, itemContent, components }: any) => (
     <div data-testid="virtuoso-mock">
       {(data ?? []).map((item: any, i: number) => (
-        <div key={i}>{itemContent(i, item)}</div>
+        <div key={item.id ?? i}>{itemContent(i, item)}</div>
       ))}
       {components?.Footer ? <components.Footer /> : null}
     </div>
@@ -454,29 +479,7 @@ describe("IssueSurface — table pagination ownership", () => {
     // Continuation is driven by the shared footer's sentinel, the same one
     // Board / List / Swimlane use — there is no manual button to press, so the
     // observer has to actually report the footer as visible.
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        private readonly callback: IntersectionObserverCallback;
-        constructor(callback: IntersectionObserverCallback) {
-          this.callback = callback;
-        }
-        observe(target: Element) {
-          this.callback(
-            [{ isIntersecting: true, target } as IntersectionObserverEntry],
-            this as unknown as IntersectionObserver,
-          );
-        }
-        unobserve() {}
-        disconnect() {}
-        takeRecords() {
-          return [];
-        }
-        root = null;
-        rootMargin = "0px";
-        thresholds = [0];
-      },
-    );
+    vi.stubGlobal("IntersectionObserver", ImmediatelyIntersectingObserver);
 
     render(
       <QueryClientProvider client={qc}>
@@ -625,29 +628,7 @@ describe("IssueSurface — table pagination ownership", () => {
       "pt-collapsed-batch",
     );
 
-    vi.stubGlobal(
-      "IntersectionObserver",
-      class {
-        private readonly callback: IntersectionObserverCallback;
-        constructor(callback: IntersectionObserverCallback) {
-          this.callback = callback;
-        }
-        observe(target: Element) {
-          this.callback(
-            [{ isIntersecting: true, target } as IntersectionObserverEntry],
-            this as unknown as IntersectionObserver,
-          );
-        }
-        unobserve() {}
-        disconnect() {}
-        takeRecords() {
-          return [];
-        }
-        root = null;
-        rootMargin = "0px";
-        thresholds = [0];
-      },
-    );
+    vi.stubGlobal("IntersectionObserver", ImmediatelyIntersectingObserver);
 
     setApiInstance({
       // The board pages by category, so every surface stub answers the catalog

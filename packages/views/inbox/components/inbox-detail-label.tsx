@@ -80,7 +80,8 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
         </span>
       );
     }
-    case "issue_assigned": {
+    case "issue_assigned":
+    case "assignee_changed": {
       if (details.new_assignee_id) {
         return <span>{t(($) => $.labels.assigned_to, { name: getActorName(details.new_assignee_type ?? "member", details.new_assignee_id) })}</span>;
       }
@@ -88,12 +89,6 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
     }
     case "unassigned":
       return <span>{t(($) => $.labels.removed_assignee)}</span>;
-    case "assignee_changed": {
-      if (details.new_assignee_id) {
-        return <span>{t(($) => $.labels.assigned_to, { name: getActorName(details.new_assignee_type ?? "member", details.new_assignee_id) })}</span>;
-      }
-      return <span>{typeLabels[item.type]}</span>;
-    }
     case "start_date_changed": {
       if (details.to) return <span>{t(($) => $.labels.set_start_date_to, { date: shortDate(details.to) })}</span>;
       return <span>{t(($) => $.labels.removed_start_date)}</span>;

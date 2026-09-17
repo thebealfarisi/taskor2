@@ -55,8 +55,11 @@ function paste(ed: Editor, text: string, html: string): void {
   Object.defineProperty(event, "clipboardData", {
     value: {
       files: [],
-      getData: (type: string) =>
-        type === "text/plain" ? text : type === "text/html" ? html : "",
+      getData: (type: string) => {
+        if (type === "text/plain") return text;
+        if (type === "text/html") return html;
+        return "";
+      },
     },
   });
   ed.view.dom.dispatchEvent(event);

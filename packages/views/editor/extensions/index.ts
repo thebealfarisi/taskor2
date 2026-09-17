@@ -196,6 +196,33 @@ export function createEditorExtensions(
 ): AnyExtension[] {
   const { placeholder: placeholderText } = options;
 
+  let mentionSuggestionConfig: Record<string, unknown>;
+  if (options.disableMentions) {
+    mentionSuggestionConfig = { suggestion: { allow: () => false } };
+  } else if (options.queryClient) {
+    mentionSuggestionConfig = {
+      suggestion: createMentionSuggestion(options.queryClient, {
+        mode: options.mentionMode,
+        getContextItems: options.getMentionContextItems,
+      }),
+    };
+  } else {
+    mentionSuggestionConfig = {};
+  }
+
+  let slashCommandSuggestion: NonNullable<
+    Parameters<typeof SlashCommandExtension.configure>[0]
+  >["suggestion"];
+  if (!options.enableSlashCommands) {
+    slashCommandSuggestion = { char: "/", allow: () => false };
+  } else if (options.slashCommandMode === "command") {
+    slashCommandSuggestion = createBuiltinCommandSuggestion(options.quickActionMenu);
+  } else if (options.queryClient) {
+    slashCommandSuggestion = createSlashCommandSuggestion(options.queryClient);
+  } else {
+    slashCommandSuggestion = { char: "/", allow: () => false };
+  }
+
   return [
     StarterKit.configure({
       // Every level Markdown can express. The Markdown parser keeps the source
@@ -262,11 +289,7 @@ export function createEditorExtensions(
     SuggestionTriggerArmingExtension,
     BaseMentionExtension.configure({
       HTMLAttributes: { class: "mention" },
-      ...(options.disableMentions
-        ? { suggestion: { allow: () => false } }
-        : options.queryClient
-          ? { suggestion: createMentionSuggestion(options.queryClient, { mode: options.mentionMode, getContextItems: options.getMentionContextItems }) }
-          : {}),
+      ...mentionSuggestionConfig,
     }),
     // Linear-style bare identifier → issue mention. Attached only when a
     // resolver is provided AND mention creation is enabled (an editor that
@@ -280,13 +303,7 @@ export function createEditorExtensions(
       : []),
     SlashCommandExtension.configure({
       HTMLAttributes: { class: "slash-command" },
-      suggestion: !options.enableSlashCommands
-        ? { char: "/", allow: () => false }
-        : options.slashCommandMode === "command"
-          ? createBuiltinCommandSuggestion(options.quickActionMenu)
-          : options.queryClient
-            ? createSlashCommandSuggestion(options.queryClient)
-            : { char: "/", allow: () => false },
+      suggestion: slashCommandSuggestion,
     }),
     Typography,
     Placeholder.configure({ placeholder: placeholderText }),

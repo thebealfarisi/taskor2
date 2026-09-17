@@ -371,10 +371,18 @@ export function useZoomCanvas({
           event.preventDefault();
           setIsAnimated(true);
           const step = event.shiftKey ? PAN_STEP_PX * 3 : PAN_STEP_PX;
-          const deltaX =
-            event.key === "ArrowLeft" ? step : event.key === "ArrowRight" ? -step : 0;
-          const deltaY =
-            event.key === "ArrowUp" ? step : event.key === "ArrowDown" ? -step : 0;
+          let deltaX = 0;
+          if (event.key === "ArrowLeft") {
+            deltaX = step;
+          } else if (event.key === "ArrowRight") {
+            deltaX = -step;
+          }
+          let deltaY = 0;
+          if (event.key === "ArrowUp") {
+            deltaY = step;
+          } else if (event.key === "ArrowDown") {
+            deltaY = -step;
+          }
           setTransform((current) => panBy(current, deltaX, deltaY, c, v));
           return;
         }

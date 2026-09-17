@@ -85,6 +85,46 @@ import {
   resolveDetailItem,
 } from "./inbox-display";
 import { useT } from "../../i18n";
+import type { ReactNode } from "react";
+
+// Fixed placeholder set for the loading skeleton — not derived from a data
+// array, so a stable id per row (rather than its position) is the correct key.
+const SKELETON_ROW_IDS = ["row-1", "row-2", "row-3", "row-4", "row-5"];
+
+function InboxListSkeletonRows() {
+  return (
+    <>
+      {SKELETON_ROW_IDS.map((id) => (
+        <div key={id} className="flex items-center gap-3 px-2 py-2.5">
+          <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// Extracted so the ErrorBoundary fallback is a stable component identity
+// instead of being redefined on every InboxPage render.
+function InboxDetailErrorFallback({
+  compactBackBar,
+  error,
+}: {
+  compactBackBar: ReactNode;
+  error: Error;
+}) {
+  return (
+    <div className="flex flex-1 min-h-0 flex-col">
+      {compactBackBar}
+      <div className="flex flex-1 min-h-0 items-center justify-center px-4 text-center text-body text-muted-foreground">
+        {error.message}
+      </div>
+    </div>
+  );
+}
 
 export function InboxPage() {
   const { t } = useT("inbox");
@@ -593,111 +633,115 @@ export function InboxPage() {
     </div>
   ) : null;
 
-  const detailContent = detailItem?.issue_id ? (
+  let detailContent: ReactNode = null;
+  if (detailItem?.issue_id) {
     // Key by issue_id (not inbox-item id): a new comment/reaction generates a
     // new inbox notification for the same issue, and the dedup helper picks the
     // newest one — keying on its id would remount IssueDetail on every event,
     // wiping the comment composer draft and resetting scroll position.
-    <ErrorBoundary
-      resetKeys={[detailItem.issue_id]}
-      // The default fallback is a bare message card. On a phone it would be the
-      // only thing on screen, so it has to carry the way back too — the bar is
-      // the point here, the message is whatever the boundary caught.
-      fallback={compactBackAction ? ({ error }) => (
-        <div className="flex flex-1 min-h-0 flex-col">
-          {compactBackBar}
-          <div className="flex flex-1 min-h-0 items-center justify-center px-4 text-center text-body text-muted-foreground">
-            {error.message}
+    detailContent = (
+      <ErrorBoundary
+        resetKeys={[detailItem.issue_id]}
+        // The default fallback is a bare message card. On a phone it would be the
+        // only thing on screen, so it has to carry the way back too — the bar is
+        // the point here, the message is whatever the boundary caught.
+        fallback={
+          compactBackAction
+            ? ({ error }) => (
+                <InboxDetailErrorFallback compactBackBar={compactBackBar} error={error} />
+              )
+            : undefined
+        }
+      >
+        <IssueDetail
+          key={detailItem.issue_id}
+          issueId={detailItem.issue_id}
+          defaultSidebarOpen={false}
+          layoutId="multica_inbox_issue_detail_layout"
+          highlightCommentId={detailItem.details?.comment_id ?? undefined}
+          highlightRequestToken={highlightRequestToken}
+          leadingAction={compactBackAction}
+          onDelete={() => {
+            // Issue deletion CASCADE-deletes the inbox item server-side, and the
+            // issue:deleted WS event prunes it from the inbox cache. Just clear
+            // the selection — calling archive here would 404 on a row that no
+            // longer exists.
+            setSelectedKey("");
+          }}
+          onDone={() => {
+            handleArchive(detailItem.id);
+          }}
+        />
+      </ErrorBoundary>
+    );
+  } else if (detailItem) {
+    detailContent = (
+      <div className="p-6">
+        <h2 className="text-title font-semibold">{getInboxDisplayTitle(detailItem)}</h2>
+        <p className="mt-1 text-body text-muted-foreground">
+          {typeLabels[detailItem.type]} · {timeAgo(detailItem.created_at)}
+        </p>
+        {detailItem.body && (
+          <div className="mt-4 whitespace-pre-wrap text-body leading-relaxed text-foreground">
+            {detailItem.body}
           </div>
-        </div>
-      ) : undefined}
-    >
-      <IssueDetail
-        key={detailItem.issue_id}
-        issueId={detailItem.issue_id}
-        defaultSidebarOpen={false}
-        layoutId="multica_inbox_issue_detail_layout"
-        highlightCommentId={detailItem.details?.comment_id ?? undefined}
-        highlightRequestToken={highlightRequestToken}
-        leadingAction={compactBackAction}
-        onDelete={() => {
-          // Issue deletion CASCADE-deletes the inbox item server-side, and the
-          // issue:deleted WS event prunes it from the inbox cache. Just clear
-          // the selection — calling archive here would 404 on a row that no
-          // longer exists.
-          setSelectedKey("");
-        }}
-        onDone={() => {
-          handleArchive(detailItem.id);
-        }}
-      />
-    </ErrorBoundary>
-  ) : detailItem ? (
-    <div className="p-6">
-      <h2 className="text-title font-semibold">{getInboxDisplayTitle(detailItem)}</h2>
-      <p className="mt-1 text-body text-muted-foreground">
-        {typeLabels[detailItem.type]} · {timeAgo(detailItem.created_at)}
-      </p>
-      {detailItem.body && (
-        <div className="mt-4 whitespace-pre-wrap text-body leading-relaxed text-foreground">
-          {detailItem.body}
-        </div>
-      )}
-      {isQuickCreateOutcome(detailItem.type) && detailItem.details?.original_prompt && (
-        <div className="mt-4 rounded-md border bg-muted/40 p-3">
-          <p className="text-caption font-medium text-muted-foreground">
-            {t(($) => $.detail.original_input)}
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-body">{detailItem.details.original_prompt}</p>
-        </div>
-      )}
-      <div className="mt-4 flex gap-2">
-        {isQuickCreateOutcome(detailItem.type) && (
-          <Button
-            size="sm"
-            onClick={() => {
-              // Seed the legacy advanced form with the original prompt so the
-              // user can recover their input in the full editor instead of
-              // retyping. The agent picker hint becomes the assignee
-              // candidate (still editable).
-              const prompt = detailItem.details?.original_prompt ?? "";
-              const agentId = detailItem.details?.agent_id;
-              useIssueDraftStore.getState().setManual({
-                description: prompt,
-                ...(agentId
-                  ? { assigneeType: "agent" as const, assigneeId: agentId }
-                  : {}),
-              });
-              useModalStore.getState().open("create-issue");
-            }}
-          >
-            {t(($) => $.detail.edit_advanced)}
-          </Button>
         )}
-        {/* Mirrors the row action: the button always reverses the view the
-            item is being read in. */}
-        {isArchivedView ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleUnarchive(detailItem.id)}
-          >
-            <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
-            {t(($) => $.detail.unarchive)}
-          </Button>
-        ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleArchive(detailItem.id)}
-          >
-            <Archive className="mr-1.5 h-3.5 w-3.5" />
-            {t(($) => $.detail.archive)}
-          </Button>
+        {isQuickCreateOutcome(detailItem.type) && detailItem.details?.original_prompt && (
+          <div className="mt-4 rounded-md border bg-muted/40 p-3">
+            <p className="text-caption font-medium text-muted-foreground">
+              {t(($) => $.detail.original_input)}
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-body">{detailItem.details.original_prompt}</p>
+          </div>
         )}
+        <div className="mt-4 flex gap-2">
+          {isQuickCreateOutcome(detailItem.type) && (
+            <Button
+              size="sm"
+              onClick={() => {
+                // Seed the legacy advanced form with the original prompt so the
+                // user can recover their input in the full editor instead of
+                // retyping. The agent picker hint becomes the assignee
+                // candidate (still editable).
+                const prompt = detailItem.details?.original_prompt ?? "";
+                const agentId = detailItem.details?.agent_id;
+                useIssueDraftStore.getState().setManual({
+                  description: prompt,
+                  ...(agentId
+                    ? { assigneeType: "agent" as const, assigneeId: agentId }
+                    : {}),
+                });
+                useModalStore.getState().open("create-issue");
+              }}
+            >
+              {t(($) => $.detail.edit_advanced)}
+            </Button>
+          )}
+          {/* Mirrors the row action: the button always reverses the view the
+              item is being read in. */}
+          {isArchivedView ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleUnarchive(detailItem.id)}
+            >
+              <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+              {t(($) => $.detail.unarchive)}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleArchive(detailItem.id)}
+            >
+              <Archive className="mr-1.5 h-3.5 w-3.5" />
+              {t(($) => $.detail.archive)}
+            </Button>
+          )}
+        </div>
       </div>
-    </div>
-  ) : null;
+    );
+  }
 
   // -- Compact layout: list / detail toggle -----------------------------------
 
@@ -709,15 +753,7 @@ export function InboxPage() {
             <Skeleton className="h-5 w-16" />
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto space-y-1 p-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 px-2 py-2.5">
-                <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
-                </div>
-              </div>
-            ))}
+            <InboxListSkeletonRows />
           </div>
         </div>
       );
@@ -765,15 +801,7 @@ export function InboxPage() {
               <Skeleton className="h-5 w-16" />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-1 p-2">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 px-2 py-2.5">
-                  <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-4 w-3/4" />
-                    <Skeleton className="h-3 w-1/2" />
-                  </div>
-                </div>
-              ))}
+              <InboxListSkeletonRows />
             </div>
           </div>
         </ResizablePanel>

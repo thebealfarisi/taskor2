@@ -11,7 +11,7 @@ const editorState = vi.hoisted(() => ({
 }));
 
 vi.mock("../i18n", () => ({
-  useT: () => ({ t: (fn: unknown) => (typeof fn === "function" ? "" : "") }),
+  useT: () => ({ t: () => "" }),
 }));
 
 const editorRef = vi.hoisted<{ current: unknown }>(() => ({ current: null }));

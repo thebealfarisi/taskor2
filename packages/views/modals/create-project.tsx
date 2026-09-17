@@ -221,12 +221,14 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   // save gate drop execution_mode and answer 201, so "the backend will check"
   // is only true once the backend says it checks (#7113).
   const serverValidatesWorktree = useConfigStore((state) => state.localWorktreeSupported);
-  const worktreeUnavailableReason =
-    localIsGitRepo === false
-      ? ("not_git" as const)
-      : !serverValidatesWorktree
-        ? ("server_outdated" as const)
-        : undefined;
+  let worktreeUnavailableReason: "not_git" | "server_outdated" | undefined;
+  if (localIsGitRepo === false) {
+    worktreeUnavailableReason = "not_git";
+  } else if (!serverValidatesWorktree) {
+    worktreeUnavailableReason = "server_outdated";
+  } else {
+    worktreeUnavailableReason = undefined;
+  }
   // Preselection, not a default behavior change: when the folder is a git repo
   // and the machine has advertised that it can run worktree mode, parallel is
   // the better fit, so it starts selected — visibly, in a control the user can
@@ -573,7 +575,7 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={() => {
-                    updateLead(undefined, undefined);
+                    updateLead();
                     setLeadOpen(false);
                   }}
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-body hover:bg-accent transition-colors"

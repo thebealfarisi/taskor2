@@ -71,12 +71,21 @@ function DiffCell({
   line?: { text: string; changed: boolean };
 }) {
   const changed = line?.changed === true;
-  const marker = changed ? (side === "server" ? "−" : "+") : "";
+  let marker: string;
+  let diffKind: string;
+  if (!changed) {
+    marker = "";
+    diffKind = "context";
+  } else if (side === "server") {
+    marker = "−";
+    diffKind = "remove";
+  } else {
+    marker = "+";
+    diffKind = "add";
+  }
   return (
     <div
-      data-diff-kind={
-        changed ? (side === "server" ? "remove" : "add") : "context"
-      }
+      data-diff-kind={diffKind}
       className={cn(
         "grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] px-2 py-1 font-mono text-micro leading-relaxed",
         !line && "bg-muted/20",
@@ -123,9 +132,9 @@ export function RevisionConflictCompare({
           data-revision-diff-scroll
           className="max-h-80 overflow-y-auto overscroll-contain"
         >
-          {rows.map((row, index) => (
+          {rows.map((row) => (
             <div
-              key={index}
+              key={`${row.server?.text ?? ""}:${row.local?.text ?? ""}`}
               className="grid grid-cols-2 border-b last:border-b-0"
             >
               <DiffCell side="server" line={row.server} />

@@ -601,6 +601,14 @@ function MentionRow({
   const disabledMessage = item.disabledReason
     ? blockedReasonLabel(item.disabledReason, issuesT)
     : null;
+  let hoverClass: string;
+  if (selected) {
+    hoverClass = "bg-accent";
+  } else if (disabledMessage) {
+    hoverClass = "";
+  } else {
+    hoverClass = "hover:bg-accent/50";
+  }
   const button = (
     <button
       type="button"
@@ -610,7 +618,7 @@ function MentionRow({
         disabledMessage ? `${item.label}: ${disabledMessage}` : undefined
       }
       className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-caption transition-colors ${
-        selected ? "bg-accent" : disabledMessage ? "" : "hover:bg-accent/50"
+        hoverClass
       } ${disabledMessage ? "cursor-not-allowed opacity-50" : ""}`}
       onClick={onSelect}
     >

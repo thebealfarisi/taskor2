@@ -122,12 +122,12 @@ export function InboxList({
     );
     const step = event.key === "ArrowDown" ? 1 : -1;
     // Nothing selected yet: Down enters the list at the top, Up at the bottom.
-    const nextIndex =
-      current < 0
-        ? step === 1
-          ? 0
-          : items.length - 1
-        : Math.min(Math.max(current + step, 0), items.length - 1);
+    let nextIndex: number;
+    if (current < 0) {
+      nextIndex = step === 1 ? 0 : items.length - 1;
+    } else {
+      nextIndex = Math.min(Math.max(current + step, 0), items.length - 1);
+    }
     if (nextIndex === current) return;
     const nextItem = items[nextIndex];
     if (!nextItem) return;

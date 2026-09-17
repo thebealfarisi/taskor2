@@ -201,28 +201,38 @@ export function StepSidebar({
                   const canReturn = isDone && !!onStepChange && !backDisabled;
                   const key = stepId as Exclude<OnboardingStep, "welcome">;
 
+                  let indicatorColorClass: string;
+                  if (isDone) {
+                    indicatorColorClass = "bg-foreground text-background ring-foreground";
+                  } else if (isCurrent) {
+                    indicatorColorClass = "text-transparent ring-muted-foreground";
+                  } else {
+                    indicatorColorClass = "text-transparent ring-border";
+                  }
+
+                  let indicatorContent: ReactNode;
+                  if (isDone) {
+                    indicatorContent = <Check aria-hidden className="size-3" />;
+                  } else if (isCurrent) {
+                    indicatorContent = (
+                      <span
+                        aria-hidden
+                        className="block size-1.5 rounded-full bg-foreground"
+                      />
+                    );
+                  } else {
+                    indicatorContent = <span className="sr-only">{index + 1}</span>;
+                  }
+
                   const body = (
                     <>
                       <StepperIndicator
                         className={cn(
                           "mt-0.5 size-4 shrink-0 border-0 bg-transparent ring-1 transition-colors",
-                          isDone
-                            ? "bg-foreground text-background ring-foreground"
-                            : isCurrent
-                              ? "text-transparent ring-muted-foreground"
-                              : "text-transparent ring-border",
+                          indicatorColorClass,
                         )}
                       >
-                        {isDone ? (
-                          <Check aria-hidden className="size-3" />
-                        ) : isCurrent ? (
-                          <span
-                            aria-hidden
-                            className="block size-1.5 rounded-full bg-foreground"
-                          />
-                        ) : (
-                          <span className="sr-only">{index + 1}</span>
-                        )}
+                        {indicatorContent}
                       </StepperIndicator>
                       <div className="min-w-0 flex-1 text-left">
                         <StepperTitle

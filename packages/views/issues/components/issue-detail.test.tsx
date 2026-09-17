@@ -473,7 +473,7 @@ vi.mock("react-virtuoso", () => ({
     return (
       <div data-testid="virtuoso-mock">
         {data.map((item, i) => (
-          <div key={i}>{itemContent(i, item) as React.ReactElement}</div>
+          <div key={(item as { id: string }).id}>{itemContent(i, item) as React.ReactElement}</div>
         ))}
       </div>
     );
@@ -613,6 +613,19 @@ function renderIssueDetail(issueId = "issue-1") {
         <IssueDetail issueId={issueId} />
       </QueryClientProvider>
     </I18nProvider>,
+  );
+}
+
+// Shared by tests that switch issues mid-render (via `rerender`): the
+// QueryClient is created once by the caller and reused across renders, unlike
+// renderIssueDetail() above which owns a fresh one per call.
+function issueDetailUi(queryClient: QueryClient, issueId: string) {
+  return (
+    <I18nProvider locale="en" resources={TEST_RESOURCES}>
+      <QueryClientProvider client={queryClient}>
+        <IssueDetail issueId={issueId} />
+      </QueryClientProvider>
+    </I18nProvider>
   );
 }
 
@@ -807,19 +820,12 @@ describe("IssueDetail (shared)", () => {
     );
     // Pre-seed issue-2 so its first render skips the loading skeleton.
     queryClient.setQueryData(["issues", "ws-1", "detail", "issue-2"], issue2);
-    const ui = (issueId: string) => (
-      <I18nProvider locale="en" resources={TEST_RESOURCES}>
-        <QueryClientProvider client={queryClient}>
-          <IssueDetail issueId={issueId} />
-        </QueryClientProvider>
-      </I18nProvider>
-    );
-    const { rerender } = render(ui("issue-1"));
+    const { rerender } = render(issueDetailUi(queryClient, "issue-1"));
 
     await screen.findByDisplayValue("Add JWT auth to the backend");
     const mountsBeforeSwitch = contentEditorMounts.count;
 
-    rerender(ui("issue-2"));
+    rerender(issueDetailUi(queryClient, "issue-2"));
 
     expect(await screen.findByDisplayValue("Second description")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Add JWT auth to the backend")).not.toBeInTheDocument();
@@ -1909,14 +1915,7 @@ describe("IssueDetail (shared)", () => {
       .mockReturnValueOnce(firstSave)
       .mockResolvedValueOnce({ ...issue2, description: "Issue two draft", revision: 9 });
 
-    const ui = (issueId: string) => (
-      <I18nProvider locale="en" resources={TEST_RESOURCES}>
-        <QueryClientProvider client={queryClient}>
-          <IssueDetail issueId={issueId} />
-        </QueryClientProvider>
-      </I18nProvider>
-    );
-    const { rerender } = render(ui("issue-1"));
+    const { rerender } = render(issueDetailUi(queryClient, "issue-1"));
 
     const issueOneEditor = await screen.findByDisplayValue("Add JWT auth to the backend");
     fireEvent.focus(issueOneEditor);
@@ -1925,7 +1924,7 @@ describe("IssueDetail (shared)", () => {
     });
     await waitFor(() => expect(mockApiObj.updateIssue).toHaveBeenCalledTimes(1));
 
-    rerender(ui("issue-2"));
+    rerender(issueDetailUi(queryClient, "issue-2"));
     const issueTwoEditor = await screen.findByDisplayValue("Second issue description");
     fireEvent.focus(issueTwoEditor);
     fireEvent.change(issueTwoEditor, {

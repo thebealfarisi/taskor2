@@ -293,6 +293,12 @@ function CliInstallDialog({
   cliInstructions?: ReactNode;
 }) {
   const { t } = useT("onboarding");
+  let footerHint: ReactNode = null;
+  if (hasRuntimes) {
+    footerHint = canConnect && selectedName
+      ? t(($) => $.step_runtime.hint_selected, { name: selectedName })
+      : t(($) => $.step_platform.cli_dialog_pick_hint);
+  }
   return (
     <Dialog open={open} onOpenChange={(o) => (o ? null : onClose())}>
       <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-[560px]">
@@ -336,11 +342,7 @@ function CliInstallDialog({
               CliWaitingStatus already conveys the live-listening state,
               so an additional "Waiting..." footer line is duplication. */}
           <span className="text-caption text-muted-foreground">
-            {hasRuntimes
-              ? canConnect && selectedName
-                ? t(($) => $.step_runtime.hint_selected, { name: selectedName })
-                : t(($) => $.step_platform.cli_dialog_pick_hint)
-              : null}
+            {footerHint}
           </span>
           <div className="flex items-center gap-2">
             <Button variant="ghost" onClick={onClose}>
@@ -412,14 +414,16 @@ function CliWaitingStatus({ dialogOpen }: { dialogOpen: boolean }) {
   //   "nothing's coming through, suggest alt paths" (the stalled tier
   //   parallels desktop StepRuntimeConnect's EmptyView — by that point
   //   it's worth pointing the user at Skip or Cloud waitlist).
-  const stage: "normal" | "midway" | "slow" | "stalled" =
-    elapsed < 15
-      ? "normal"
-      : elapsed < 45
-        ? "midway"
-        : elapsed < 90
-          ? "slow"
-          : "stalled";
+  let stage: "normal" | "midway" | "slow" | "stalled";
+  if (elapsed < 15) {
+    stage = "normal";
+  } else if (elapsed < 45) {
+    stage = "midway";
+  } else if (elapsed < 90) {
+    stage = "slow";
+  } else {
+    stage = "stalled";
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">

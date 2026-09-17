@@ -105,13 +105,17 @@ function MemberBreadcrumb({
 
 function RoleBadge({ role }: { role: MemberRole }) {
   const { t } = useT("members");
+  let roleLabel: string;
+  if (role === "owner") {
+    roleLabel = t(($) => $.role.owner);
+  } else if (role === "admin") {
+    roleLabel = t(($) => $.role.admin);
+  } else {
+    roleLabel = t(($) => $.role.member);
+  }
   return (
     <span className="rounded-md bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
-      {role === "owner"
-        ? t(($) => $.role.owner)
-        : role === "admin"
-          ? t(($) => $.role.admin)
-          : t(($) => $.role.member)}
+      {roleLabel}
     </span>
   );
 }
@@ -130,8 +134,8 @@ function MemberDetailSkeleton() {
         </div>
       </div>
       <div className="flex flex-1 min-h-0 gap-4 overflow-hidden p-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex min-w-52 flex-1 flex-col gap-2">
+        {["col-1", "col-2", "col-3", "col-4"].map((key) => (
+          <div key={key} className="flex min-w-52 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-20" />
             <Skeleton className="h-24 w-full rounded-lg" />
             <Skeleton className="h-24 w-full rounded-lg" />

@@ -102,13 +102,15 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
           {
             onSuccess: options?.onSuccess,
             onError: (err) => {
-              toast.error(
-                errorCode(err) === "revision_conflict"
-                  ? t(($) => $.revision.conflict)
-                  : err instanceof Error && err.message
-                  ? err.message
-                  : t(($) => $.detail.update_failed),
-              );
+              let message: string;
+              if (errorCode(err) === "revision_conflict") {
+                message = t(($) => $.revision.conflict);
+              } else if (err instanceof Error && err.message) {
+                message = err.message;
+              } else {
+                message = t(($) => $.detail.update_failed);
+              }
+              toast.error(message);
               options?.onError?.(err);
             },
             onSettled: () => options?.onSettled?.(),

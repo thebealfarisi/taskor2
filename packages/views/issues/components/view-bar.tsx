@@ -281,24 +281,33 @@ export function ViewBar({
   const [reserveTier, setReserveTier] = useState<"menu" | "more" | "promoted">(
     "menu",
   );
+  let reserve: number;
+  if (reserveTier === "promoted") {
+    reserve = RESERVE_PROMOTED;
+  } else if (reserveTier === "more") {
+    reserve = RESERVE_MORE;
+  } else {
+    reserve = RESERVE_MENU;
+  }
   const { containerRef, measureRef, fitCount } = useSingleRowFit({
     count: visible.length,
     gap: 4,
-    reserve:
-      reserveTier === "promoted"
-        ? RESERVE_PROMOTED
-        : reserveTier === "more"
-          ? RESERVE_MORE
-          : RESERVE_MENU,
+    reserve,
   });
   const fitting = visible.slice(0, fitCount);
   const overflowed = visible.slice(fitCount);
   const activeOverflowed =
     !!activeBarId && overflowed.some((item) => item.barItemId === activeBarId);
   useEffect(() => {
-    setReserveTier(
-      activeOverflowed ? "promoted" : overflowed.length > 0 ? "more" : "menu",
-    );
+    let nextTier: "menu" | "more" | "promoted";
+    if (activeOverflowed) {
+      nextTier = "promoted";
+    } else if (overflowed.length > 0) {
+      nextTier = "more";
+    } else {
+      nextTier = "menu";
+    }
+    setReserveTier(nextTier);
   }, [activeOverflowed, overflowed.length]);
   const promoted = reserveTier === "promoted" && activeOverflowed;
 

@@ -33,14 +33,17 @@ export function FindBar({
   } = find;
 
   const hasQuery = query.trim().length > 0;
-  const countLabel = !hasQuery
-    ? ""
-    : matchCount === 0
-      ? t(($) => $.detail.find.no_matches)
-      : t(($) => $.detail.find.count, {
-          current: activeIndex + 1,
-          total: matchCount,
-        });
+  let countLabel: string;
+  if (!hasQuery) {
+    countLabel = "";
+  } else if (matchCount === 0) {
+    countLabel = t(($) => $.detail.find.no_matches);
+  } else {
+    countLabel = t(($) => $.detail.find.count, {
+      current: activeIndex + 1,
+      total: matchCount,
+    });
+  }
   const noMatches = matchCount === 0;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

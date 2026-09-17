@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Lock, UserMinus } from "lucide-react";
 import type { Agent, IssueAssigneeType, UpdateIssueRequest } from "@multica/core/types";
 import { useQuery } from "@tanstack/react-query";
@@ -151,6 +151,22 @@ function AssigneePickerImpl({
       ? getActorName(assigneeType, assigneeId)
       : t(($) => $.pickers.assignee.trigger_unassigned);
 
+  let triggerContent: ReactNode;
+  if (customTrigger) {
+    triggerContent = customTrigger;
+  } else if (assigneeType && assigneeId) {
+    triggerContent = (
+      <>
+        <ActorAvatar actorType={assigneeType} actorId={assigneeId} size="sm" enableHoverCard showStatusDot />
+        <span className="truncate">{triggerLabel}</span>
+      </>
+    );
+  } else {
+    triggerContent = (
+      <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
+    );
+  }
+
   return (
     <PropertyPicker
       open={open}
@@ -164,16 +180,7 @@ function AssigneePickerImpl({
       searchPlaceholder={t(($) => $.pickers.assignee.search_placeholder)}
       onSearchChange={setFilter}
       triggerRender={triggerRender}
-      trigger={
-        customTrigger ? customTrigger : assigneeType && assigneeId ? (
-          <>
-            <ActorAvatar actorType={assigneeType} actorId={assigneeId} size="sm" enableHoverCard showStatusDot />
-            <span className="truncate">{triggerLabel}</span>
-          </>
-        ) : (
-          <span className="text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
-        )
-      }
+      trigger={triggerContent}
     >
       {/* Unassigned — always the first row, search active or not. Every
           picker in the app puts the empty value there, so "clear this field"
@@ -227,18 +234,20 @@ function AssigneePickerImpl({
             });
             const runtimeBound = isAgentRuntimeBound(a);
             const allowed = decision.allowed && runtimeBound;
+            let agentTooltip: string | undefined;
+            if (!decision.allowed) {
+              agentTooltip = decision.message;
+            } else if (!runtimeBound) {
+              agentTooltip = t(($) => $.pickers.assignee.agent_runtime_required);
+            } else {
+              agentTooltip = undefined;
+            }
             return (
               <PickerItem
                 key={a.id}
                 selected={isSelected("agent", a.id)}
                 disabled={!allowed}
-                tooltip={
-                  !decision.allowed
-                    ? decision.message
-                    : !runtimeBound
-                      ? t(($) => $.pickers.assignee.agent_runtime_required)
-                      : undefined
-                }
+                tooltip={agentTooltip}
                 onClick={() => {
                   if (!allowed) return;
                   onUpdate({

@@ -71,6 +71,14 @@ const BOARD_VIRTUALIZE_THRESHOLD = 30;
 // `EmptyPlaceholder`/`Footer` throws (MUL-4474).
 const EMPTY_VIRTUOSO_COMPONENTS = {};
 
+// Defined at module scope (not inside BoardColumn's render) so the Footer
+// component identity is never a nested-during-render definition, even though
+// it closes over the current footer node.
+function createFooterComponents(footer: ReactNode) {
+  if (!footer) return EMPTY_VIRTUOSO_COMPONENTS;
+  return { Footer: () => <>{footer}</> };
+}
+
 export interface BoardColumnGroup {
   id: string;
   title: string;
@@ -156,10 +164,7 @@ export const BoardColumn = memo(function BoardColumn({
   // Infinite-scroll sentinel rides Virtuoso's Footer slot so it sits at the
   // real end of the virtualized list and its IntersectionObserver still fires
   // loadMore when scrolled to the bottom.
-  const footerComponents = useMemo(
-    () => (footer ? { Footer: () => <>{footer}</> } : EMPTY_VIRTUOSO_COMPONENTS),
-    [footer],
-  );
+  const footerComponents = useMemo(() => createFooterComponents(footer), [footer]);
 
   const computeItemKey = (_index: number, issue: Issue) => issue.id;
   const itemContent = (index: number, issue: Issue) => (
@@ -177,6 +182,85 @@ export const BoardColumn = memo(function BoardColumn({
       />
     </div>
   );
+
+  let dropZoneHighlight: string;
+  if (isOver && sortLabel) {
+    dropZoneHighlight = "ring-2 ring-brand/25 bg-accent/15";
+  } else if (isOver) {
+    dropZoneHighlight = "bg-accent/60";
+  } else {
+    dropZoneHighlight = "";
+  }
+
+  let columnBody: ReactNode;
+  if (resolvedIssues.length > 0) {
+    let listContent: ReactNode;
+    if (resolvedIssues.length <= BOARD_VIRTUALIZE_THRESHOLD) {
+      /* Small column: plain full render (reusing the same
+         itemContent, so it is byte-identical to the virtualized
+         rows). No handoff, no estimates — see
+         BOARD_VIRTUALIZE_THRESHOLD. The footer (infinite-scroll
+         sentinel) renders at the real end of the flow, where its
+         IntersectionObserver works the same as in Virtuoso's
+         Footer slot. */
+      listContent = (
+        <>
+          <VirtuosoSeed
+            data={resolvedIssues}
+            itemContent={itemContent}
+            computeItemKey={computeItemKey}
+            count={resolvedIssues.length}
+          />
+          {footer}
+        </>
+      );
+    } else if (scrollEl) {
+      listContent = (
+        <Virtuoso
+          customScrollParent={scrollEl}
+          data={resolvedIssues}
+          computeItemKey={computeItemKey}
+          initialScrollTop={restoredScrollTop}
+          initialItemCount={Math.min(resolvedIssues.length, BOARD_SEED_COUNT)}
+          defaultItemHeight={BOARD_CARD_ESTIMATED_HEIGHT}
+          increaseViewportBy={{ top: 300, bottom: 300 }}
+          components={footerComponents}
+          itemContent={itemContent}
+        />
+      );
+    } else {
+      /* Large column, merged scroll ref not settled yet after a
+         remount: seed a bounded slice of real cards so the column
+         never paints blank; once the ref lands, mount the Virtuoso
+         with a matching `initialItemCount` to survive the
+         measurement frame (MUL-4750). */
+      listContent = (
+        <VirtuosoSeed
+          data={resolvedIssues}
+          itemContent={itemContent}
+          computeItemKey={computeItemKey}
+          count={BOARD_SEED_COUNT}
+          estimatedItemHeight={BOARD_CARD_ESTIMATED_HEIGHT}
+        />
+      );
+    }
+    columnBody = (
+      <SortableContext items={issueIds} strategy={verticalListSortingStrategy}>
+        {listContent}
+      </SortableContext>
+    );
+  } else {
+    columnBody = (
+      <>
+        {issueIds.length === 0 && (
+          <p className="py-8 text-center text-caption text-muted-foreground">
+            {t(($) => $.board.empty_column)}
+          </p>
+        )}
+        {footer}
+      </>
+    );
+  }
 
   return (
     <div style={{ width: BOARD_COL_WIDTH }} className={`flex shrink-0 flex-col rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} p-2`}>
@@ -258,70 +342,9 @@ export const BoardColumn = memo(function BoardColumn({
           // (MUL-4741): the group id is the stable memento key, so every
           // column's offset survives tab switches/reloads independently.
           data-tab-scroll-root={scrollMementoKey}
-          className={`absolute inset-0 overflow-y-auto rounded-lg p-1 transition-colors ${
-            isOver && sortLabel
-              ? "ring-2 ring-brand/25 bg-accent/15"
-              : isOver
-                ? "bg-accent/60"
-                : ""
-          }`}
+          className={`absolute inset-0 overflow-y-auto rounded-lg p-1 transition-colors ${dropZoneHighlight}`}
         >
-          {resolvedIssues.length > 0 ? (
-            <SortableContext items={issueIds} strategy={verticalListSortingStrategy}>
-              {resolvedIssues.length <= BOARD_VIRTUALIZE_THRESHOLD ? (
-                /* Small column: plain full render (reusing the same
-                   itemContent, so it is byte-identical to the virtualized
-                   rows). No handoff, no estimates — see
-                   BOARD_VIRTUALIZE_THRESHOLD. The footer (infinite-scroll
-                   sentinel) renders at the real end of the flow, where its
-                   IntersectionObserver works the same as in Virtuoso's
-                   Footer slot. */
-                <>
-                  <VirtuosoSeed
-                    data={resolvedIssues}
-                    itemContent={itemContent}
-                    computeItemKey={computeItemKey}
-                    count={resolvedIssues.length}
-                  />
-                  {footer}
-                </>
-              ) : scrollEl ? (
-                <Virtuoso
-                  customScrollParent={scrollEl}
-                  data={resolvedIssues}
-                  computeItemKey={computeItemKey}
-                  initialScrollTop={restoredScrollTop}
-                  initialItemCount={Math.min(resolvedIssues.length, BOARD_SEED_COUNT)}
-                  defaultItemHeight={BOARD_CARD_ESTIMATED_HEIGHT}
-                  increaseViewportBy={{ top: 300, bottom: 300 }}
-                  components={footerComponents}
-                  itemContent={itemContent}
-                />
-              ) : (
-                /* Large column, merged scroll ref not settled yet after a
-                   remount: seed a bounded slice of real cards so the column
-                   never paints blank; once the ref lands, mount the Virtuoso
-                   with a matching `initialItemCount` to survive the
-                   measurement frame (MUL-4750). */
-                <VirtuosoSeed
-                  data={resolvedIssues}
-                  itemContent={itemContent}
-                  computeItemKey={computeItemKey}
-                  count={BOARD_SEED_COUNT}
-                  estimatedItemHeight={BOARD_CARD_ESTIMATED_HEIGHT}
-                />
-              )}
-            </SortableContext>
-          ) : (
-            <>
-              {issueIds.length === 0 && (
-                <p className="py-8 text-center text-caption text-muted-foreground">
-                  {t(($) => $.board.empty_column)}
-                </p>
-              )}
-              {footer}
-            </>
-          )}
+          {columnBody}
         </div>
       </div>
     </div>

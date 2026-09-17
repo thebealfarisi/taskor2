@@ -265,13 +265,15 @@ function TaskCommentRetryButton({
     } catch (e) {
       // Rerun re-checks the operator's invoke permission (MUL-4525); a
       // structured 403 is a permission block, not a transient failure.
-      toast.error(
-        dispatchReasonCode(e) === "invocation_not_allowed"
-          ? t(($) => $.execution_log.retry_blocked)
-          : e instanceof Error
-            ? e.message
-            : t(($) => $.execution_log.retry_failed),
-      );
+      let message: string;
+      if (dispatchReasonCode(e) === "invocation_not_allowed") {
+        message = t(($) => $.execution_log.retry_blocked);
+      } else if (e instanceof Error) {
+        message = e.message;
+      } else {
+        message = t(($) => $.execution_log.retry_failed);
+      }
+      toast.error(message);
     } finally {
       setRetrying(false);
     }
@@ -473,13 +475,15 @@ function useEditAttachmentState(
         if (errorCode(err) === "revision_conflict") {
           setRevisionConflict(true);
         }
-        toast.error(
-          errorCode(err) === "revision_conflict"
-            ? t(($) => $.revision.conflict)
-            : err instanceof Error && err.message
-            ? err.message
-            : t(($) => $.comment.update_failed),
-        );
+        let message: string;
+        if (errorCode(err) === "revision_conflict") {
+          message = t(($) => $.revision.conflict);
+        } else if (err instanceof Error && err.message) {
+          message = err.message;
+        } else {
+          message = t(($) => $.comment.update_failed);
+        }
+        toast.error(message);
         return false;
       }
     },

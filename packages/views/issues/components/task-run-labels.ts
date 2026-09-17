@@ -28,11 +28,14 @@ import { stripMentionMarkdown } from "../utils/strip-mention-markdown";
 export function useTriggerText(task: AgentTask): string {
   const { t } = useT("issues");
   const isRetry = !!task.parent_task_id;
-  const retryPrefix = isRetry
-    ? task.attempt && task.attempt > 1
-      ? t(($) => $.execution_log.trigger_retry_attempt_prefix, { attempt: task.attempt })
-      : t(($) => $.execution_log.trigger_retry_prefix)
-    : "";
+  let retryPrefix: string;
+  if (!isRetry) {
+    retryPrefix = "";
+  } else if (task.attempt && task.attempt > 1) {
+    retryPrefix = t(($) => $.execution_log.trigger_retry_attempt_prefix, { attempt: task.attempt });
+  } else {
+    retryPrefix = t(($) => $.execution_log.trigger_retry_prefix);
+  }
 
   if (task.trigger_summary) return retryPrefix + stripMentionMarkdown(task.trigger_summary);
   if (isRetry) {

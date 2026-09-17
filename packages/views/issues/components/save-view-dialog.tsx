@@ -173,24 +173,30 @@ export function DraftDefinitionFields() {
     t(($) => $.save_view.custom_property);
 
   const layoutLabel = t(($) => $.view[LAYOUT_LABEL_KEY[viewMode]]);
-  const groupingLabel =
-    viewMode === "board"
-      ? grouping in GROUPING_LABEL_KEY
-        ? t(($) => $.display[GROUPING_LABEL_KEY[grouping as keyof typeof GROUPING_LABEL_KEY]])
-        : propertyName(grouping)
-      : viewMode === "swimlane"
-        ? t(($) => $.display[SWIMLANE_LABEL_KEY[swimlaneGrouping]])
-        : null;
+  let groupingLabel: string | null;
+  if (viewMode === "board") {
+    if (grouping in GROUPING_LABEL_KEY) {
+      groupingLabel = t(($) => $.display[GROUPING_LABEL_KEY[grouping as keyof typeof GROUPING_LABEL_KEY]]);
+    } else {
+      groupingLabel = propertyName(grouping);
+    }
+  } else if (viewMode === "swimlane") {
+    groupingLabel = t(($) => $.display[SWIMLANE_LABEL_KEY[swimlaneGrouping]]);
+  } else {
+    groupingLabel = null;
+  }
   const sortLabel =
     sortBy in SORT_LABEL_KEY
       ? t(($) => $.display[SORT_LABEL_KEY[sortBy as keyof typeof SORT_LABEL_KEY]])
       : propertyName(sortBy);
-  const sortDirectionLabel =
-    sortBy === "position"
-      ? null
-      : sortDirection === "asc"
-        ? t(($) => $.display.ascending_title)
-        : t(($) => $.display.descending_title);
+  let sortDirectionLabel: string | null;
+  if (sortBy === "position") {
+    sortDirectionLabel = null;
+  } else if (sortDirection === "asc") {
+    sortDirectionLabel = t(($) => $.display.ascending_title);
+  } else {
+    sortDirectionLabel = t(($) => $.display.descending_title);
+  }
   const displaySummary = [
     layoutLabel,
     groupingLabel,
@@ -513,13 +519,15 @@ export function SaveViewDialog({
     setVisibility(editView?.visibility === "workspace" ? "workspace" : "private");
     if (scope.kind === "workspace" || scope.kind === "project") {
       const fromEdit = editView?.scope_variant;
-      setVariant(
-        fromEdit === "members" || fromEdit === "agents"
-          ? fromEdit
-          : editView
-            ? "all"
-            : (scope.actorKind ?? "all"),
-      );
+      let nextVariant: ScopeVariantValue;
+      if (fromEdit === "members" || fromEdit === "agents") {
+        nextVariant = fromEdit;
+      } else if (editView) {
+        nextVariant = "all";
+      } else {
+        nextVariant = scope.actorKind ?? "all";
+      }
+      setVariant(nextVariant);
     } else if (scope.kind === "my") {
       const fromEdit = editView?.scope_variant;
       setVariant(
@@ -539,26 +547,27 @@ export function SaveViewDialog({
       ? projects.find((p) => p.id === scope.projectId)?.title ?? ""
       : "";
 
-  const scopeHint =
-    scope.kind === "workspace"
-      ? variant === "members"
-        ? t(($) => $.save_view.hint_workspace_members)
-        : variant === "agents"
-          ? t(($) => $.save_view.hint_workspace_agents)
-          : t(($) => $.save_view.hint_workspace)
-      : scope.kind === "my"
-        ? t(($) => $.save_view[
-            MY_VARIANT_HINT_KEY[
-              (MY_VARIANTS as readonly string[]).includes(variant)
-                ? (variant as (typeof MY_VARIANTS)[number])
-                : scope.variant
-            ]
-          ])
-        : variant === "members"
-          ? t(($) => $.save_view.hint_project_members, { title: projectTitle })
-          : variant === "agents"
-            ? t(($) => $.save_view.hint_project_agents, { title: projectTitle })
-            : t(($) => $.save_view.hint_project, { title: projectTitle });
+  let scopeHint: string;
+  if (scope.kind === "workspace") {
+    if (variant === "members") {
+      scopeHint = t(($) => $.save_view.hint_workspace_members);
+    } else if (variant === "agents") {
+      scopeHint = t(($) => $.save_view.hint_workspace_agents);
+    } else {
+      scopeHint = t(($) => $.save_view.hint_workspace);
+    }
+  } else if (scope.kind === "my") {
+    const myVariant = (MY_VARIANTS as readonly string[]).includes(variant)
+      ? (variant as (typeof MY_VARIANTS)[number])
+      : scope.variant;
+    scopeHint = t(($) => $.save_view[MY_VARIANT_HINT_KEY[myVariant]]);
+  } else if (variant === "members") {
+    scopeHint = t(($) => $.save_view.hint_project_members, { title: projectTitle });
+  } else if (variant === "agents") {
+    scopeHint = t(($) => $.save_view.hint_project_agents, { title: projectTitle });
+  } else {
+    scopeHint = t(($) => $.save_view.hint_project, { title: projectTitle });
+  }
 
   const create = () => {
     if (!draftStore) return;

@@ -388,6 +388,53 @@ export function StepWorkspace({
     </FieldGroup>
   );
 
+  let stepTitle: string;
+  let stepDescription: string;
+  if (reusing) {
+    if (workspaceCreationAllowed) {
+      stepTitle = t(($) => $.step_workspace.headline_resume, { name: reusing.name });
+      stepDescription = t(($) => $.step_workspace.lede_resume);
+    } else {
+      stepTitle = t(($) => $.step_workspace.creation_disabled_headline_resume, { name: reusing.name });
+      stepDescription = t(($) => $.step_workspace.creation_disabled_lede_resume);
+    }
+  } else if (workspaceCreationAllowed) {
+    stepTitle = t(($) => $.step_workspace.headline_first);
+    stepDescription = t(($) => $.step_workspace.lede_first);
+  } else {
+    stepTitle = t(($) => $.step_workspace.creation_disabled_headline);
+    stepDescription = t(($) => $.step_workspace.creation_disabled_lede);
+  }
+
+  let workspaceBody: ReactNode;
+  if (reusing) {
+    workspaceBody = (
+      <div className="flex flex-col gap-3">
+        <ExistingWorkspaceCard
+          workspace={reusing}
+          selected={mode === "existing"}
+          onSelect={pickExisting}
+        />
+        {/* Hide the create-new card entirely when the self-host
+            gate (DISABLE_WORKSPACE_CREATION) is on (#3433) — the
+            backend would 403 the POST and the user would be stuck
+            with a useless form. */}
+        {!workspaceCreationDisabled && (
+          <CreateNewWorkspaceCard
+            selected={mode === "create"}
+            onSelect={pickCreate}
+          >
+            {createFields}
+          </CreateNewWorkspaceCard>
+        )}
+      </div>
+    );
+  } else if (workspaceCreationDisabled) {
+    workspaceBody = <CreationDisabledNotice onLogout={logout} />;
+  } else {
+    workspaceBody = createFields;
+  }
+
   return (
     <>
       <div className="flex flex-col gap-8 pt-2 sm:pt-6">
@@ -396,52 +443,12 @@ export function StepWorkspace({
             thing on this screen that said so before the notice below, so
             that variant is folded into the heading's own copy. */}
         <StepHeading
-          title={
-            reusing
-              ? workspaceCreationAllowed
-                ? t(($) => $.step_workspace.headline_resume, { name: reusing.name })
-                : t(($) => $.step_workspace.creation_disabled_headline_resume, { name: reusing.name })
-              : workspaceCreationAllowed
-                ? t(($) => $.step_workspace.headline_first)
-                : t(($) => $.step_workspace.creation_disabled_headline)
-          }
-          description={
-            reusing
-              ? workspaceCreationAllowed
-                ? t(($) => $.step_workspace.lede_resume)
-                : t(($) => $.step_workspace.creation_disabled_lede_resume)
-              : workspaceCreationAllowed
-                ? t(($) => $.step_workspace.lede_first)
-                : t(($) => $.step_workspace.creation_disabled_lede)
-          }
+          title={stepTitle}
+          description={stepDescription}
         />
 
         <div>
-          {reusing ? (
-            <div className="flex flex-col gap-3">
-              <ExistingWorkspaceCard
-                workspace={reusing}
-                selected={mode === "existing"}
-                onSelect={pickExisting}
-              />
-              {/* Hide the create-new card entirely when the self-host
-                  gate (DISABLE_WORKSPACE_CREATION) is on (#3433) — the
-                  backend would 403 the POST and the user would be stuck
-                  with a useless form. */}
-              {!workspaceCreationDisabled && (
-                <CreateNewWorkspaceCard
-                  selected={mode === "create"}
-                  onSelect={pickCreate}
-                >
-                  {createFields}
-                </CreateNewWorkspaceCard>
-              )}
-            </div>
-          ) : workspaceCreationDisabled ? (
-            <CreationDisabledNotice onLogout={logout} />
-          ) : (
-            createFields
-          )}
+          {workspaceBody}
         </div>
 
       </div>

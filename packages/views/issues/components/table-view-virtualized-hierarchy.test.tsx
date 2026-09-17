@@ -150,7 +150,8 @@ function installLayout() {
   });
 
   return () => {
-    for (const undo of restore.reverse()) undo();
+    restore.reverse();
+    for (const undo of restore) undo();
   };
 }
 

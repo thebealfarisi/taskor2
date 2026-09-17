@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Button } from "@multica/ui/components/ui/button";
 import { api } from "@multica/core/api";
@@ -61,63 +61,76 @@ export function LarkBindPage({ token }: { token: string | null }) {
     })();
   }, [token, user, isAuthLoading, state.kind]);
 
+  let body: ReactNode;
+  if (state.kind === "idle" || state.kind === "redeeming") {
+    body = (
+      <p className="text-body text-muted-foreground">{t(($) => $.lark_bind.redeeming)}</p>
+    );
+  } else if (state.kind === "needs-auth") {
+    body = (
+      <>
+        <p className="text-body text-muted-foreground">
+          {t(($) => $.lark_bind.needs_auth_description)}
+        </p>
+        <Button
+          size="sm"
+          render={
+            <AppLink
+              href={`/login?next=${encodeURIComponent(
+                `/lark/bind?token=${encodeURIComponent(token ?? "")}`,
+              )}`}
+            />
+          }
+          nativeButton={false}
+        >
+          {t(($) => $.lark_bind.sign_in)}
+        </Button>
+      </>
+    );
+  } else if (state.kind === "done") {
+    body = (
+      <>
+        <p className="text-body font-medium">{t(($) => $.lark_bind.done_title)}</p>
+        <p className="text-caption text-muted-foreground">
+          {t(($) => $.lark_bind.done_description)}
+        </p>
+      </>
+    );
+  } else {
+    let errorMessage: string;
+    switch (state.reason) {
+      case "missing_token":
+        errorMessage = t(($) => $.lark_bind.error_missing_token);
+        break;
+      case "expired":
+        errorMessage = t(($) => $.lark_bind.error_expired);
+        break;
+      case "already_bound":
+        errorMessage = t(($) => $.lark_bind.error_already_bound);
+        break;
+      case "not_member":
+        errorMessage = t(($) => $.lark_bind.error_not_member);
+        break;
+      default:
+        errorMessage = t(($) => $.lark_bind.error_unknown);
+    }
+    body = (
+      <>
+        <p className="text-body font-medium">{t(($) => $.lark_bind.error_title)}</p>
+        <p className="text-caption text-muted-foreground">{errorMessage}</p>
+        <p className="text-micro text-muted-foreground">
+          {t(($) => $.lark_bind.error_admin_hint)}
+        </p>
+      </>
+    );
+  }
+
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-6">
       <Card className="w-full">
         <CardContent className="space-y-4">
           <h1 className="text-title font-semibold">{t(($) => $.lark_bind.page_title)}</h1>
-          {state.kind === "idle" || state.kind === "redeeming" ? (
-            <p className="text-body text-muted-foreground">{t(($) => $.lark_bind.redeeming)}</p>
-          ) : state.kind === "needs-auth" ? (
-            <>
-              <p className="text-body text-muted-foreground">
-                {t(($) => $.lark_bind.needs_auth_description)}
-              </p>
-              <Button
-                size="sm"
-                render={
-                  <AppLink
-                    href={`/login?next=${encodeURIComponent(
-                      `/lark/bind?token=${encodeURIComponent(token ?? "")}`,
-                    )}`}
-                  />
-                }
-                nativeButton={false}
-              >
-                {t(($) => $.lark_bind.sign_in)}
-              </Button>
-            </>
-          ) : state.kind === "done" ? (
-            <>
-              <p className="text-body font-medium">{t(($) => $.lark_bind.done_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {t(($) => $.lark_bind.done_description)}
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-body font-medium">{t(($) => $.lark_bind.error_title)}</p>
-              <p className="text-caption text-muted-foreground">
-                {(() => {
-                  switch (state.reason) {
-                    case "missing_token":
-                      return t(($) => $.lark_bind.error_missing_token);
-                    case "expired":
-                      return t(($) => $.lark_bind.error_expired);
-                    case "already_bound":
-                      return t(($) => $.lark_bind.error_already_bound);
-                    case "not_member":
-                      return t(($) => $.lark_bind.error_not_member);
-                    default:
-                      return t(($) => $.lark_bind.error_unknown);
-                  }
-                })()}
-              </p>
-              <p className="text-micro text-muted-foreground">
-                {t(($) => $.lark_bind.error_admin_hint)}
-              </p>
-            </>
-          )}
+          {body}
         </CardContent>
       </Card>
     </div>

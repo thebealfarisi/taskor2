@@ -388,12 +388,14 @@ function TextishPropertyEditor({
     if (open) setDraft(value === undefined ? "" : String(value));
   }, [open, value]);
 
-  const placeholder =
-    property.type === "url"
-      ? t(($) => $.pickers.custom_property.url_placeholder)
-      : property.type === "number"
-        ? t(($) => $.pickers.custom_property.number_placeholder)
-        : t(($) => $.pickers.custom_property.value_placeholder);
+  let placeholder: string;
+  if (property.type === "url") {
+    placeholder = t(($) => $.pickers.custom_property.url_placeholder);
+  } else if (property.type === "number") {
+    placeholder = t(($) => $.pickers.custom_property.number_placeholder);
+  } else {
+    placeholder = t(($) => $.pickers.custom_property.value_placeholder);
+  }
 
   const submit = () => {
     const trimmed = draft.trim();

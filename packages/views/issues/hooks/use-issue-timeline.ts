@@ -436,13 +436,15 @@ export function useIssueTimeline(issueId: string, userId?: string) {
       try {
         await resolveCommentAsync({ commentId, resolved });
       } catch (err) {
-        toast.error(
-          err instanceof Error && err.message
-            ? err.message
-            : resolved
-              ? t(($) => $.comment.resolve.resolve_failed)
-              : t(($) => $.comment.resolve.unresolve_failed),
-        );
+        let message: string;
+        if (err instanceof Error && err.message) {
+          message = err.message;
+        } else if (resolved) {
+          message = t(($) => $.comment.resolve.resolve_failed);
+        } else {
+          message = t(($) => $.comment.resolve.unresolve_failed);
+        }
+        toast.error(message);
       }
     },
     [resolveCommentAsync, t],

@@ -111,12 +111,14 @@ function AttachmentBody({
   }
 
   if (query.error || !query.data) {
-    const message =
-      query.error instanceof PreviewTooLargeError
-        ? t(($) => $.attachment.preview_too_large)
-        : query.error instanceof PreviewUnsupportedError
-        ? t(($) => $.attachment.preview_unsupported)
-        : t(($) => $.attachment.preview_failed);
+    let message: string;
+    if (query.error instanceof PreviewTooLargeError) {
+      message = t(($) => $.attachment.preview_too_large);
+    } else if (query.error instanceof PreviewUnsupportedError) {
+      message = t(($) => $.attachment.preview_unsupported);
+    } else {
+      message = t(($) => $.attachment.preview_failed);
+    }
     return (
       <div
         className={cn(

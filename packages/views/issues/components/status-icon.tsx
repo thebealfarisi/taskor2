@@ -35,6 +35,13 @@ function ProgressCircle({
   progress: number;
   children?: React.ReactNode;
 }) {
+  let fill: React.ReactNode = null;
+  if (progress === 1) {
+    fill = <circle cx={CX} cy={CY} r={OUTER_R} fill="currentColor" />;
+  } else if (progress > 0) {
+    fill = <path d={piePath(CX, CY, FILL_R, progress)} fill="currentColor" />;
+  }
+
   return (
     <>
       {/* Outer dashed ring */}
@@ -49,11 +56,7 @@ function ProgressCircle({
         strokeDashoffset={-0.7}
       />
       {/* Progress fill */}
-      {progress === 1 ? (
-        <circle cx={CX} cy={CY} r={OUTER_R} fill="currentColor" />
-      ) : progress > 0 ? (
-        <path d={piePath(CX, CY, FILL_R, progress)} fill="currentColor" />
-      ) : null}
+      {fill}
       {children}
     </>
   );

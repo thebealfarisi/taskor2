@@ -39,6 +39,14 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey?: unknown[] }) => {
     const key = options?.queryKey?.[0];
     if (key === "members" || key === "agents") return { data: [] };
+    let capabilitiesMetadata: { capabilities: string[] } | Record<string, never>;
+    if (runtimeWorktreeMetadata === "advertised") {
+      capabilitiesMetadata = { capabilities: ["local-worktree-v1"] };
+    } else if (runtimeWorktreeMetadata === "daemon_cannot") {
+      capabilitiesMetadata = { capabilities: ["skill-bundles-v1"] };
+    } else {
+      capabilitiesMetadata = {};
+    }
     return {
       data: [
         {
@@ -47,11 +55,7 @@ vi.mock("@tanstack/react-query", () => ({
             cli_version: runtimeCliVersion,
             // A capability-aware server always writes the key — null when the
             // daemon sent no header — so its absence means the SERVER is old.
-            ...(runtimeWorktreeMetadata === "advertised"
-              ? { capabilities: ["local-worktree-v1"] }
-              : runtimeWorktreeMetadata === "daemon_cannot"
-                ? { capabilities: ["skill-bundles-v1"] }
-                : {}),
+            ...capabilitiesMetadata,
           },
         },
       ],

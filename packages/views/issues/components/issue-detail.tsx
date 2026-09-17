@@ -1094,15 +1094,15 @@ export function IssueDetailSkeleton({ leading }: { leading?: ReactNode } = {}) {
           </div>
         </div>
         <div className="hidden md:block w-80 border-l p-4 space-y-5">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
+          {["prop-1", "prop-2", "prop-3", "prop-4"].map((key) => (
+            <div key={key} className="flex items-center gap-2">
               <Skeleton className="h-3 w-16 shrink-0" />
               <Skeleton className="h-5 w-24" />
             </div>
           ))}
           <Skeleton className="h-px w-full" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2">
+          {["detail-1", "detail-2", "detail-3"].map((key) => (
+            <div key={key} className="flex items-center gap-2">
               <Skeleton className="h-3 w-16 shrink-0" />
               <Skeleton className="h-4 w-28" />
             </div>
@@ -2658,11 +2658,14 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       );
     }
     // activity-group
-    const expanded = expandedActivityIds.has(item.id)
-      ? true
-      : collapsedActivityIds.has(item.id)
-        ? false
-        : item.id === lastActivityGroupId;
+    let expanded: boolean;
+    if (expandedActivityIds.has(item.id)) {
+      expanded = true;
+    } else if (collapsedActivityIds.has(item.id)) {
+      expanded = false;
+    } else {
+      expanded = item.id === lastActivityGroupId;
+    }
     const truncateOlder = item.id === lastActivityGroupId;
     const showOlder = showOlderActivityIds.has(item.id);
     return (
@@ -2689,22 +2692,88 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // else project, else nothing. The project is still shown in the properties
   // panel. The workspace name is intentionally absent — "all issues" is a view,
   // not a container.
-  const breadcrumbSegments: BreadcrumbSegment[] = parentIssue
-    ? [{ href: paths.issueDetail(parentIssue.id), label: parentIssue.identifier }]
-    : breadcrumbProject
-      ? [
-          {
-            href: paths.projectDetail(breadcrumbProject.id),
-            className: "flex items-center gap-1 min-w-0 max-w-72",
-            label: (
-              <>
-                <ProjectIcon project={breadcrumbProject} size="sm" />
-                <span className="min-w-0 truncate">{breadcrumbProject.title}</span>
-              </>
-            ),
-          },
-        ]
-      : [];
+  let breadcrumbSegments: BreadcrumbSegment[];
+  if (parentIssue) {
+    breadcrumbSegments = [
+      { href: paths.issueDetail(parentIssue.id), label: parentIssue.identifier },
+    ];
+  } else if (breadcrumbProject) {
+    breadcrumbSegments = [
+      {
+        href: paths.projectDetail(breadcrumbProject.id),
+        className: "flex items-center gap-1 min-w-0 max-w-72",
+        label: (
+          <>
+            <ProjectIcon project={breadcrumbProject} size="sm" />
+            <span className="min-w-0 truncate">{breadcrumbProject.title}</span>
+          </>
+        ),
+      },
+    ];
+  } else {
+    breadcrumbSegments = [];
+  }
+
+  // Two render modes:
+  //   - `highlightCommentId` set (came from inbox deep-link) →
+  //     render flat. Every comment mounts, every height is real,
+  //     the target id is in the DOM the instant the useEffect
+  //     above runs `scrollIntoView`. No virtualization estimate
+  //     errors, no spacer reflow drift. Pays cold-mount cost
+  //     proportional to items.length (markdown + lowlight per
+  //     comment), which is acceptable in the deep-link case —
+  //     the user has explicit intent to land on a specific item.
+  //   - `find.open` (in-page Cmd/Ctrl+F) → also render flat, so
+  //     every comment is in the DOM for the find walk to match
+  //     and highlight. Same explicit-intent cold-mount trade-off.
+  //   - otherwise → Virtuoso. Browsing mode, virtualization
+  //     wins on first-paint perf for long timelines.
+  //
+  // The split is deliberate: virtualization and "land precisely
+  // on a target" have fundamentally opposed contracts (estimated
+  // heights vs real heights). Trying to satisfy both in one
+  // path is what produced the bug history this PR closes.
+  let timelineContent: React.ReactNode;
+  if (timelineLoading && timelineView.groups.length === 0) {
+    timelineContent = <TimelineSkeleton />;
+  } else if (!highlightCommentId && !find.open) {
+    if (!scrollContainerEl) {
+      // Skeleton while the callback ref populates so the gap
+      // between IssueDetail mount and Virtuoso mount doesn't
+      // flash empty.
+      timelineContent = <TimelineSkeleton />;
+    } else {
+      timelineContent = (
+        <div className="mt-4">
+          <Virtuoso
+            key={`${wsId}:${id}`}
+            ref={virtuosoRef}
+            customScrollParent={scrollContainerEl}
+            data={items}
+            initialScrollTop={restoredScrollTop}
+            increaseViewportBy={{ top: 800, bottom: 800 }}
+            computeItemKey={(_i, item) => `${item.kind}:${item.id}`}
+            skipAnimationFrameInResizeObserver
+            // followOutput intentionally NOT set. Virtuoso treats
+            // it as a sticky "is at bottom" flag and resets
+            // scrollTop to maxScrollTop on every height-change
+            // tick — issue-detail is document-shaped, not chat.
+            itemContent={renderItem}
+          />
+        </div>
+      );
+    }
+  } else {
+    timelineContent = (
+      <div className="mt-4">
+        {items.map((item, i) => (
+          <Fragment key={`${item.kind}:${item.id}`}>
+            {renderItem(i, item)}
+          </Fragment>
+        ))}
+      </div>
+    );
+  }
 
   const detailContent = (
     // Hosts the one image viewer this issue's images page through — see
@@ -3383,63 +3452,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 first commit. Without this null guard Virtuoso falls back to
                 its own scroller, grabs 0 height inside overflow-y-auto, and
                 miscomputes total-height on first paint. */}
-            {timelineLoading && timelineView.groups.length === 0 ? (
-              <TimelineSkeleton />
-            ) : (
-              // Two render modes:
-              //   - `highlightCommentId` set (came from inbox deep-link) →
-              //     render flat. Every comment mounts, every height is real,
-              //     the target id is in the DOM the instant the useEffect
-              //     above runs `scrollIntoView`. No virtualization estimate
-              //     errors, no spacer reflow drift. Pays cold-mount cost
-              //     proportional to items.length (markdown + lowlight per
-              //     comment), which is acceptable in the deep-link case —
-              //     the user has explicit intent to land on a specific item.
-              //   - `find.open` (in-page Cmd/Ctrl+F) → also render flat, so
-              //     every comment is in the DOM for the find walk to match
-              //     and highlight. Same explicit-intent cold-mount trade-off.
-              //   - otherwise → Virtuoso. Browsing mode, virtualization
-              //     wins on first-paint perf for long timelines.
-              //
-              // The split is deliberate: virtualization and "land precisely
-              // on a target" have fundamentally opposed contracts (estimated
-              // heights vs real heights). Trying to satisfy both in one
-              // path is what produced the bug history this PR closes.
-              !highlightCommentId && !find.open ? (
-                !scrollContainerEl ? (
-                  // Skeleton while the callback ref populates so the gap
-                  // between IssueDetail mount and Virtuoso mount doesn't
-                  // flash empty.
-                  <TimelineSkeleton />
-                ) : (
-                  <div className="mt-4">
-                    <Virtuoso
-                      key={`${wsId}:${id}`}
-                      ref={virtuosoRef}
-                      customScrollParent={scrollContainerEl}
-                      data={items}
-                      initialScrollTop={restoredScrollTop}
-                      increaseViewportBy={{ top: 800, bottom: 800 }}
-                      computeItemKey={(_i, item) => `${item.kind}:${item.id}`}
-                      skipAnimationFrameInResizeObserver
-                      // followOutput intentionally NOT set. Virtuoso treats
-                      // it as a sticky "is at bottom" flag and resets
-                      // scrollTop to maxScrollTop on every height-change
-                      // tick — issue-detail is document-shaped, not chat.
-                      itemContent={renderItem}
-                    />
-                  </div>
-                )
-              ) : (
-                <div className="mt-4">
-                  {items.map((item, i) => (
-                    <Fragment key={`${item.kind}:${item.id}`}>
-                      {renderItem(i, item)}
-                    </Fragment>
-                  ))}
-                </div>
-              )
-            )}
+            {timelineContent}
 
           </div>
 

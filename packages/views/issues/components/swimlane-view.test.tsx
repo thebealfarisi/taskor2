@@ -248,7 +248,7 @@ vi.mock("react-virtuoso", () => ({
   Virtuoso: ({ data, itemContent, components }: any) => (
     <div data-testid="virtuoso-mock">
       {(data ?? []).map((item: any, i: number) => (
-        <div key={i}>{itemContent(i, item)}</div>
+        <div key={item.id ?? i}>{itemContent(i, item)}</div>
       ))}
       {components?.Footer ? <components.Footer /> : null}
     </div>
@@ -1520,7 +1520,10 @@ describe("SwimLaneView", () => {
       expect(mockListChildrenByParents).toHaveBeenCalledTimes(1);
     });
     const [calledIds] = mockListChildrenByParents.mock.calls[0] as [string[]];
-    expect(calledIds.sort()).toEqual(["parent-1", "parent-2"].sort());
+    calledIds.sort();
+    const expectedIds = ["parent-1", "parent-2"];
+    expectedIds.sort();
+    expect(calledIds).toEqual(expectedIds);
   });
 
   it("does not fire listChildrenByParents when there are no parent lanes", async () => {

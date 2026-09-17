@@ -367,12 +367,14 @@ function OnboardingStepFlow({
     );
   }
 
-  const stepBack =
-    step === "about_you"
-      ? () => handleBack("about_you")
-      : step === "workspace"
-        ? () => handleBack("workspace")
-        : runtimeStepBack;
+  let stepBack: typeof runtimeStepBack;
+  if (step === "about_you") {
+    stepBack = () => handleBack("about_you");
+  } else if (step === "workspace") {
+    stepBack = () => handleBack("workspace");
+  } else {
+    stepBack = runtimeStepBack;
+  }
 
   return (
     <StepShell

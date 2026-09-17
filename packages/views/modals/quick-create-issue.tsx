@@ -541,6 +541,34 @@ export function AgentCreatePanel({
     onClose();
   };
 
+  let submitButtonContent: React.ReactNode;
+  if (submitting) {
+    submitButtonContent = t(($) => $.create_issue.agent.sending);
+  } else if (gate.uploading) {
+    submitButtonContent = t(($) => $.create_issue.agent.uploading);
+  } else if (justSent) {
+    submitButtonContent = (
+      <span className="flex items-center gap-1"><Check className="size-3.5" />{t(($) => $.create_issue.agent.sent_label)}</span>
+    );
+  } else {
+    submitButtonContent = (
+      <>
+        {t(($) => $.create_issue.agent.submit)}
+        {sendShortcut ? (
+          // Touch phones have no ⌘ key and the narrowest footer row
+          // to spare — drop the hint at the same breakpoint the
+          // footer reflows at.
+          <ShortcutKeycaps
+            shortcut={sendShortcut}
+            decorative
+            className="ml-1 max-sm:hidden"
+            keyClassName="border-background/30 bg-background/15 text-primary-foreground shadow-none"
+          />
+        ) : null}
+      </>
+    );
+  }
+
   return (
     <>
         <DialogTitle className="sr-only">{t(($) => $.create_issue.sr_agent)}</DialogTitle>
@@ -825,24 +853,7 @@ export function AgentCreatePanel({
               justSent && "!bg-emerald-600 !text-white",
             )}
           >
-            {submitting ? t(($) => $.create_issue.agent.sending) : gate.uploading ? t(($) => $.create_issue.agent.uploading) : justSent ? (
-              <span className="flex items-center gap-1"><Check className="size-3.5" />{t(($) => $.create_issue.agent.sent_label)}</span>
-            ) : (
-              <>
-                {t(($) => $.create_issue.agent.submit)}
-                {sendShortcut ? (
-                  // Touch phones have no ⌘ key and the narrowest footer row
-                  // to spare — drop the hint at the same breakpoint the
-                  // footer reflows at.
-                  <ShortcutKeycaps
-                    shortcut={sendShortcut}
-                    decorative
-                    className="ml-1 max-sm:hidden"
-                    keyClassName="border-background/30 bg-background/15 text-primary-foreground shadow-none"
-                  />
-                ) : null}
-              </>
-            )}
+            {submitButtonContent}
           </Button>
         </div>
     </>
@@ -885,11 +896,25 @@ function ActorPicker({
   );
 
   const displayLabel = selectedSquad?.name ?? selectedAgent?.name;
-  const displayActor: ActorSelection | null = selectedSquad
-    ? { type: "squad", id: selectedSquad.id }
-    : selectedAgent
-      ? { type: "agent", id: selectedAgent.id }
-      : null;
+  let displayActor: ActorSelection | null;
+  if (selectedSquad) {
+    displayActor = { type: "squad", id: selectedSquad.id };
+  } else if (selectedAgent) {
+    displayActor = { type: "agent", id: selectedAgent.id };
+  } else {
+    displayActor = null;
+  }
+
+  let emptyState: React.ReactNode = null;
+  if (filteredAgents.length === 0 && filteredSquads.length === 0) {
+    emptyState = query ? (
+      <PickerEmpty />
+    ) : (
+      <div className="px-2 py-1.5 text-caption text-muted-foreground">
+        {t(($) => $.create_issue.agent.no_agents)}
+      </div>
+    );
+  }
 
   return (
     <PropertyPicker
@@ -922,13 +947,7 @@ function ActorPicker({
       }
     >
       {filteredAgents.length === 0 && filteredSquads.length === 0 ? (
-        query ? (
-          <PickerEmpty />
-        ) : (
-          <div className="px-2 py-1.5 text-caption text-muted-foreground">
-            {t(($) => $.create_issue.agent.no_agents)}
-          </div>
-        )
+        emptyState
       ) : (
         <>
           {filteredAgents.length > 0 && (

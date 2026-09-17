@@ -3,7 +3,7 @@
 import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
 import { useStatusLabel } from "../utils/status-label";
 import { NO_PROPERTY_VALUE } from "../utils/filter";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, isValidElement, type ReactNode } from "react";
 import {
   CalendarDays,
   CircleDot,
@@ -65,9 +65,12 @@ const CHIP_ICON_CLASS = "size-3 shrink-0 text-muted-foreground";
 function IconStack({ children }: { children: ReactNode[] }) {
   return (
     <span className="flex items-center -space-x-1">
-      {children.map((child, i) => (
+      {children.map((child) => (
         <span
-          key={i}
+          // Every caller already keys its children on a stable id (status,
+          // priority, or the color/id pairs below); reuse it here instead of
+          // introducing a second, index-based key for this wrapper span.
+          key={isValidElement(child) ? (child.key ?? undefined) : undefined}
           className="inline-flex size-4 items-center justify-center rounded-full bg-background ring-1 ring-border"
         >
           {child}
@@ -152,14 +155,16 @@ function AvatarStack({ actors }: { actors: ActorFilterValue[] }) {
   );
 }
 
-/** Colored-dot stack for labels and select-property options. */
-function DotStack({ colors }: { colors: string[] }) {
-  if (colors.length === 0) return null;
+/** Colored-dot stack for labels and select-property options. Keyed by the
+ *  label/option id rather than array position, since either list can shrink
+ *  or reorder as filters change. */
+function DotStack({ dots }: { dots: { id: string; color: string }[] }) {
+  if (dots.length === 0) return null;
   return (
     <IconStack>
-      {colors.slice(0, 3).map((color, i) => (
+      {dots.slice(0, 3).map(({ id, color }) => (
         <span
-          key={i}
+          key={id}
           className="size-2.5 rounded-full"
           style={{ backgroundColor: color }}
         />
@@ -412,8 +417,8 @@ function useFilterChips(
     const names = deltaProjects.map((id) => projectById.get(id)?.title);
     if (deltaNoProject) names.push(t(($) => $.filters.no_project));
     const emojis = deltaProjects
-      .map((id) => projectById.get(id)?.icon)
-      .filter((icon): icon is string => !!icon);
+      .map((id) => ({ id, icon: projectById.get(id)?.icon }))
+      .filter((entry): entry is { id: string; icon: string } => !!entry.icon);
     chips.push({
       key: "project",
       icon: <FolderKanban className={CHIP_ICON_CLASS} />,
@@ -421,8 +426,8 @@ function useFilterChips(
       valueIcons:
         emojis.length > 0 ? (
           <IconStack>
-            {emojis.slice(0, 3).map((emoji, i) => (
-              <span key={i} className="text-micro leading-none">{emoji}</span>
+            {emojis.slice(0, 3).map(({ id, icon }) => (
+              <span key={id} className="text-micro leading-none">{icon}</span>
             ))}
           </IconStack>
         ) : undefined,
@@ -438,9 +443,12 @@ function useFilterChips(
       label: t(($) => $.filters.section_label),
       valueIcons: (
         <DotStack
-          colors={deltaLabels
-            .map((id) => labelById.get(id)?.color)
-            .filter((c): c is string => !!c)}
+          dots={deltaLabels
+            .map((id) => {
+              const color = labelById.get(id)?.color;
+              return color ? { id, color } : null;
+            })
+            .filter((entry): entry is { id: string; color: string } => !!entry)}
         />
       ),
       value: summarize(deltaLabels.map((id) => labelById.get(id)?.name)),
@@ -472,21 +480,28 @@ function useFilterChips(
       }
       return definition.config.options?.find((o) => o.id === optionId)?.name;
     };
-    const optionColors =
+    const optionColors: { id: string; color: string }[] =
       definition.type === "checkbox" || actorProperty
         ? []
         : selected
-            .map((id) => definition.config.options?.find((o) => o.id === id)?.color)
-            .filter((c): c is string => !!c);
+            .map((id) => {
+              const color = definition.config.options?.find((o) => o.id === id)?.color;
+              return color ? { id, color } : null;
+            })
+            .filter((entry): entry is { id: string; color: string } => !!entry);
+    let propertyValueIcons: ReactNode;
+    if (actorValues.length > 0) {
+      propertyValueIcons = <AvatarStack actors={actorValues} />;
+    } else if (optionColors.length > 0) {
+      propertyValueIcons = <DotStack dots={optionColors} />;
+    } else {
+      propertyValueIcons = undefined;
+    }
     chips.push({
       key: `property:${propertyId}`,
       icon: <Tag className={CHIP_ICON_CLASS} />,
       label: definition.name,
-      valueIcons: actorValues.length > 0 ? (
-        <AvatarStack actors={actorValues} />
-      ) : optionColors.length > 0 ? (
-        <DotStack colors={optionColors} />
-      ) : undefined,
+      valueIcons: propertyValueIcons,
       value: summarize(selected.map(optionName)),
       onRemove: () => clearDimension(`property:${propertyId}`),
     });

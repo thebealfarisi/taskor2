@@ -88,6 +88,15 @@ export function FeedbackModal({
     !mutation.isPending &&
     !uploadGate.uploading;
 
+  let submitButtonLabel: string;
+  if (mutation.isPending) {
+    submitButtonLabel = t(($) => $.feedback.sending);
+  } else if (uploadGate.uploading) {
+    submitButtonLabel = tEditor(($) => $.upload.in_progress);
+  } else {
+    submitButtonLabel = t(($) => $.feedback.send);
+  }
+
   const handleSubmit = async () => {
     // The button can use debounced `message` state, but the keyboard shortcut
     // must not: Command+Enter can arrive before ContentEditor's 150ms onUpdate
@@ -180,11 +189,7 @@ export function FeedbackModal({
             aria-disabled={uploadGate.uploading || undefined}
             aria-busy={uploadGate.uploading || undefined}
           >
-            {mutation.isPending
-              ? t(($) => $.feedback.sending)
-              : uploadGate.uploading
-                ? tEditor(($) => $.upload.in_progress)
-                : t(($) => $.feedback.send)}
+            {submitButtonLabel}
             {sendShortcut ? (
               <ShortcutKeycaps
                 shortcut={sendShortcut}

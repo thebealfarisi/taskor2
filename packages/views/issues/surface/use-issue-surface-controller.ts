@@ -294,11 +294,14 @@ export function useIssueSurfaceController({
       ? rawPropertySortId
       : null;
   const sort = useMemo<IssueSortParam>(() => {
-    const sortBy_: IssueSortParam["sort_by"] = propertySortId
-      ? `property:${propertySortId}`
-      : rawPropertySortId
-        ? "position"
-        : (sortBy as Exclude<SortField, `property:${string}`>);
+    let sortBy_: IssueSortParam["sort_by"];
+    if (propertySortId) {
+      sortBy_ = `property:${propertySortId}`;
+    } else if (rawPropertySortId) {
+      sortBy_ = "position";
+    } else {
+      sortBy_ = sortBy as Exclude<SortField, `property:${string}`>;
+    }
     return {
       sort_by: sortBy_,
       sort_direction: sortBy_ !== "position" ? sortDirection : undefined,
@@ -410,12 +413,14 @@ export function useIssueSurfaceController({
     dateFilter != null ||
     agentRunningFilter === true;
 
-  const workingAgentMineRelation =
-    scope.type === "my"
-      ? scope.relation === "all"
-        ? "any"
-        : scope.relation
-      : undefined;
+  let workingAgentMineRelation;
+  if (scope.type !== "my") {
+    workingAgentMineRelation = undefined;
+  } else if (scope.relation === "all") {
+    workingAgentMineRelation = "any";
+  } else {
+    workingAgentMineRelation = scope.relation;
+  }
   const { data: workspaceWorkingAgents = EMPTY_LIST } = useQuery(
     workspaceWorkingAgentsOptions(wsId, "issue", workingAgentMineRelation),
   );

@@ -227,7 +227,14 @@ export function midpointOf(a: Point, b: Point): Point {
  * comparison would make one of the two unusable.
  */
 export function wheelZoomFactor(deltaY: number, deltaMode: number): number {
-  const pixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 100 : deltaY;
+  let pixels: number;
+  if (deltaMode === 1) {
+    pixels = deltaY * 16;
+  } else if (deltaMode === 2) {
+    pixels = deltaY * 100;
+  } else {
+    pixels = deltaY;
+  }
   // Exponential mapping keeps zooming symmetric: equal and opposite scrolls
   // return to the original scale. The 400 divisor tunes trackpad sensitivity.
   return Math.exp(-pixels / 400);

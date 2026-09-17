@@ -62,14 +62,16 @@ export function useIssueSurfaceActions({
         {
           onSuccess: (issue) => options?.onSuccess?.(issue),
           onError: (err) => {
-            toast.error(
-              errorCode(err) === "revision_conflict"
-                ? tIssues(($) => $.revision.conflict)
-                : err instanceof Error && err.message
-                ? err.message
-                : (options?.errorMessage ??
-                    t(($) => $.detail.toast_move_issue_failed)),
-            );
+            let message: string;
+            if (errorCode(err) === "revision_conflict") {
+              message = tIssues(($) => $.revision.conflict);
+            } else if (err instanceof Error && err.message) {
+              message = err.message;
+            } else {
+              message =
+                options?.errorMessage ?? t(($) => $.detail.toast_move_issue_failed);
+            }
+            toast.error(message);
             options?.onError?.(err);
           },
           onSettled: () => options?.onSettled?.(),
@@ -94,13 +96,15 @@ export function useIssueSurfaceActions({
         },
         {
           onError: (err) => {
-            toast.error(
-              errorCode(err) === "revision_conflict"
-                ? tIssues(($) => $.revision.conflict)
-                : err instanceof Error && err.message
-                ? err.message
-                : t(($) => $.detail.toast_move_issue_failed),
-            );
+            let message: string;
+            if (errorCode(err) === "revision_conflict") {
+              message = tIssues(($) => $.revision.conflict);
+            } else if (err instanceof Error && err.message) {
+              message = err.message;
+            } else {
+              message = t(($) => $.detail.toast_move_issue_failed);
+            }
+            toast.error(message);
           },
           onSettled,
         },

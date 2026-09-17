@@ -69,7 +69,7 @@ export function PriorityIcon({
     >
       {BAR_HEIGHTS.map((height, i) => (
         <rect
-          key={i}
+          key={height}
           x={2 + i * 4.25}
           y={14 - height}
           width="3.5"

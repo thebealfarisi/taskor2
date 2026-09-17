@@ -163,10 +163,13 @@ export function ImageSequenceProvider({
 
     const forward = directionRef.current;
     const next = step(session, session.index, forward, brokenRef.current);
-    const target =
-      next >= 0
-        ? next
-        : step(session, session.index, forward === 1 ? -1 : 1, brokenRef.current);
+    let target: number;
+    if (next >= 0) {
+      target = next;
+    } else {
+      const backward = forward === 1 ? -1 : 1;
+      target = step(session, session.index, backward, brokenRef.current);
+    }
     if (target >= 0) setSession({ ...session, index: target });
   }, [session, step, t]);
 

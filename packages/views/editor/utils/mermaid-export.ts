@@ -200,7 +200,7 @@ export function diagramFilenameStem(chart: string): string {
   const slug = (firstLine ?? "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/(?:^-+)|(?:-+$)/g, "")
     .slice(0, 40)
     .replace(/-+$/g, "");
 

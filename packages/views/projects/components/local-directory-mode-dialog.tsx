@@ -143,6 +143,13 @@ export function LocalDirectoryModeOptions({
 }: LocalDirectoryModeOptionsProps) {
   const { t } = useT("projects");
   const worktreeDisabled = unavailableReason !== undefined;
+  let disabledReason: string | undefined;
+
+  if (unavailableReason === "not_git") {
+    disabledReason = t(($) => $.resources.mode_worktree_needs_git);
+  } else if (unavailableReason === "server_outdated") {
+    disabledReason = t(($) => $.resources.mode_worktree_needs_server_upgrade);
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -161,13 +168,7 @@ export function LocalDirectoryModeOptions({
         identifier="worktree"
         selected={value === "worktree"}
         disabled={worktreeDisabled}
-        disabledReason={
-          unavailableReason === "not_git"
-            ? t(($) => $.resources.mode_worktree_needs_git)
-            : unavailableReason === "server_outdated"
-              ? t(($) => $.resources.mode_worktree_needs_server_upgrade)
-              : undefined
-        }
+        disabledReason={disabledReason}
         onSelect={() => onChange("worktree")}
       />
     </div>

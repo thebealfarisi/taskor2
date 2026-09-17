@@ -192,6 +192,43 @@ export function InvitePage({ invitationId, onBack }: InvitePageProps) {
   const isExpired = invitation.status !== "pending";
   const isAlreadyHandled = invitation.status === "accepted" || invitation.status === "declined";
 
+  let statusSection: ReactNode;
+  if (isAlreadyHandled) {
+    statusSection = (
+      <div className="text-body text-muted-foreground">
+        {invitation.status === "accepted"
+          ? t(($) => $.main.already_handled_accepted)
+          : t(($) => $.main.already_handled_declined)}
+      </div>
+    );
+  } else if (isExpired) {
+    statusSection = (
+      <div className="text-body text-muted-foreground">
+        {t(($) => $.main.expired)}
+      </div>
+    );
+  } else {
+    statusSection = (
+      <div className="flex gap-3 w-full">
+        <Button
+          variant="outline"
+          className="flex-1"
+          onClick={handleDecline}
+          disabled={accepting || declining}
+        >
+          {declining ? t(($) => $.main.declining) : t(($) => $.main.decline)}
+        </Button>
+        <Button
+          className="flex-1"
+          onClick={handleAccept}
+          disabled={accepting || declining}
+        >
+          {accepting ? t(($) => $.main.joining) : t(($) => $.main.accept)}
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <InviteShell onBack={onBack}>
       <Card className="w-full max-w-md">
@@ -214,35 +251,7 @@ export function InvitePage({ invitationId, onBack }: InvitePageProps) {
             </p>
           </div>
 
-          {isAlreadyHandled ? (
-            <div className="text-body text-muted-foreground">
-              {invitation.status === "accepted"
-                ? t(($) => $.main.already_handled_accepted)
-                : t(($) => $.main.already_handled_declined)}
-            </div>
-          ) : isExpired ? (
-            <div className="text-body text-muted-foreground">
-              {t(($) => $.main.expired)}
-            </div>
-          ) : (
-            <div className="flex gap-3 w-full">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={handleDecline}
-                disabled={accepting || declining}
-              >
-                {declining ? t(($) => $.main.declining) : t(($) => $.main.decline)}
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={handleAccept}
-                disabled={accepting || declining}
-              >
-                {accepting ? t(($) => $.main.joining) : t(($) => $.main.accept)}
-              </Button>
-            </div>
-          )}
+          {statusSection}
 
           {error && (
             <p className="text-body text-destructive text-center">{error}</p>

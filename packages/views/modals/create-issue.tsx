@@ -751,15 +751,42 @@ export function ManualCreatePanel({
 
   // One state for the button and the keyboard paths, so a rendered affordance
   // can never disagree with what `handleSubmit` will actually do.
-  const submitState: "submitting" | "uploading" | "missing_title" | "ready" =
-    submitting
-      ? "submitting"
-      : gate.uploading
-        ? "uploading"
-        : !title.trim()
-          ? "missing_title"
-          : "ready";
+  let submitState: "submitting" | "uploading" | "missing_title" | "ready";
+  if (submitting) {
+    submitState = "submitting";
+  } else if (gate.uploading) {
+    submitState = "uploading";
+  } else if (!title.trim()) {
+    submitState = "missing_title";
+  } else {
+    submitState = "ready";
+  }
   const submitBusy = submitState === "submitting" || submitState === "uploading";
+
+  let createButtonContent: React.ReactNode;
+  if (submitState === "submitting") {
+    createButtonContent = t(($) => $.create_issue.submitting);
+  } else if (submitState === "uploading") {
+    createButtonContent = tEditor(($) => $.upload.in_progress);
+  } else {
+    createButtonContent = (
+      <>
+        {t(($) => $.create_issue.submit)}
+        {/* Decorative: the accessible name must stay "Create Issue", not
+            "Create Issue Command Enter". Absent when `send` is unbound.
+            Hidden on phones — no ⌘ key there, and the footer row is at its
+            tightest. */}
+        {sendShortcut ? (
+          <ShortcutKeycaps
+            shortcut={sendShortcut}
+            decorative
+            className="ml-1 max-sm:hidden"
+            keyClassName="border-background/30 bg-background/15 text-primary-foreground shadow-none"
+          />
+        ) : null}
+      </>
+    );
+  }
 
   // Built once and reused by both footer branches: rendering a separate Button
   // per branch is how the keycaps drifted out of one of them before.
@@ -780,27 +807,7 @@ export function ManualCreatePanel({
       // its tooltip and take the click that focuses the title.
       className="justify-self-end aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:active:translate-y-0"
     >
-      {submitState === "submitting" ? (
-        t(($) => $.create_issue.submitting)
-      ) : submitState === "uploading" ? (
-        tEditor(($) => $.upload.in_progress)
-      ) : (
-        <>
-          {t(($) => $.create_issue.submit)}
-          {/* Decorative: the accessible name must stay "Create Issue", not
-              "Create Issue Command Enter". Absent when `send` is unbound.
-              Hidden on phones — no ⌘ key there, and the footer row is at its
-              tightest. */}
-          {sendShortcut ? (
-            <ShortcutKeycaps
-              shortcut={sendShortcut}
-              decorative
-              className="ml-1 max-sm:hidden"
-              keyClassName="border-background/30 bg-background/15 text-primary-foreground shadow-none"
-            />
-          ) : null}
-        </>
-      )}
+      {createButtonContent}
     </Button>
   );
 
@@ -952,7 +959,7 @@ export function ManualCreatePanel({
                   onUpdate={(u) => updateProject(u.project_id ?? undefined)}
                   triggerRender={
                     <ClearablePillButton
-                      onClear={projectId ? () => updateProject(undefined) : undefined}
+                      onClear={projectId ? () => updateProject() : undefined}
                       clearLabel={tProjects(($) => $.picker.clear_aria)}
                     />
                   }

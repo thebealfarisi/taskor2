@@ -154,11 +154,14 @@ export function useIssueSurfaceData({
     () => ({ runningIssueIds: workingIssueIDs }),
     [workingIssueIDs],
   );
-  const bucketedIssues = serverStatusBranches.enabled
-    ? serverStatusBranches.issues
-    : serverGroupBranches.enabled
-      ? serverGroupBranches.issues
-      : EMPTY_ISSUES;
+  let bucketedIssues: Issue[];
+  if (serverStatusBranches.enabled) {
+    bucketedIssues = serverStatusBranches.issues;
+  } else if (serverGroupBranches.enabled) {
+    bucketedIssues = serverGroupBranches.issues;
+  } else {
+    bucketedIssues = EMPTY_ISSUES;
+  }
 
   // `cancelled` is a first-class default status (MUL-4290): it is fetched into
   // the cache like every other status and flows straight through to list /
@@ -166,11 +169,14 @@ export function useIssueSurfaceData({
   // isEmpty check. The status filter narrows this set like any other status —
   // it no longer unlocks an otherwise-hidden bucket.
   const ganttIssues = ganttIssuesQuery.data ?? EMPTY_ISSUES;
-  const surfaceIssues = usesGantt
-    ? ganttIssues
-    : usesTable
-      ? EMPTY_ISSUES
-      : bucketedIssues;
+  let surfaceIssues: Issue[];
+  if (usesGantt) {
+    surfaceIssues = ganttIssues;
+  } else if (usesTable) {
+    surfaceIssues = EMPTY_ISSUES;
+  } else {
+    surfaceIssues = bucketedIssues;
+  }
 
   const baseFilterState = useMemo<IssueFilterState>(
     () => ({
@@ -397,24 +403,29 @@ export function useIssueSurfaceData({
   // filter waits for the catalog to say which column it belongs to. Without it
   // the surface reported "loaded, zero results" — an empty board with no
   // spinner — for the whole cold-load window. (MUL-6243)
-  const isLoading =
-    statusFilterPending ||
-    (serverGroupBranches.enabled
-      ? serverGroupBranches.isLoading
-      : usesGantt
-        ? ganttIssuesQuery.isLoading
-        : serverStatusBranches.enabled
-          ? serverStatusBranches.isLoading
-          : false);
+  let branchLoading: boolean;
+  if (serverGroupBranches.enabled) {
+    branchLoading = serverGroupBranches.isLoading;
+  } else if (usesGantt) {
+    branchLoading = ganttIssuesQuery.isLoading;
+  } else if (serverStatusBranches.enabled) {
+    branchLoading = serverStatusBranches.isLoading;
+  } else {
+    branchLoading = false;
+  }
+  const isLoading = statusFilterPending || branchLoading;
 
   // Placeholder-backed revalidation of the ACTIVE query only. First loads are
   // isLoading (no previous data to place-hold); gantt has no placeholder
   // phase (its key carries no sort/filter).
-  const isRefreshing = serverGroupBranches.enabled
-    ? serverGroupBranches.isRefreshing
-    : serverStatusBranches.enabled
-      ? serverStatusBranches.isRefreshing
-      : false;
+  let isRefreshing: boolean;
+  if (serverGroupBranches.enabled) {
+    isRefreshing = serverGroupBranches.isRefreshing;
+  } else if (serverStatusBranches.enabled) {
+    isRefreshing = serverStatusBranches.isRefreshing;
+  } else {
+    isRefreshing = false;
+  }
 
   return {
     surfaceIssues,

@@ -904,6 +904,19 @@ describe("MentionList cancelled demotion", () => {
       .map((b) => (b.textContent ?? "").match(/^MUL-\d+/)?.[0])
       .filter((label): label is string => !!label);
 
+  // Shared by the mixed-type describes below: rendered order of every result
+  // row (issue rows put their identifier in the leading font-medium span,
+  // project rows their title) and the group headings above them.
+  const rowLabels = () =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .map((b) => b.querySelector("span.font-medium")?.textContent ?? "")
+      .filter((label) => label !== "");
+
+  const headings = () =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>("div.uppercase"),
+    ).map((el) => el.textContent ?? "");
+
   it("sorts cancelled issues below live ones regardless of input order", () => {
     const items: MentionItem[] = [
       { id: "i-1", label: "MUL-1", type: "issue", status: "cancelled", statusCategory: "cancelled" },
@@ -1001,18 +1014,6 @@ describe("MentionList cancelled demotion", () => {
   // ranking alone left a cancelled project above a live issue, and cancelled
   // search rows were exempted from the client partition entirely.
   describe("mixed issue/project results", () => {
-    // Rendered order of every result row: issue rows put their identifier in
-    // the leading font-medium span, project rows their title.
-    const rowLabels = () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .map((b) => b.querySelector("span.font-medium")?.textContent ?? "")
-        .filter((label) => label !== "");
-
-    const headings = () =>
-      Array.from(
-        document.querySelectorAll<HTMLElement>("div.uppercase"),
-      ).map((el) => el.textContent ?? "");
-
     it("keeps a cancelled project below a live issue in the search results", async () => {
       searchIssuesMock.mockResolvedValue({
         issues: [
@@ -1136,16 +1137,6 @@ describe("MentionList cancelled demotion", () => {
   // enough: slice(0, MAX_ITEMS) runs on the merged list, so a direct hit sitting
   // behind a full window of cached candidates would still be cut.
   describe("direct hits", () => {
-    const rowLabels = () =>
-      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
-        .map((b) => b.querySelector("span.font-medium")?.textContent ?? "")
-        .filter((label) => label !== "");
-
-    const headings = () =>
-      Array.from(
-        document.querySelectorAll<HTMLElement>("div.uppercase"),
-      ).map((el) => el.textContent ?? "");
-
     it("keeps a cancelled issue matched by exact identifier out of the Cancelled group", async () => {
       searchIssuesMock.mockResolvedValue({
         issues: [

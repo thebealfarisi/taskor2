@@ -33,6 +33,17 @@ export interface DailyTasksData {
 
 export function DailyTasksChart({ data }: { data: DailyTasksData[] }) {
   const { t } = useT("runtimes");
+
+  const getTooltipTotal = (payload: Array<{ value?: string | number }>) => {
+    let total = 0;
+    for (const item of payload) {
+      if (typeof item.value === "number") {
+        total += item.value;
+      }
+    }
+    return total;
+  };
+
   return (
     <ChartContainer config={tasksChartConfig} className="aspect-[3/1] w-full">
       <BarChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
@@ -56,12 +67,7 @@ export function DailyTasksChart({ data }: { data: DailyTasksData[] }) {
             <ChartTooltipContent
               formatter={(value, name) => `${value} ${name}`}
               footer={(payload) => {
-                const total = payload.reduce(
-                  (sum, item) =>
-                    sum +
-                    (typeof item.value === "number" ? item.value : 0),
-                  0,
-                );
+                const total = getTooltipTotal(payload);
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>

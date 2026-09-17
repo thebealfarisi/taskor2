@@ -1059,12 +1059,17 @@ function IssueTableHeaderCell({
   const key = column.id as TableColumnKey;
   const propertyId = propertyIdFromViewKey(key);
   const property = propertyId ? meta.propertyById.get(propertyId) : undefined;
-  const staticSort = propertyId
-    ? property &&
-      !["multi_select", "checkbox", "actor", "multi_actor"].includes(property.type)
-      ? (`property:${propertyId}` as SortField)
-      : undefined
-    : SORTABLE_COLUMNS[key as TableSystemColumnKey];
+  let staticSort: SortField | undefined;
+  if (!propertyId) {
+    staticSort = SORTABLE_COLUMNS[key as TableSystemColumnKey];
+  } else if (
+    property &&
+    !["multi_select", "checkbox", "actor", "multi_actor"].includes(property.type)
+  ) {
+    staticSort = `property:${propertyId}` as SortField;
+  } else {
+    staticSort = undefined;
+  }
   const label = meta.columnLabel(key);
   return (
     <SortableColumnHeader

@@ -12,11 +12,16 @@ interface FakeClipboard {
   getData: (type: string) => string;
 }
 
+function clipboardGetData(type: string, text: string, html?: string): string {
+  if (type === "text/plain") return text;
+  if (type === "text/html") return html ?? "";
+  return "";
+}
+
 function fakePasteEvent(text: string, html?: string) {
   const data: FakeClipboard = {
     files: [],
-    getData: (type) =>
-      type === "text/plain" ? text : type === "text/html" ? (html ?? "") : "",
+    getData: (type) => clipboardGetData(type, text, html),
   };
   return {
     clipboardData: data,
@@ -48,8 +53,7 @@ function pasteThroughEditorDom(editor: Editor, text: string, html: string): void
   Object.defineProperty(event, "clipboardData", {
     value: {
       files: [],
-      getData: (type: string) =>
-        type === "text/plain" ? text : type === "text/html" ? html : "",
+      getData: (type: string) => clipboardGetData(type, text, html),
     },
   });
   editor.view.dom.dispatchEvent(event);

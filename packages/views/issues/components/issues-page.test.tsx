@@ -502,7 +502,7 @@ vi.mock("react-virtuoso", () => ({
   Virtuoso: ({ data, itemContent, components }: any) => (
     <div data-testid="virtuoso-mock">
       {(data ?? []).map((item: any, i: number) => (
-        <div key={i}>{itemContent(i, item)}</div>
+        <div key={item.id ?? i}>{itemContent(i, item)}</div>
       ))}
       {components?.Footer ? <components.Footer /> : null}
     </div>

@@ -63,7 +63,7 @@ export function PropertyPicker({
   align?: "start" | "center" | "end";
   side?: React.ComponentProps<typeof PopoverContent>["side"];
   searchable?: boolean;
-  searchPlaceholder?: string | undefined;
+  searchPlaceholder?: string;
   onSearchChange?: (query: string) => void;
   /** Custom sticky header rendered above the scrollable list. Use for
    *  filter toggles, search inputs, or any UI that must stay visible while

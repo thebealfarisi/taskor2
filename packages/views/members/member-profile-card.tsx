@@ -104,13 +104,17 @@ export function MemberProfileCard({ userId }: MemberProfileCardProps) {
 
 function RoleBadge({ role }: { role: MemberRole }) {
   const { t } = useT("members");
+  let roleLabel: string;
+  if (role === "owner") {
+    roleLabel = t(($) => $.role.owner);
+  } else if (role === "admin") {
+    roleLabel = t(($) => $.role.admin);
+  } else {
+    roleLabel = t(($) => $.role.member);
+  }
   return (
     <span className="rounded-md bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
-      {role === "owner"
-        ? t(($) => $.role.owner)
-        : role === "admin"
-          ? t(($) => $.role.admin)
-          : t(($) => $.role.member)}
+      {roleLabel}
     </span>
   );
 }

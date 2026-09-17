@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect, useRef, memo } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, memo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   DndContext,
@@ -563,6 +563,76 @@ function BoardViewImpl({
     setColumns(buildColumns(groupedIssues, groups, grouping, groupingOptionIds));
   }, [groupedIssues, groups, grouping, groupingOptionIds, setColumns, isDraggingRef]);
 
+  let groupsContent: ReactNode;
+  if (groups.length === 0) {
+    if (groupBranches?.isError) {
+      groupsContent = (
+        <button
+          type="button"
+          className="flex min-w-full flex-1 items-center justify-center text-body text-destructive hover:underline"
+          onClick={groupBranches.retryGroups}
+        >
+          {t(($) => $.table.load_more_failed_retry)}
+        </button>
+      );
+    } else {
+      groupsContent = (
+        <div className="flex min-w-full flex-1 items-center justify-center text-body text-muted-foreground">
+          {t(($) => $.board.empty_grouping)}
+        </div>
+      );
+    }
+  } else {
+    groupsContent = groups.map((group) => {
+      if (isStatusGroup(group)) {
+        return (
+          <ServerPaginatedBoardColumn
+            key={group.id}
+            group={group}
+            issueIds={columns[group.id] ?? EMPTY_IDS}
+            issueMap={issueMapRef.current}
+            childProgressMap={childProgressMap}
+            projectMap={projectMap}
+            page={statusPagination?.[group.status]}
+            projectId={projectId}
+            onCreateIssue={onCreateIssue}
+            sortLabel={sortLabel}
+          />
+        );
+      }
+      if (groupPagination?.[group.id]) {
+        return (
+          <ServerPaginatedBoardColumn
+            key={group.id}
+            group={group}
+            issueIds={columns[group.id] ?? EMPTY_IDS}
+            issueMap={issueMapRef.current}
+            childProgressMap={childProgressMap}
+            projectMap={projectMap}
+            page={groupPagination[group.id]!}
+            projectId={projectId}
+            onCreateIssue={onCreateIssue}
+            sortLabel={sortLabel}
+          />
+        );
+      }
+      return (
+        <BoardColumn
+          key={group.id}
+          group={group}
+          issueIds={columns[group.id] ?? EMPTY_IDS}
+          issueMap={issueMapRef.current}
+          childProgressMap={childProgressMap}
+          projectMap={projectMap}
+          projectId={projectId}
+          onCreateIssue={onCreateIssue}
+          totalCount={group.totalCount}
+          sortLabel={sortLabel}
+        />
+      );
+    });
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -581,66 +651,7 @@ function BoardViewImpl({
         onLostPointerCapture={pan.onLostPointerCapture}
         className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2"
       >
-        {groups.length === 0 ? (
-          groupBranches?.isError ? (
-            <button
-              type="button"
-              className="flex min-w-full flex-1 items-center justify-center text-body text-destructive hover:underline"
-              onClick={groupBranches.retryGroups}
-            >
-              {t(($) => $.table.load_more_failed_retry)}
-            </button>
-          ) : (
-            <div className="flex min-w-full flex-1 items-center justify-center text-body text-muted-foreground">
-              {t(($) => $.board.empty_grouping)}
-            </div>
-          )
-        ) : (
-          groups.map((group) =>
-            isStatusGroup(group) ? (
-              <ServerPaginatedBoardColumn
-                key={group.id}
-                group={group}
-                issueIds={columns[group.id] ?? EMPTY_IDS}
-                issueMap={issueMapRef.current}
-                childProgressMap={childProgressMap}
-                projectMap={projectMap}
-                page={statusPagination?.[group.status]}
-                projectId={projectId}
-                onCreateIssue={onCreateIssue}
-                sortLabel={sortLabel}
-              />
-            ) : (
-              groupPagination?.[group.id] ? (
-                <ServerPaginatedBoardColumn
-                  key={group.id}
-                  group={group}
-                  issueIds={columns[group.id] ?? EMPTY_IDS}
-                  issueMap={issueMapRef.current}
-                  childProgressMap={childProgressMap}
-                  projectMap={projectMap}
-                  page={groupPagination[group.id]!}
-                  projectId={projectId}
-                  onCreateIssue={onCreateIssue}
-                  sortLabel={sortLabel}
-                />
-              ) : (
-                <BoardColumn
-                  key={group.id}
-                  group={group}
-                  issueIds={columns[group.id] ?? EMPTY_IDS}
-                  issueMap={issueMapRef.current}
-                  childProgressMap={childProgressMap}
-                  projectMap={projectMap}
-                  projectId={projectId}
-                  onCreateIssue={onCreateIssue}
-                  totalCount={group.totalCount}
-                  sortLabel={sortLabel}
-                />
-              )
-            ),
-          )
-        )}
+        {groupsContent}
         {groupBranches?.hasMoreGroups && (
           <div className="flex w-8 shrink-0 items-center justify-center">
             <InfiniteScrollSentinel

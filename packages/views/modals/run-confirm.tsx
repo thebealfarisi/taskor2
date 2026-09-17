@@ -48,7 +48,7 @@ function boldFenced(text: string): ReactNode {
     <>
       {parts.map((part, i) =>
         i % 2 === 1 ? (
-          <span key={i} className="font-semibold text-foreground">
+          <span key={`${part}-${i}`} className="font-semibold text-foreground">
             {part}
           </span>
         ) : (
@@ -197,13 +197,15 @@ export function RunConfirmModal({
       }
       onClose();
     } catch (err) {
-      toast.error(
-        errorCode(err) === "revision_conflict"
-          ? tIssues(($) => $.revision.conflict)
-          : err instanceof Error && err.message
-            ? err.message
-            : t(($) => $.run_confirm.toast_failed),
-      );
+      let message: string;
+      if (errorCode(err) === "revision_conflict") {
+        message = tIssues(($) => $.revision.conflict);
+      } else if (err instanceof Error && err.message) {
+        message = err.message;
+      } else {
+        message = t(($) => $.run_confirm.toast_failed);
+      }
+      toast.error(message);
       setPendingAction(null);
     }
   };
@@ -241,19 +243,21 @@ export function RunConfirmModal({
   // conditional, so the copy names no run count. The promotion names the
   // status it is moving to by its workspace label — a custom status is only
   // recognisable by the name its admin gave it.
-  const headline: ReactNode = boldFenced(
-    isPromote
-      ? t(($) => $.run_confirm.promote_single, {
-          name: fenced(assigneeName),
-          status: fenced(statusLabel(d.status ?? "")),
-        })
-      : issueIds.length > 1
-        ? t(($) => $.run_confirm.assign_batch, {
-            name: fenced(assigneeName),
-            count: issueIds.length,
-          })
-        : t(($) => $.run_confirm.assign_single, { name: fenced(assigneeName) }),
-  );
+  let headlineText: string;
+  if (isPromote) {
+    headlineText = t(($) => $.run_confirm.promote_single, {
+      name: fenced(assigneeName),
+      status: fenced(statusLabel(d.status ?? "")),
+    });
+  } else if (issueIds.length > 1) {
+    headlineText = t(($) => $.run_confirm.assign_batch, {
+      name: fenced(assigneeName),
+      count: issueIds.length,
+    });
+  } else {
+    headlineText = t(($) => $.run_confirm.assign_single, { name: fenced(assigneeName) });
+  }
+  const headline: ReactNode = boldFenced(headlineText);
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v && !submitting) onClose(); }}>

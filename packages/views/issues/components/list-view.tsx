@@ -57,6 +57,24 @@ const LIST_ROW_ESTIMATED_HEIGHT = 36;
 const EMPTY_PROGRESS_MAP = new Map<string, ChildProgress>();
 const EMPTY_IDS: string[] = [];
 
+// Defined at module scope (not inside StatusAccordionItem's render) so the
+// Footer component identity is never a nested-during-render definition, even
+// though it closes over the current page state.
+function createListFooterComponents(page: IssueStatusPageState) {
+  return {
+    Footer: () => (
+      <ListLoadMoreFooter
+        hasMore={page.hasMore}
+        isLoading={page.isLoading || page.isFetching}
+        total={page.total}
+        onLoadMore={page.loadMore}
+        isError={page.isError}
+        onRetry={page.retry}
+      />
+    ),
+  };
+}
+
 function buildListGroups(visibleStatuses: IssueStatusCategory[]): BoardColumnGroup[] {
   return visibleStatuses.map((status) => ({
     id: statusGroupId(status),
@@ -472,24 +490,10 @@ function StatusAccordionItem({
 
   // The infinite-scroll sentinel rides Virtuoso's Footer so it sits at the true
   // end of the virtualized rows and still fires loadMore when scrolled to it.
-  const listComponents = useMemo(
-    () => ({
-      // Always a non-undefined object: react-virtuoso throws if `components`
-      // is ever undefined (MUL-4474). The footer itself renders null for a
-      // short, non-paginated section.
-      Footer: () => (
-        <ListLoadMoreFooter
-          hasMore={page.hasMore}
-          isLoading={page.isLoading || page.isFetching}
-          total={page.total}
-          onLoadMore={page.loadMore}
-          isError={page.isError}
-          onRetry={page.retry}
-        />
-      ),
-    }),
-    [page],
-  );
+  // Always a non-undefined object: react-virtuoso throws if `components`
+  // is ever undefined (MUL-4474). The footer itself renders null for a
+  // short, non-paginated section.
+  const listComponents = useMemo(() => createListFooterComponents(page), [page]);
 
   const computeItemKey = (_index: number, issue: Issue) => issue.id;
   const itemContent = (_index: number, issue: Issue) =>
@@ -521,9 +525,10 @@ function StatusAccordionItem({
   // measurement frame keeps those rows instead of flashing empty (MUL-4750).
   // The droppable, SortableContext, sticky header, and collapse are unchanged;
   // virtualization only decides whether an off-screen row is in the DOM.
-  const rows =
-    isExpanded && issues.length > 0 ? (
-      scrollParent ? (
+  let rows: React.ReactNode = null;
+  if (isExpanded && issues.length > 0) {
+    if (scrollParent) {
+      rows = (
         <Virtuoso
           customScrollParent={scrollParent}
           data={issues}
@@ -534,15 +539,35 @@ function StatusAccordionItem({
           components={listComponents}
           itemContent={itemContent}
         />
-      ) : (
+      );
+    } else {
+      rows = (
         <VirtuosoSeed
           data={issues}
           itemContent={itemContent}
           computeItemKey={computeItemKey}
           estimatedItemHeight={LIST_ROW_ESTIMATED_HEIGHT}
         />
-      )
-    ) : null;
+      );
+    }
+  }
+
+  let panelContent: React.ReactNode;
+  if (issues.length === 0) {
+    panelContent = (
+      <p className="py-6 text-center text-caption text-muted-foreground">
+        {t(($) => $.list.empty_status)}
+      </p>
+    );
+  } else if (dragEnabled) {
+    panelContent = (
+      <SortableContext items={issueIds} strategy={verticalListSortingStrategy}>
+        {rows}
+      </SortableContext>
+    );
+  } else {
+    panelContent = rows;
+  }
 
   return (
     <Accordion.Item value={status} ref={dragEnabled ? setDroppableRef : undefined}>
@@ -599,21 +624,7 @@ function StatusAccordionItem({
           </div>
         )}
       </Accordion.Header>
-      <Accordion.Panel>
-        {issues.length > 0 ? (
-          dragEnabled ? (
-            <SortableContext items={issueIds} strategy={verticalListSortingStrategy}>
-              {rows}
-            </SortableContext>
-          ) : (
-            rows
-          )
-        ) : (
-          <p className="py-6 text-center text-caption text-muted-foreground">
-            {t(($) => $.list.empty_status)}
-          </p>
-        )}
-      </Accordion.Panel>
+      <Accordion.Panel>{panelContent}</Accordion.Panel>
     </Accordion.Item>
   );
 }

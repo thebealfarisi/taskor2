@@ -50,6 +50,16 @@ export function CreateIssueDialog({
     setMode(next);
   };
 
+  // Expanded matches manual's expanded footprint so toggling expand
+  // mid-flow (or after a mode switch) lands the user on the same
+  // visual size. Collapsed keeps the slim, content-driven default
+  // — pasted screenshots still scroll inside instead of pushing the
+  // dialog past the viewport. `dvh`, not `vh`: mobile Safari resolves
+  // `vh` against the URL-bar-hidden viewport, so 80vh can leave the
+  // footer under the browser chrome.
+  const expandedSizeClass = isExpanded
+    ? "!h-5/6 sm:!max-w-4xl"
+    : "!max-h-[80dvh] sm:!max-w-xl";
   const className =
     mode === "agent"
       ? cn(
@@ -64,16 +74,7 @@ export function CreateIssueDialog({
           // against both screen edges on a 430px viewport (MUL-6236). Restore
           // the margin here and let the `sm:` widths take over above 640px.
           "!w-full !max-w-[calc(100vw-1.5rem)]",
-          // Expanded matches manual's expanded footprint so toggling expand
-          // mid-flow (or after a mode switch) lands the user on the same
-          // visual size. Collapsed keeps the slim, content-driven default
-          // — pasted screenshots still scroll inside instead of pushing the
-          // dialog past the viewport. `dvh`, not `vh`: mobile Safari resolves
-          // `vh` against the URL-bar-hidden viewport, so 80vh can leave the
-          // footer under the browser chrome.
-          isExpanded
-            ? "!h-5/6 sm:!max-w-4xl"
-            : "!max-h-[80dvh] sm:!max-w-xl",
+          expandedSizeClass,
         )
       : manualDialogContentClass(isExpanded);
 

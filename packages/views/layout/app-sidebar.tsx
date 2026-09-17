@@ -321,18 +321,22 @@ function PinRow({
     const view = viewQuery.data;
     // One resolved scope drives the path AND the container key so an
     // unrecognised scope_type from a newer backend degrades coherently.
-    const scopeType: "workspace" | "my" | "project" =
-      view.scope_type === "my"
-        ? "my"
-        : view.scope_type === "project" && view.scope_id
-          ? "project"
-          : "workspace";
-    const viewPath =
-      scopeType === "my"
-        ? p.myIssues()
-        : scopeType === "project"
-          ? p.projectDetail(view.scope_id!)
-          : p.issues();
+    let scopeType: "workspace" | "my" | "project";
+    if (view.scope_type === "my") {
+      scopeType = "my";
+    } else if (view.scope_type === "project" && view.scope_id) {
+      scopeType = "project";
+    } else {
+      scopeType = "workspace";
+    }
+    let viewPath: string;
+    if (scopeType === "my") {
+      viewPath = p.myIssues();
+    } else if (scopeType === "project") {
+      viewPath = p.projectDetail(view.scope_id!);
+    } else {
+      viewPath = p.issues();
+    }
     const containerKey = issueViewContainerKey(wsId, {
       scope_type: scopeType,
       scope_id: scopeType === "project" ? view.scope_id : null,
@@ -509,14 +513,13 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const sidebarFadeStyle = useScrollFade(sidebarScrollRef, 24);
   const getPinHref = useCallback(
-    (pin: PinnedItem) =>
-      pin.item_type === "issue"
-        ? p.issueDetail(pin.item_id)
-        : pin.item_type === "project"
-          ? p.projectDetail(pin.item_id)
-          // Views know their target only after their detail loads — the row
-          // resolves its own href; this placeholder never renders as a link.
-          : "",
+    (pin: PinnedItem) => {
+      if (pin.item_type === "issue") return p.issueDetail(pin.item_id);
+      if (pin.item_type === "project") return p.projectDetail(pin.item_id);
+      // Views know their target only after their detail loads — the row
+      // resolves its own href; this placeholder never renders as a link.
+      return "";
+    },
     [p],
   );
 

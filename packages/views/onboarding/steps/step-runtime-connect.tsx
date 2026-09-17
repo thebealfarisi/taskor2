@@ -157,12 +157,14 @@ function FancyView({
     };
   }, [runtimes.length, scanEpoch]);
 
-  const phase: Phase =
-    runtimes.length > 0
-      ? "found"
-      : hardTimedOut || (softTimedOut && runtimesPending !== true)
-        ? "empty"
-        : "scanning";
+  let phase: Phase;
+  if (runtimes.length > 0) {
+    phase = "found";
+  } else if (hardTimedOut || (softTimedOut && runtimesPending !== true)) {
+    phase = "empty";
+  } else {
+    phase = "scanning";
+  }
 
   const onlineCount = runtimes.filter((r) => r.status === "online").length;
 
@@ -211,16 +213,18 @@ function FancyView({
     }
   };
 
-  const footerHint =
-    phase === "found" && selected
-      ? t(($) => $.step_runtime.hint_selected, {
-          name: runtimeDisplayLabel(selected),
-        })
-      : phase === "found"
-        ? t(($) => $.step_runtime.hint_pick)
-        : phase === "scanning"
-          ? t(($) => $.step_runtime.hint_waiting)
-          : t(($) => $.step_runtime.hint_skip_or_refresh);
+  let footerHint: string;
+  if (phase === "found" && selected) {
+    footerHint = t(($) => $.step_runtime.hint_selected, {
+      name: runtimeDisplayLabel(selected),
+    });
+  } else if (phase === "found") {
+    footerHint = t(($) => $.step_runtime.hint_pick);
+  } else if (phase === "scanning") {
+    footerHint = t(($) => $.step_runtime.hint_waiting);
+  } else {
+    footerHint = t(($) => $.step_runtime.hint_skip_or_refresh);
+  }
 
   return (
     <>
@@ -343,12 +347,14 @@ function FoundView({
 }) {
   const { t } = useT("onboarding");
   const total = runtimes.length;
-  const statusLabel =
-    onlineCount === total
-      ? t(($) => $.step_runtime.status_all_online)
-      : onlineCount === 0
-        ? t(($) => $.step_runtime.status_none_online)
-        : t(($) => $.step_runtime.status_n_online, { count: onlineCount });
+  let statusLabel: string;
+  if (onlineCount === total) {
+    statusLabel = t(($) => $.step_runtime.status_all_online);
+  } else if (onlineCount === 0) {
+    statusLabel = t(($) => $.step_runtime.status_none_online);
+  } else {
+    statusLabel = t(($) => $.step_runtime.status_n_online, { count: onlineCount });
+  }
   const statusTone =
     onlineCount === 0 ? "text-muted-foreground" : "text-success";
 

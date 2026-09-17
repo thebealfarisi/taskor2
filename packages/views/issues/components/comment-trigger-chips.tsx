@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { TriangleAlert } from "lucide-react";
 import type { CommentTriggerPreviewAgent, CommentTriggerOutcome } from "@multica/core/types";
 import { useAgentPresenceDetail } from "@multica/core/agents";
@@ -139,22 +139,26 @@ export function CommentTriggerChips({
   // any interim chrome here reads as composer noise.
   if (agents.length === 0 && blocked.length === 0) return null;
 
-  const allowed =
-    agents.length === 1 ? (
+  let allowed: ReactNode = null;
+  if (agents.length === 1) {
+    allowed = (
       <SingleTriggerChip
         agent={agents[0]!}
         suppressed={suppressedAgentIds.has(agents[0]!.id)}
         onToggle={onToggle}
         t={t}
       />
-    ) : agents.length > 1 ? (
+    );
+  } else if (agents.length > 1) {
+    allowed = (
       <MultiTriggerChip
         agents={agents}
         suppressedAgentIds={suppressedAgentIds}
         onToggle={onToggle}
         t={t}
       />
-    ) : null;
+    );
+  }
 
   if (blocked.length === 0) return allowed;
 

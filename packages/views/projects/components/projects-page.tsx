@@ -910,26 +910,20 @@ export function ProjectsPage() {
   const handleToggleAll = () =>
     setSelectedIds(allSelected ? new Set() : new Set(visible.map((p) => p.id)));
 
-  const sortLabel = (f: ProjectSortField) =>
-    f === "name"
-      ? t(($) => $.table.name)
-      : f === "priority"
-        ? t(($) => $.table.priority)
-        : f === "status"
-          ? t(($) => $.table.status)
-          : f === "progress"
-            ? t(($) => $.table.progress)
-            : t(($) => $.table.created);
-  const columnLabel = (k: ProjectColumnKey) =>
-    k === "priority"
-      ? t(($) => $.table.priority)
-      : k === "progress"
-        ? t(($) => $.table.progress)
-        : k === "lead"
-          ? t(($) => $.table.lead)
-          : k === "issues"
-            ? t(($) => $.table.issues)
-            : t(($) => $.table.created);
+  const sortLabel = (f: ProjectSortField) => {
+    if (f === "name") return t(($) => $.table.name);
+    if (f === "priority") return t(($) => $.table.priority);
+    if (f === "status") return t(($) => $.table.status);
+    if (f === "progress") return t(($) => $.table.progress);
+    return t(($) => $.table.created);
+  };
+  const columnLabel = (k: ProjectColumnKey) => {
+    if (k === "priority") return t(($) => $.table.priority);
+    if (k === "progress") return t(($) => $.table.progress);
+    if (k === "lead") return t(($) => $.table.lead);
+    if (k === "issues") return t(($) => $.table.issues);
+    return t(($) => $.table.created);
+  };
 
   const showEmpty = !isLoading && projects.length === 0;
   const countBadge = (n: number) => (

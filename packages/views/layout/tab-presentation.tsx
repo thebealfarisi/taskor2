@@ -156,12 +156,14 @@ function useTabEntityData(subject: TabSubject, wsId: string): TabEntityData {
       if (skill) data.skill = { name: skill.name };
       break;
     case "actor": {
-      const name =
-        subject.actorType === "agent"
-          ? agents?.find((a) => a.id === subject.id)?.name
-          : subject.actorType === "member"
-            ? members?.find((m) => m.user_id === subject.id)?.name
-            : squads?.find((s) => s.id === subject.id)?.name;
+      let name: string | undefined;
+      if (subject.actorType === "agent") {
+        name = agents?.find((a) => a.id === subject.id)?.name;
+      } else if (subject.actorType === "member") {
+        name = members?.find((m) => m.user_id === subject.id)?.name;
+      } else {
+        name = squads?.find((s) => s.id === subject.id)?.name;
+      }
       if (name) data.actorName = name;
       break;
     }
@@ -244,18 +246,20 @@ export function useTabPresentation(
 
   // The actor avatar resolves through workspace directory queries and throws
   // if rendered before the workspace exists. Until it does, show a type icon.
-  const safeVisual: TabVisual =
-    visual.kind === "actor" && !wsId
-      ? {
-          kind: "icon",
-          icon:
-            visual.actorType === "squad"
-              ? "Users"
-              : visual.actorType === "member"
-                ? "CircleUser"
-                : "Bot",
-        }
-      : visual;
+  let safeVisual: TabVisual;
+  if (visual.kind === "actor" && !wsId) {
+    let icon: "Users" | "CircleUser" | "Bot";
+    if (visual.actorType === "squad") {
+      icon = "Users";
+    } else if (visual.actorType === "member") {
+      icon = "CircleUser";
+    } else {
+      icon = "Bot";
+    }
+    safeVisual = { kind: "icon", icon };
+  } else {
+    safeVisual = visual;
+  }
 
   return { visual: safeVisual, title };
 }

@@ -483,13 +483,15 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
       // A rerun is now re-gated on the operator's invoke permission (MUL-4525):
       // a structured 403 means the agent can't be triggered, not a transient
       // failure — localize it instead of echoing the server's generic message.
-      toast.error(
-        dispatchReasonCode(e) === "invocation_not_allowed"
-          ? t(($) => $.execution_log.retry_blocked)
-          : e instanceof Error
-            ? e.message
-            : t(($) => $.execution_log.retry_failed),
-      );
+      let message: string;
+      if (dispatchReasonCode(e) === "invocation_not_allowed") {
+        message = t(($) => $.execution_log.retry_blocked);
+      } else if (e instanceof Error) {
+        message = e.message;
+      } else {
+        message = t(($) => $.execution_log.retry_failed);
+      }
+      toast.error(message);
     } finally {
       // Reset on both success and failure: the past row stays mounted
       // (its task.id is unchanged), so leaving `retrying` true on success

@@ -206,20 +206,29 @@ function useIssueCounts(
 
     if (serverFacets) {
       for (const facet of serverFacets.facets) {
-        const target =
-          facet.kind === "status"
-            ? status
-            : facet.kind === "priority"
-              ? priority
-              : facet.kind === "assignee"
-                ? assignee
-                : facet.kind === "creator"
-                  ? creator
-                  : facet.kind === "project"
-                    ? project
-                    : facet.kind === "label"
-                      ? label
-                      : null;
+        let target: Map<string, number> | null;
+        switch (facet.kind) {
+          case "status":
+            target = status;
+            break;
+          case "priority":
+            target = priority;
+            break;
+          case "assignee":
+            target = assignee;
+            break;
+          case "creator":
+            target = creator;
+            break;
+          case "project":
+            target = project;
+            break;
+          case "label":
+            target = label;
+            break;
+          default:
+            target = null;
+        }
         if (facet.kind === "property" && facet.property_id) {
           property.set(
             facet.property_id,
@@ -267,14 +276,16 @@ function useIssueCounts(
       }
 
       for (const [propertyId, value] of Object.entries(issue.properties ?? {})) {
-        const optionKeys =
-          typeof value === "string"
-            ? [value]
-            : Array.isArray(value)
-              ? value
-              : typeof value === "boolean"
-                ? [String(value)]
-                : [];
+        let optionKeys: string[];
+        if (typeof value === "string") {
+          optionKeys = [value];
+        } else if (Array.isArray(value)) {
+          optionKeys = value;
+        } else if (typeof value === "boolean") {
+          optionKeys = [String(value)];
+        } else {
+          optionKeys = [];
+        }
         if (optionKeys.length === 0) continue;
         let perOption = property.get(propertyId);
         if (!perOption) {
@@ -714,29 +725,37 @@ function PropertyFilterOptions({
     actorType: undefined as string | undefined,
     actorId: undefined as string | undefined,
   };
-  const options = [
-    ...(actorProperty
-      ? actorOptions.map((option) => ({
-          id: option.id,
-          name: option.name,
-          color: undefined as string | undefined,
-          actorType: option.actorType as string | undefined,
-          actorId: option.actorId as string | undefined,
-        }))
-      : property.type === "checkbox"
-        ? [
-            { id: "true", name: t(($) => $.pickers.custom_property.true_label), color: undefined, actorType: undefined, actorId: undefined },
-            { id: "false", name: t(($) => $.pickers.custom_property.false_label), color: undefined, actorType: undefined, actorId: undefined },
-          ]
-        : (property.config.options ?? []).map((option) => ({
-            id: option.id,
-            name: option.name,
-            color: option.color as string | undefined,
-            actorType: undefined as string | undefined,
-            actorId: undefined as string | undefined,
-          }))),
-    noValueOption,
-  ];
+  type FilterOption = {
+    id: string;
+    name: string;
+    color?: string;
+    actorType?: string;
+    actorId?: string;
+  };
+  let typeOptions: FilterOption[];
+  if (actorProperty) {
+    typeOptions = actorOptions.map((option) => ({
+      id: option.id,
+      name: option.name,
+      color: undefined as string | undefined,
+      actorType: option.actorType as string | undefined,
+      actorId: option.actorId as string | undefined,
+    }));
+  } else if (property.type === "checkbox") {
+    typeOptions = [
+      { id: "true", name: t(($) => $.pickers.custom_property.true_label), color: undefined, actorType: undefined, actorId: undefined },
+      { id: "false", name: t(($) => $.pickers.custom_property.false_label), color: undefined, actorType: undefined, actorId: undefined },
+    ];
+  } else {
+    typeOptions = (property.config.options ?? []).map((option) => ({
+      id: option.id,
+      name: option.name,
+      color: option.color as string | undefined,
+      actorType: undefined as string | undefined,
+      actorId: undefined as string | undefined,
+    }));
+  }
+  const options = [...typeOptions, noValueOption];
 
   return (
     <>
@@ -962,11 +981,14 @@ export function IssuesHeader({
   const { t } = useT("issues");
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const headerWsId = useWorkspaceId();
-  const viewListScope: IssueViewScope | null = saveViewScope
-    ? saveViewScope.kind === "project"
-      ? { scope_type: "project", scope_id: saveViewScope.projectId }
-      : { scope_type: saveViewScope.kind }
-    : null;
+  let viewListScope: IssueViewScope | null;
+  if (!saveViewScope) {
+    viewListScope = null;
+  } else if (saveViewScope.kind === "project") {
+    viewListScope = { scope_type: "project", scope_id: saveViewScope.projectId };
+  } else {
+    viewListScope = { scope_type: saveViewScope.kind };
+  }
   const { activeView, views, viewsReady, setActive, missing } = useActiveIssueView(
     headerWsId,
     viewListScope,
@@ -1047,6 +1069,15 @@ export function IssuesHeader({
   };
 
   const scopeLabel = t(($) => $.scope[SCOPE_LABEL_KEY[scope]]);
+
+  let saveLabel: string | undefined;
+  if (!activeView) {
+    saveLabel = undefined;
+  } else if (isViewOwner) {
+    saveLabel = t(($) => $.filters.chip_edit);
+  } else {
+    saveLabel = t(($) => $.filters.chip_save_as);
+  }
 
   return (
     <>
@@ -1140,13 +1171,7 @@ export function IssuesHeader({
       dateFilter={dateFilter}
       onDateFilterChange={onDateFilterChange}
       viewBaseline={viewBaseline}
-      saveLabel={
-        activeView
-          ? isViewOwner
-            ? t(($) => $.filters.chip_edit)
-            : t(($) => $.filters.chip_save_as)
-          : undefined
-      }
+      saveLabel={saveLabel}
       onSave={
         saveViewScope
           ? () => {
@@ -1266,13 +1291,18 @@ export function IssueFilterMenu({
       viewBaseline,
     ) > 0;
   const fixedTitle = viewBaseline ? t(($) => $.filters.in_view) : undefined;
-  const dateFilterLabel = showDateFilter && dateFilter
-    ? `${t(($) => $.filters[DATE_FIELD_LABEL_KEY[dateFilter.field]])}: ${
-        dateFilter.from === dateFilter.to
-          ? shortDateLabel(dateFilter.from)
-          : `${shortDateLabel(dateFilter.from)} - ${shortDateLabel(dateFilter.to)}`
-      }`
-    : null;
+  let dateFilterLabel: string | null;
+  if (showDateFilter && dateFilter) {
+    let dateRange: string;
+    if (dateFilter.from === dateFilter.to) {
+      dateRange = shortDateLabel(dateFilter.from);
+    } else {
+      dateRange = `${shortDateLabel(dateFilter.from)} - ${shortDateLabel(dateFilter.to)}`;
+    }
+    dateFilterLabel = `${t(($) => $.filters[DATE_FIELD_LABEL_KEY[dateFilter.field]])}: ${dateRange}`;
+  } else {
+    dateFilterLabel = null;
+  }
 
   // Base UI's render-prop merges its own ref with ours, so cloning the
   // caller's element only adds the ref we need for rect capture.
@@ -1767,15 +1797,43 @@ export function IssueDisplayControls({
     tableGroupingPropertyId && !propertyById.has(tableGroupingPropertyId)
       ? "none"
       : tableGrouping;
-  const tableGroupingLabel = tableGroupingPropertyId
-    ? propertyById.get(tableGroupingPropertyId)?.name ??
-      t(($) => $.table.group_none)
-    : effectiveTableGrouping === "status"
-      ? t(($) => $.table.columns.status)
-      : effectiveTableGrouping === "assignee"
-        ? t(($) => $.table.columns.assignee)
-        : t(($) => $.table.group_none);
+  let tableGroupingLabel: string;
+  if (tableGroupingPropertyId) {
+    tableGroupingLabel =
+      propertyById.get(tableGroupingPropertyId)?.name ?? t(($) => $.table.group_none);
+  } else if (effectiveTableGrouping === "status") {
+    tableGroupingLabel = t(($) => $.table.columns.status);
+  } else if (effectiveTableGrouping === "assignee") {
+    tableGroupingLabel = t(($) => $.table.columns.assignee);
+  } else {
+    tableGroupingLabel = t(($) => $.table.group_none);
+  }
   const controlButtonClass = "h-8 w-8 gap-1 px-0 text-muted-foreground md:h-7 md:w-auto md:px-2.5";
+
+  let viewModeIcon: React.ReactNode;
+  let viewModeLabel: string;
+  let viewModeTooltip: string;
+  if (viewMode === "board") {
+    viewModeIcon = <Columns3 className="size-3.5" />;
+    viewModeLabel = t(($) => $.view.board);
+    viewModeTooltip = t(($) => $.view.tooltip_board);
+  } else if (viewMode === "table") {
+    viewModeIcon = <Table2 className="size-3.5" />;
+    viewModeLabel = t(($) => $.view.table);
+    viewModeTooltip = t(($) => $.view.tooltip_table);
+  } else if (viewMode === "swimlane") {
+    viewModeIcon = <Waves className="size-3.5" />;
+    viewModeLabel = t(($) => $.view.swimlane);
+    viewModeTooltip = t(($) => $.view.tooltip_swimlane);
+  } else if (viewMode === "gantt" && allowGantt) {
+    viewModeIcon = <ChartGantt className="size-3.5" />;
+    viewModeLabel = t(($) => $.view.gantt);
+    viewModeTooltip = t(($) => $.view.tooltip_gantt);
+  } else {
+    viewModeIcon = <List className="size-3.5" />;
+    viewModeLabel = t(($) => $.view.list);
+    viewModeTooltip = t(($) => $.view.tooltip_list);
+  }
 
   return (
     <div className="flex shrink-0 items-center gap-1">
@@ -2114,27 +2172,9 @@ export function IssueDisplayControls({
                   <TooltipTrigger
                     render={
                       <Button variant="outline" size="sm" className={controlButtonClass}>
-                        {viewMode === "board" ? (
-                          <Columns3 className="size-3.5" />
-                        ) : viewMode === "table" ? (
-                          <Table2 className="size-3.5" />
-                        ) : viewMode === "swimlane" ? (
-                          <Waves className="size-3.5" />
-                        ) : viewMode === "gantt" && allowGantt ? (
-                          <ChartGantt className="size-3.5" />
-                        ) : (
-                          <List className="size-3.5" />
-                        )}
+                        {viewModeIcon}
                         <span className="hidden md:inline">
-                          {viewMode === "board"
-                            ? t(($) => $.view.board)
-                            : viewMode === "table"
-                            ? t(($) => $.view.table)
-                            : viewMode === "swimlane"
-                            ? t(($) => $.view.swimlane)
-                            : viewMode === "gantt" && allowGantt
-                            ? t(($) => $.view.gantt)
-                            : t(($) => $.view.list)}
+                          {viewModeLabel}
                         </span>
                       </Button>
                     }
@@ -2142,15 +2182,7 @@ export function IssueDisplayControls({
                 }
               />
               <TooltipContent side="bottom">
-                {viewMode === "board"
-                  ? t(($) => $.view.tooltip_board)
-                  : viewMode === "table"
-                  ? t(($) => $.view.tooltip_table)
-                  : viewMode === "swimlane"
-                  ? t(($) => $.view.tooltip_swimlane)
-                  : viewMode === "gantt" && allowGantt
-                  ? t(($) => $.view.tooltip_gantt)
-                  : t(($) => $.view.tooltip_list)}
+                {viewModeTooltip}
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-auto">

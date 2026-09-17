@@ -32,6 +32,20 @@ export function DailyErrorsChart({ data }: { data: DailyErrorsData[] }) {
   const config = useFailureClassConfig();
   const classes = activeFailureClasses(data);
 
+  const getTooltipRow = (payload: ReadonlyArray<{ payload?: DailyErrorsData }>) => {
+    const row = payload[0]?.payload as DailyErrorsData | undefined;
+    if (!row) return null;
+
+    return (
+      <div className="flex items-center justify-between gap-2 font-medium">
+        <span>{t(($) => $.errors.tooltip_rate)}</span>
+        <span className="font-mono tabular-nums">
+          {formatRate(row.failed, row.total)}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <ChartContainer config={config} className="aspect-[3/1] w-full">
       <BarChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
@@ -57,18 +71,7 @@ export function DailyErrorsChart({ data }: { data: DailyErrorsData[] }) {
               // ("rate_limit"). Resolve it through the chart config so the
               // tooltip shows the translated label the legend already uses.
               formatter={(value, name) => `${value} ${labelOf(config, name)}`}
-              footer={(payload) => {
-                const row = payload[0]?.payload as DailyErrorsData | undefined;
-                if (!row) return null;
-                return (
-                  <div className="flex items-center justify-between gap-2 font-medium">
-                    <span>{t(($) => $.errors.tooltip_rate)}</span>
-                    <span className="font-mono tabular-nums">
-                      {formatRate(row.failed, row.total)}
-                    </span>
-                  </div>
-                );
-              }}
+              footer={(payload) => getTooltipRow(payload)}
             />
           }
         />

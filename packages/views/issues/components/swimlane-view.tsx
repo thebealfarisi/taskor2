@@ -111,7 +111,7 @@ function makeSwimLaneCollision(cellIds: Set<string>): CollisionDetection {
 
     const pointer = pointerWithin(args);
     if (pointer.length > 0) {
-      let filtered = pointer;
+      let filtered: typeof pointer;
       if (isLaneDrag) {
         // Lane dragging: only consider other lane headers
         filtered = pointer.filter((c) => (c.id as string).startsWith("lane:"));
@@ -128,7 +128,7 @@ function makeSwimLaneCollision(cellIds: Set<string>): CollisionDetection {
     }
 
     const closest = closestCenter(args);
-    let filteredClosest = closest;
+    let filteredClosest: typeof closest;
     if (isLaneDrag) {
       filteredClosest = closest.filter((c) => (c.id as string).startsWith("lane:"));
     } else {
@@ -601,6 +601,23 @@ function buildServerLanes(
     return (originalIndex.get(a.rawId) ?? 0) -
       (originalIndex.get(b.rawId) ?? 0);
   });
+}
+
+// Defined at module scope (not inside SwimLaneViewImpl's render) so the
+// Footer component identity is never a nested-during-render definition, even
+// though it closes over the current groupBranches state.
+function createLaneComponents(groupBranches: IssueGroupBranches | undefined) {
+  return {
+    Footer: () =>
+      groupBranches?.enabled && groupBranches.hasMoreGroups ? (
+        <div className="pt-4">
+          <InfiniteScrollSentinel
+            onVisible={groupBranches.loadMoreGroups}
+            loading={groupBranches.isLoadingMoreGroups}
+          />
+        </div>
+      ) : null,
+  };
 }
 
 function SwimLaneViewImpl({
@@ -1339,17 +1356,7 @@ function SwimLaneViewImpl({
   // Per-status load-more sentinels ride Virtuoso's Footer so they sit at the
   // true end of the lane list; pt-4 reproduces the previous gap-4.
   const laneComponents = useMemo(
-    () => ({
-      Footer: () =>
-        groupBranches?.enabled && groupBranches.hasMoreGroups ? (
-          <div className="pt-4">
-            <InfiniteScrollSentinel
-              onVisible={groupBranches.loadMoreGroups}
-              loading={groupBranches.isLoadingMoreGroups}
-            />
-          </div>
-        ) : null,
-    }),
+    () => createLaneComponents(groupBranches),
     [
       groupBranches?.enabled,
       groupBranches?.hasMoreGroups,
