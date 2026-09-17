@@ -318,6 +318,191 @@ function flatWindowNeedsReconcile(
   }
 }
 
+function reconcileBucketedEntry(
+  qc: QueryClient,
+  key: QueryKey,
+  data: ListIssuesCache,
+  id: string,
+  patch: Partial<Issue>,
+  changed: IssueChangedDims,
+  baseIssue: Issue | undefined,
+  acceptCurrent: (current: Issue) => boolean,
+  prevLists: [QueryKey, ListIssuesCache][],
+  staleKeys: QueryKey[],
+): Issue | undefined {
+  const { scope, filter, sort } = listContractFromKey(key);
+  const loc = findIssueLocation(data, id);
+  if (loc && !acceptCurrent(loc.issue)) return undefined;
+  const filterTouched = listFilterDependsOn(scope, filter, changed);
+
+  if (
+    sort.sort_by === "updated_at" &&
+    patchChangesAnyIssueField(patch, loc?.issue ?? baseIssue)
+  ) {
+    staleKeys.push(key);
+  }
+  if (
+    sort.sort_by === "last_activity" &&
+    patchChangesIssueActivity(patch, loc?.issue ?? baseIssue)
+  ) {
+    staleKeys.push(key);
+  }
+
+  if (loc) {
+    if (patchNeedsInvalidation(patch)) staleKeys.push(key);
+    let next: ListIssuesCache;
+    if (filterTouched) {
+      const membership = issueMatchesListFilter(
+        { ...loc.issue, ...patch },
+        scope,
+        filter,
+      );
+      if (membership === false) {
+        next = removeIssueFromBuckets(data, id);
+      } else {
+        next = patchIssueInBuckets(data, id, patch);
+        if (membership === "unknown") staleKeys.push(key);
+      }
+    } else {
+      next = patchIssueInBuckets(data, id, patch);
+    }
+    if (next !== data) {
+      prevLists.push([key, data]);
+      qc.setQueryData<ListIssuesCache>(key, next);
+    }
+    return loc.issue;
+  }
+
+  if (!filterTouched && !changed.status) return undefined;
+  const wasMember = baseIssue
+    ? issueMatchesListFilter(baseIssue, scope, filter)
+    : "unknown";
+  const isMember = issueMatchesListFilter(
+    { ...baseIssue, ...patch },
+    scope,
+    filter,
+  );
+  if (wasMember === false && isMember === false) return undefined;
+
+  if (wasMember === true && baseIssue) {
+    if (isMember === true) {
+      if (!changed.status || patch.status === undefined) return undefined;
+      const fromCategory = issueStatusCategory(baseIssue);
+      const toCategory = issueStatusCategory({
+        status: patch.status,
+        status_category: patch.status_category,
+      });
+      if (!fromCategory || !toCategory) {
+        staleKeys.push(key);
+        return undefined;
+      }
+      const next = moveBucketTotal(data, fromCategory, toCategory);
+      if (next !== data) {
+        prevLists.push([key, data]);
+        qc.setQueryData<ListIssuesCache>(key, next);
+        staleKeys.push(key);
+      }
+      return undefined;
+    }
+    if (isMember === false) {
+      const leavingCategory = issueStatusCategory(baseIssue);
+      if (!leavingCategory) {
+        staleKeys.push(key);
+        return undefined;
+      }
+      const next = decrementBucketTotal(data, leavingCategory);
+      if (next !== data) {
+        prevLists.push([key, data]);
+        qc.setQueryData<ListIssuesCache>(key, next);
+      }
+      return undefined;
+    }
+  }
+
+  staleKeys.push(key);
+  return undefined;
+}
+
+function reconcileFlatEntry(
+  qc: QueryClient,
+  key: QueryKey,
+  data: IssueFlatCache,
+  id: string,
+  patch: Partial<Issue>,
+  changed: IssueChangedDims,
+  baseIssue: Issue | undefined,
+  acceptCurrent: (current: Issue) => boolean,
+  prevFlatLists: [QueryKey, IssueFlatCache][],
+  staleKeys: QueryKey[],
+): Issue | undefined {
+  let found: Issue | undefined;
+  const pages = data.pages.map((page) => ({
+    ...page,
+    issues: page.issues.map((issue) => {
+      if (issue.id !== id) return issue;
+      if (!acceptCurrent(issue)) return issue;
+      found = issue;
+      return { ...issue, ...patch };
+    }),
+  }));
+  if (found) {
+    prevFlatLists.push([key, data]);
+    qc.setQueryData<IssueFlatCache>(key, { ...data, pages });
+  }
+  if (flatWindowNeedsReconcile(key, patch, found ?? baseIssue, changed)) {
+    staleKeys.push(key);
+  }
+  return found;
+}
+
+function reconcileTableRowEntry(
+  qc: QueryClient,
+  key: QueryKey,
+  data: IssueTableRowCache,
+  id: string,
+  patch: Partial<Issue>,
+  acceptCurrent: (current: Issue) => boolean,
+  prevTableRows: [QueryKey, IssueTableRowCache][],
+): Issue | undefined {
+  let found: Issue | undefined;
+  const rows = data.rows.map((row) => {
+    if (row.issue.id !== id) return row;
+    if (!acceptCurrent(row.issue)) return row;
+    found = row.issue;
+    return { ...row, issue: { ...row.issue, ...patch } };
+  });
+  if (!found) return undefined;
+  prevTableRows.push([key, data]);
+  qc.setQueryData<IssueTableRowCache>(key, { ...data, rows });
+  return found;
+}
+
+function reconcileDetailAndInbox(
+  qc: QueryClient,
+  wsId: string,
+  id: string,
+  patch: Partial<Issue>,
+  acceptCurrent: (current: Issue) => boolean,
+): { prevDetail?: Issue; prevInboxList?: InboxItem[]; foundIssue?: Issue } {
+  const prevDetail = qc.getQueryData<Issue>(issueKeys.detail(wsId, id));
+  let foundIssue: Issue | undefined;
+  if (prevDetail && acceptCurrent(prevDetail)) {
+    qc.setQueryData<Issue>(issueKeys.detail(wsId, id), {
+      ...prevDetail,
+      ...patch,
+    });
+    foundIssue = prevDetail;
+  }
+
+  let prevInboxList: InboxItem[] | undefined;
+  if (patch.status !== undefined) {
+    prevInboxList = qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId));
+    if (prevInboxList) patchInboxIssueStatus(qc, wsId, id, patch.status);
+  }
+
+  return { prevDetail, prevInboxList, foundIssue };
+}
+
 export function applyIssueChange(
   qc: QueryClient,
   wsId: string,
@@ -349,193 +534,58 @@ export function applyIssueChange(
   let prevIssue: Issue | undefined = baseIssue;
 
   for (const [key, data] of bucketedListEntries(qc, wsId)) {
-    const { scope, filter, sort } = listContractFromKey(key);
-    const loc = findIssueLocation(data, id);
-    if (loc && !acceptCurrent(loc.issue)) continue;
-    const filterTouched = listFilterDependsOn(scope, filter, changed);
-
-    // "Updated date" sort: every persisted edit advances updated_at, but the
-    // optimistic patch carries no server timestamp and a loaded card keeps its
-    // slot, so the board has drifted out of order. The right slot is server
-    // knowledge — mark the key stale so the refetch re-sorts it. This mirrors
-    // the updated_at case in flatWindowNeedsReconcile and, like it, does not
-    // gate on this list's membership (an off-window member should surface too).
-    if (
-      sort.sort_by === "updated_at" &&
-      patchChangesAnyIssueField(patch, loc?.issue ?? baseIssue)
-    ) {
-      staleKeys.push(key);
-    }
-    if (
-      sort.sort_by === "last_activity" &&
-      patchChangesIssueActivity(patch, loc?.issue ?? baseIssue)
-    ) {
-      staleKeys.push(key);
-    }
-
-    if (loc) {
-      if (!prevIssue) prevIssue = loc.issue;
-      // A status this client cannot resolve to a category makes
-      // patchIssueInBuckets a no-op. The row DID move on the server, so
-      // treating that as "nothing to do" would leave the card in its old
-      // column forever — force a refetch instead. (MUL-6243)
-      if (patchNeedsInvalidation(patch)) staleKeys.push(key);
-      let next: ListIssuesCache;
-      if (filterTouched) {
-        const membership = issueMatchesListFilter(
-          { ...loc.issue, ...patch },
-          scope,
-          filter,
-        );
-        if (membership === false) {
-          next = removeIssueFromBuckets(data, id);
-        } else {
-          next = patchIssueInBuckets(data, id, patch);
-          if (membership === "unknown") staleKeys.push(key);
-        }
-      } else {
-        next = patchIssueInBuckets(data, id, patch);
-      }
-      if (next !== data) {
-        prevLists.push([key, data]);
-        qc.setQueryData<ListIssuesCache>(key, next);
-      }
-      continue;
-    }
-
-    // Card not loaded here. Only a change that can move the issue across
-    // this list's filter — or shift a per-status count for an issue beyond
-    // the loaded window — needs a reconcile; anything else is a no-op.
-    if (!filterTouched && !changed.status) continue;
-    const wasMember = baseIssue
-      ? issueMatchesListFilter(baseIssue, scope, filter)
-      : "unknown";
-    const isMember = issueMatchesListFilter(
-      { ...baseIssue, ...patch },
-      scope,
-      filter,
+    const found = reconcileBucketedEntry(
+      qc,
+      key,
+      data,
+      id,
+      patch,
+      changed,
+      baseIssue,
+      acceptCurrent,
+      prevLists,
+      staleKeys,
     );
-    // Neither before nor after the change does this issue belong to the
-    // list — its pages and counts are untouched.
-    if (wasMember === false && isMember === false) continue;
-
-    // Certain count arithmetic — branch on the membership OUTCOME, never on
-    // which field changed, so status / assignee / project (and future team)
-    // all flow through the same two cases. wasMember === true implies a
-    // baseIssue exists, so the old status is known.
-    if (wasMember === true && baseIssue) {
-      if (isMember === true) {
-        // Still a member. Only a status change moves a count between
-        // buckets; anything else (e.g. member→member reassignment) leaves
-        // this list's pages and counts untouched.
-        if (!changed.status || patch.status === undefined) continue;
-        // Bucket totals are per category (MUL-6243).
-        // patch.status_category is authoritative when the server sent it; the
-        // key-only fallback covers built-ins.
-        const fromCategory = issueStatusCategory(baseIssue);
-        const toCategory = issueStatusCategory({
-          status: patch.status,
-          status_category: patch.status_category,
-        });
-        if (!fromCategory || !toCategory) {
-          // An unresolvable custom status must NOT be a silent no-op: the row
-          // moved on the server, so leaving this cache untouched drifts the
-          // off-window totals permanently. Force a refetch instead.
-          staleKeys.push(key);
-          continue;
-        }
-        const next = moveBucketTotal(data, fromCategory, toCategory);
-        if (next !== data) {
-          prevLists.push([key, data]);
-          qc.setQueryData<ListIssuesCache>(key, next);
-          // The count moved but the row can't be inserted client-side (its
-          // page/slot under the list's sort is server knowledge). Leave the
-          // reconcile trigger: with staleTime: Infinity nothing else ever
-          // brings the destination bucket's window in line with its total.
-          staleKeys.push(key);
-        }
-        continue;
-      }
-      if (isMember === false) {
-        // Left the list entirely — the bucket it was counted in loses one.
-        const leavingCategory = issueStatusCategory(baseIssue);
-        if (!leavingCategory) {
-          staleKeys.push(key);
-          continue;
-        }
-        const next = decrementBucketTotal(data, leavingCategory);
-        if (next !== data) {
-          prevLists.push([key, data]);
-          qc.setQueryData<ListIssuesCache>(key, next);
-        }
-        continue;
-      }
-    }
-    // Entering (its page/slot under the list's sort is server knowledge) or
-    // any uncertainty (no base, unknown membership) → refetch instead of
-    // guessing.
-    staleKeys.push(key);
+    if (found && !prevIssue) prevIssue = found;
   }
 
-  // Patch loaded flat rows immediately. Only refetch windows whose encoded
-  // server filter/sort actually depends on this change; e.g. a title edit in
-  // a position-sorted unfiltered table is fully reconciled by the patch.
   for (const [key, data] of flatListEntries(qc, wsId)) {
-    let found: Issue | undefined;
-    const pages = data.pages.map((page) => ({
-      ...page,
-      issues: page.issues.map((issue) => {
-        if (issue.id !== id) return issue;
-        if (!acceptCurrent(issue)) return issue;
-        found = issue;
-        return { ...issue, ...patch };
-      }),
-    }));
-    if (found) {
-      if (!prevIssue) prevIssue = found;
-      prevFlatLists.push([key, data]);
-      qc.setQueryData<IssueFlatCache>(key, { ...data, pages });
-    }
-    if (flatWindowNeedsReconcile(key, patch, found ?? baseIssue, changed)) {
-      staleKeys.push(key);
-    }
+    const found = reconcileFlatEntry(
+      qc,
+      key,
+      data,
+      id,
+      patch,
+      changed,
+      baseIssue,
+      acceptCurrent,
+      prevFlatLists,
+      staleKeys,
+    );
+    if (found && !prevIssue) prevIssue = found;
   }
 
-  // Table branch pages are partial server-owned projections, so membership,
-  // counts and ordering still reconcile through the existing tableAll
-  // invalidation on settle. The entity snapshot inside every loaded row is
-  // determinate, though: patch it immediately so inline edits never flash the
-  // old title/status/assignee while the authoritative branch refetch runs.
   for (const [key, data] of tableRowEntries(qc, wsId)) {
-    let found: Issue | undefined;
-    const rows = data.rows.map((row) => {
-      if (row.issue.id !== id) return row;
-      if (!acceptCurrent(row.issue)) return row;
-      found = row.issue;
-      return { ...row, issue: { ...row.issue, ...patch } };
-    });
-    if (!found) continue;
-    if (!prevIssue) prevIssue = found;
-    prevTableRows.push([key, data]);
-    qc.setQueryData<IssueTableRowCache>(key, { ...data, rows });
+    const found = reconcileTableRowEntry(
+      qc,
+      key,
+      data,
+      id,
+      patch,
+      acceptCurrent,
+      prevTableRows,
+    );
+    if (found && !prevIssue) prevIssue = found;
   }
 
-  const prevDetail = qc.getQueryData<Issue>(issueKeys.detail(wsId, id));
-  if (prevDetail && acceptCurrent(prevDetail)) {
-    qc.setQueryData<Issue>(issueKeys.detail(wsId, id), {
-      ...prevDetail,
-      ...patch,
-    });
-    if (!prevIssue) prevIssue = prevDetail;
-  }
-
-  // Inbox rows carry an `issue_status` display snapshot; the issue's status
-  // is the real state, so the projection follows every status write.
-  let prevInboxList: InboxItem[] | undefined;
-  if (patch.status !== undefined) {
-    prevInboxList = qc.getQueryData<InboxItem[]>(inboxKeys.list(wsId));
-    if (prevInboxList) patchInboxIssueStatus(qc, wsId, id, patch.status);
-  }
+  const { prevDetail, prevInboxList, foundIssue } = reconcileDetailAndInbox(
+    qc,
+    wsId,
+    id,
+    patch,
+    acceptCurrent,
+  );
+  if (foundIssue && !prevIssue) prevIssue = foundIssue;
 
   return {
     prevLists,
