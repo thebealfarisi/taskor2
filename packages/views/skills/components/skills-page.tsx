@@ -827,36 +827,23 @@ export default function SkillsPage() {
       : 0,
   };
 
-  return (
-    // relative: positioning anchor for the batch toolbar (page-centered,
-    // not viewport-centered).
-    <div className="relative flex flex-1 min-h-0 flex-col">
-      <PageHeaderBar
-        totalCount={totalCount}
-        onCreate={() => setCreateOpen(true)}
-      />
-
-      {supportingQueryDown && (
-        <div
-          role="status"
-          className="flex shrink-0 items-start gap-2 border-b bg-warning/10 px-6 py-2 text-caption text-muted-foreground"
-        >
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-          <span>{t(($) => $.page.supporting_data_warning)}</span>
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex-1 overflow-y-auto @container">
-          <LoadingSkeleton />
-        </div>
-      ) : showEmpty ? (
-        <div className="flex flex-1 items-center justify-center">
-          <EmptyState onCreate={() => setCreateOpen(true)} />
-        </div>
-      ) : (
-        <>
-          <SkillListToolbar
+  let mainContent: React.ReactNode;
+  if (isLoading) {
+    mainContent = (
+      <div className="flex-1 overflow-y-auto @container">
+        <LoadingSkeleton />
+      </div>
+    );
+  } else if (showEmpty) {
+    mainContent = (
+      <div className="flex flex-1 items-center justify-center">
+        <EmptyState onCreate={() => setCreateOpen(true)} />
+      </div>
+    );
+  } else {
+    mainContent = (
+      <>
+        <SkillListToolbar
             search={search}
             onSearchChange={setSearch}
             filters={filters}
@@ -954,8 +941,30 @@ export default function SkillsPage() {
             </ListGridBody>
           </ListGrid>
           </div>
-        </>
+      </>
+    );
+  }
+
+  return (
+    // relative: positioning anchor for the batch toolbar (page-centered,
+    // not viewport-centered).
+    <div className="relative flex flex-1 min-h-0 flex-col">
+      <PageHeaderBar
+        totalCount={totalCount}
+        onCreate={() => setCreateOpen(true)}
+      />
+
+      {supportingQueryDown && (
+        <div
+          role="status"
+          className="flex shrink-0 items-start gap-2 border-b bg-warning/10 px-6 py-2 text-caption text-muted-foreground"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <span>{t(($) => $.page.supporting_data_warning)}</span>
+        </div>
       )}
+
+      {mainContent}
 
       <SkillBatchToolbar
         rows={selectedRows}
