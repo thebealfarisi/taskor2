@@ -212,7 +212,7 @@ func Discover(ctx context.Context, rawEndpoint string, allowedHosts, protocolVer
 	if err != nil {
 		return nil, "", fmt.Errorf("initialize remote MCP: %w", err)
 	}
-	sessionID = responseHeaders.Get("Mcp-Session-Id")
+	sessionID = responseHeaders.Get(headerMcpSessionID)
 	var initialized struct {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
@@ -283,10 +283,10 @@ func notify(ctx context.Context, client *http.Client, endpoint *url.URL, headers
 			request.Header.Add(key, value)
 		}
 	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(headerContentType, contentTypeJSON)
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	if sessionID != "" {
-		request.Header.Set("Mcp-Session-Id", sessionID)
+		request.Header.Set(headerMcpSessionID, sessionID)
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -320,10 +320,10 @@ func call(ctx context.Context, client *http.Client, endpoint *url.URL, headers h
 			request.Header.Add(key, value)
 		}
 	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(headerContentType, contentTypeJSON)
 	request.Header.Set("Accept", "application/json, text/event-stream")
 	if sessionID != "" {
-		request.Header.Set("Mcp-Session-Id", sessionID)
+		request.Header.Set(headerMcpSessionID, sessionID)
 	}
 	response, err := client.Do(request)
 	if err != nil {
@@ -349,7 +349,7 @@ func call(ctx context.Context, client *http.Client, endpoint *url.URL, headers h
 
 func readResponse(response *http.Response) ([]byte, error) {
 	limited := io.LimitReader(response.Body, MaxResponseBytes+1)
-	if strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+	if strings.HasPrefix(strings.ToLower(response.Header.Get(headerContentType)), "text/event-stream") {
 		scanner := bufio.NewScanner(limited)
 		scanner.Buffer(make([]byte, 4096), MaxResponseBytes+1)
 		for scanner.Scan() {

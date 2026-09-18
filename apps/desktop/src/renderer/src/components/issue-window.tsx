@@ -57,7 +57,7 @@ function IssueWindowRoute() {
       <DesktopAuthRecoveryPage
         isRetrying={isFetching}
         onRetry={() => {
-          void refetch();
+          refetch();
         }}
       />
     );

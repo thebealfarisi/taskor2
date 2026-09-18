@@ -3,4 +3,6 @@
 package util
 
 // EnsureHiddenConsole is a no-op on non-Windows platforms.
-func EnsureHiddenConsole() {}
+func EnsureHiddenConsole() {
+	// no-op on non-Windows platforms: console window hiding is Windows-specific.
+}

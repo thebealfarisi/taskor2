@@ -82,7 +82,7 @@ func (h *Handler) ListDingTalkGroupRoutes(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusOK, map[string]any{"routes": []DingTalkGroupRouteResponse{}})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -110,14 +110,14 @@ type UpdateDingTalkGroupRouteRequest struct {
 // changes, preventing the new agent from inheriting the old transcript.
 func (h *Handler) UpdateDingTalkGroupRoute(w http.ResponseWriter, r *http.Request) {
 	if h.DingTalkInstall == nil {
-		writeError(w, http.StatusServiceUnavailable, "dingtalk integration not configured")
+		writeError(w, http.StatusServiceUnavailable, errMsgDingtalkNotConfigured)
 		return
 	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -127,7 +127,7 @@ func (h *Handler) UpdateDingTalkGroupRoute(w http.ResponseWriter, r *http.Reques
 	}
 	var body UpdateDingTalkGroupRouteRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	agentUUID, ok := parseUUIDOrBadRequest(w, strings.TrimSpace(body.AgentID), "agent_id")
@@ -153,14 +153,14 @@ func (h *Handler) UpdateDingTalkGroupRoute(w http.ResponseWriter, r *http.Reques
 	agent, err := h.Queries.GetAgent(r.Context(), agentUUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "agent not found in this workspace")
+			writeError(w, http.StatusNotFound, errMsgAgentNotFoundInWorkspace)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load agent")
 		return
 	}
 	if agent.WorkspaceID != wsUUID {
-		writeError(w, http.StatusNotFound, "agent not found in this workspace")
+		writeError(w, http.StatusNotFound, errMsgAgentNotFoundInWorkspace)
 		return
 	}
 	if agent.Kind != "user" {
@@ -235,7 +235,7 @@ func (h *Handler) ListDingTalkInstallations(w http.ResponseWriter, r *http.Reque
 		})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -252,7 +252,7 @@ func (h *Handler) ListDingTalkInstallations(w http.ResponseWriter, r *http.Reque
 	member, hasMemberContext := middleware.MemberFromContext(r.Context())
 	canViewAccountBindings := hasMemberContext && (member.Role == "owner" || member.Role == "admin")
 	if canViewAccountBindings {
-		userUUID, ok := parseUUIDOrBadRequest(w, userID, "user id")
+		userUUID, ok := parseUUIDOrBadRequest(w, userID, paramUserID)
 		if !ok {
 			return
 		}
@@ -306,7 +306,7 @@ func (h *Handler) RegisterDingTalkBYO(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -324,16 +324,16 @@ func (h *Handler) RegisterDingTalkBYO(w http.ResponseWriter, r *http.Request) {
 		ID:          agentUUID,
 		WorkspaceID: wsUUID,
 	}); err != nil {
-		writeError(w, http.StatusNotFound, "agent not found in this workspace")
+		writeError(w, http.StatusNotFound, errMsgAgentNotFoundInWorkspace)
 		return
 	}
-	initiatorUUID, ok := parseUUIDOrBadRequest(w, userID, "user id")
+	initiatorUUID, ok := parseUUIDOrBadRequest(w, userID, paramUserID)
 	if !ok {
 		return
 	}
 	var body RegisterDingTalkBYORequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	row, err := h.DingTalkInstall.RegisterBYO(r.Context(), dingtalk.RegisterBYOParams{
@@ -387,14 +387,14 @@ func (h *Handler) publishDingTalkInstallationCreated(row db.ChannelInstallation,
 // 'active'.
 func (h *Handler) RevokeDingTalkInstallation(w http.ResponseWriter, r *http.Request) {
 	if h.DingTalkInstall == nil {
-		writeError(w, http.StatusServiceUnavailable, "dingtalk integration not configured")
+		writeError(w, http.StatusServiceUnavailable, errMsgDingtalkNotConfigured)
 		return
 	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -446,7 +446,7 @@ type RedeemDingTalkBindingTokenResponse struct {
 //   - 403 Forbidden: redeemer is not a workspace member
 func (h *Handler) RedeemDingTalkBindingToken(w http.ResponseWriter, r *http.Request) {
 	if h.DingTalkBindingTokens == nil {
-		writeError(w, http.StatusServiceUnavailable, "dingtalk integration not configured")
+		writeError(w, http.StatusServiceUnavailable, errMsgDingtalkNotConfigured)
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -455,14 +455,14 @@ func (h *Handler) RedeemDingTalkBindingToken(w http.ResponseWriter, r *http.Requ
 	}
 	var req RedeemDingTalkBindingTokenRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Token == "" {
 		writeError(w, http.StatusBadRequest, "token is required")
 		return
 	}
-	userUUID, ok := parseUUIDOrBadRequest(w, userID, "user id")
+	userUUID, ok := parseUUIDOrBadRequest(w, userID, paramUserID)
 	if !ok {
 		return
 	}

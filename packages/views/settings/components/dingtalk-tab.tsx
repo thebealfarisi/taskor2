@@ -232,7 +232,7 @@ export function DingTalkTab() {
                   variant="outline"
                   size="sm"
                   disabled={routesFetching}
-                  onClick={() => void retryGroupRoutes()}
+                  onClick={() => retryGroupRoutes()}
                 >
                   {t(($) => $.dingtalk.group_routes_retry)}
                 </Button>
@@ -273,7 +273,7 @@ export function DingTalkTab() {
                       variant="outline"
                       size="sm"
                       disabled={agentsFetching}
-                      onClick={() => void retryAgents()}
+                      onClick={() => retryAgents()}
                     >
                       {t(($) => $.dingtalk.group_routes_agents_retry)}
                     </Button>

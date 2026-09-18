@@ -97,24 +97,26 @@ export function insertUploadPlaceholder(
   editor: any,
   upload: { uploadId: string; filename: string; size?: number },
 ): boolean {
+  if (!editor?.state?.doc) return false;
   // Idempotent: already drawn counts as success, so a caller retrying until
   // it lands cannot be fooled into retrying forever by its own first insert.
   if (findUploadNode(editor, upload.uploadId)) return true;
   const endPos = editor.state.doc.content.size;
-  editor
-    .chain()
-    .insertContentAt(endPos, {
-      type: "fileCard",
-      attrs: {
-        filename: upload.filename,
-        href: "",
-        fileSize: upload.size ?? 0,
-        uploading: true,
-        uploadId: upload.uploadId,
-      },
-    })
-    .run();
-  return true;
+  return Boolean(
+    editor
+      .chain()
+      .insertContentAt(endPos, {
+        type: "fileCard",
+        attrs: {
+          filename: upload.filename,
+          href: "",
+          fileSize: upload.size ?? 0,
+          uploading: true,
+          uploadId: upload.uploadId,
+        },
+      })
+      .run(),
+  );
 }
 
 export function findImagePosBySrc(editor: any, src: string): number | null {

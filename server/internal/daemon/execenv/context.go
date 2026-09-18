@@ -505,7 +505,7 @@ func ensureSkillFrontmatter(content, slug, description string) string {
 		// Inject one as the first key and keep the rest verbatim (including
 		// `description`, body, and any runtime-specific keys the import path
 		// preserved).
-		return content[:fmStart] + "name: " + slug + "\n" + content[fmStart:]
+		return content[:fmStart] + prefixNameField + slug + "\n" + content[fmStart:]
 	}
 
 	// Invalid YAML: there is no parse to consult, so fall back to the lexical
@@ -517,7 +517,7 @@ func ensureSkillFrontmatter(content, slug, description string) string {
 		_, body, _ := frontmatterParts(content)
 		return synthesizeFrontmatter(body, slug, description)
 	}
-	return content[:fmStart] + "name: " + slug + "\n" + content[fmStart:]
+	return content[:fmStart] + prefixNameField + slug + "\n" + content[fmStart:]
 }
 
 // frontmatterHasNameKey reports whether content's frontmatter parses as a
@@ -765,7 +765,7 @@ func setFrontmatterName(content string, fmStart int, slug string) (result string
 	if !ok {
 		return "", false
 	}
-	replacement := "name: " + slug
+	replacement := prefixNameField + slug
 	// strings.Split on "\n" leaves the "\r" of a CRLF ending inside the line;
 	// carry it over so the block doesn't end up with mixed terminators.
 	if strings.HasSuffix(fmBody[start:end], "\r") {

@@ -89,7 +89,7 @@ func runSquadGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var squad map[string]any
-	if err := client.GetJSON(ctx, "/api/squads/"+args[0], &squad); err != nil {
+	if err := client.GetJSON(ctx, apiSquadsPrefix+args[0], &squad); err != nil {
 		return fmt.Errorf("get squad: %w", err)
 	}
 
@@ -199,8 +199,8 @@ func runSquadUpdate(cmd *cobra.Command, args []string) error {
 		}
 		body["leader_id"] = leaderID
 	}
-	if cmd.Flags().Changed("avatar-url") {
-		v, _ := cmd.Flags().GetString("avatar-url")
+	if cmd.Flags().Changed(flagAvatarURL) {
+		v, _ := cmd.Flags().GetString(flagAvatarURL)
 		body["avatar_url"] = v
 	}
 
@@ -209,7 +209,7 @@ func runSquadUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/squads/"+args[0], body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiSquadsPrefix+args[0], body, &result); err != nil {
 		return fmt.Errorf("update squad: %w", err)
 	}
 
@@ -238,7 +238,7 @@ func runSquadDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	if err := client.DeleteJSON(ctx, "/api/squads/"+args[0]); err != nil {
+	if err := client.DeleteJSON(ctx, apiSquadsPrefix+args[0]); err != nil {
 		return fmt.Errorf("delete squad: %w", err)
 	}
 
@@ -273,7 +273,7 @@ func runSquadMemberList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var members []map[string]any
-	if err := client.GetJSON(ctx, "/api/squads/"+args[0]+"/members", &members); err != nil {
+	if err := client.GetJSON(ctx, apiSquadsPrefix+args[0]+pathMembers, &members); err != nil {
 		return fmt.Errorf("list members: %w", err)
 	}
 
@@ -306,12 +306,12 @@ var squadMemberAddCmd = &cobra.Command{
 }
 
 func runSquadMemberAdd(cmd *cobra.Command, args []string) error {
-	memberID, _ := cmd.Flags().GetString("member-id")
+	memberID, _ := cmd.Flags().GetString(flagMemberID)
 	memberType, _ := cmd.Flags().GetString("type")
 	role, _ := cmd.Flags().GetString("role")
 
 	if memberID == "" {
-		return fmt.Errorf("--member-id is required")
+		return fmt.Errorf(errMemberIDRequired)
 	}
 	if memberType != "agent" && memberType != "member" {
 		return fmt.Errorf("--type must be 'agent' or 'member'")
@@ -331,7 +331,7 @@ func runSquadMemberAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/squads/"+args[0]+"/members", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiSquadsPrefix+args[0]+pathMembers, body, &result); err != nil {
 		return fmt.Errorf("add member: %w", err)
 	}
 
@@ -353,12 +353,12 @@ var squadMemberSetRoleCmd = &cobra.Command{
 }
 
 func runSquadMemberSetRole(cmd *cobra.Command, args []string) error {
-	memberID, _ := cmd.Flags().GetString("member-id")
+	memberID, _ := cmd.Flags().GetString(flagMemberID)
 	memberType, _ := cmd.Flags().GetString("member-type")
 	role, _ := cmd.Flags().GetString("role")
 
 	if memberID == "" {
-		return fmt.Errorf("--member-id is required")
+		return fmt.Errorf(errMemberIDRequired)
 	}
 	if memberType != "agent" && memberType != "member" {
 		return fmt.Errorf("--member-type must be 'agent' or 'member'")
@@ -381,7 +381,7 @@ func runSquadMemberSetRole(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PatchJSON(ctx, "/api/squads/"+args[0]+"/members/role", body, &result); err != nil {
+	if err := client.PatchJSON(ctx, apiSquadsPrefix+args[0]+"/members/role", body, &result); err != nil {
 		return fmt.Errorf("set member role: %w", err)
 	}
 
@@ -403,11 +403,11 @@ var squadMemberRemoveCmd = &cobra.Command{
 }
 
 func runSquadMemberRemove(cmd *cobra.Command, args []string) error {
-	memberID, _ := cmd.Flags().GetString("member-id")
+	memberID, _ := cmd.Flags().GetString(flagMemberID)
 	memberType, _ := cmd.Flags().GetString("type")
 
 	if memberID == "" {
-		return fmt.Errorf("--member-id is required")
+		return fmt.Errorf(errMemberIDRequired)
 	}
 	if memberType != "agent" && memberType != "member" {
 		return fmt.Errorf("--type must be 'agent' or 'member'")
@@ -425,7 +425,7 @@ func runSquadMemberRemove(cmd *cobra.Command, args []string) error {
 		"member_id":   memberID,
 	}
 
-	if err := client.DeleteJSONWithBody(ctx, "/api/squads/"+args[0]+"/members", body); err != nil {
+	if err := client.DeleteJSONWithBody(ctx, apiSquadsPrefix+args[0]+pathMembers, body); err != nil {
 		return fmt.Errorf("remove member: %w", err)
 	}
 
@@ -500,51 +500,51 @@ func runSquadActivity(cmd *cobra.Command, args []string) error {
 
 func init() {
 	// list
-	squadListCmd.Flags().String("output", "table", "Output format: table or json")
+	squadListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// get
-	squadGetCmd.Flags().String("output", "table", "Output format: table or json")
+	squadGetCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// create
 	squadCreateCmd.Flags().String("name", "", "Squad name (required)")
 	squadCreateCmd.Flags().String("description", "", "Squad description")
 	squadCreateCmd.Flags().String("leader", "", "Leader agent (name or ID) — required")
-	squadCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	squadCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// update
 	squadUpdateCmd.Flags().String("name", "", "New name")
 	squadUpdateCmd.Flags().String("description", "", "New description")
 	squadUpdateCmd.Flags().String("instructions", "", "New instructions")
 	squadUpdateCmd.Flags().String("leader", "", "New leader agent (name or ID)")
-	squadUpdateCmd.Flags().String("avatar-url", "", "New avatar URL")
-	squadUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	squadUpdateCmd.Flags().String(flagAvatarURL, "", "New avatar URL")
+	squadUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// delete
-	squadDeleteCmd.Flags().String("output", "table", "Output format: table or json")
+	squadDeleteCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// member list
-	squadMemberListCmd.Flags().String("output", "table", "Output format: table or json")
+	squadMemberListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// member add
-	squadMemberAddCmd.Flags().String("member-id", "", "Member or agent ID (required)")
-	squadMemberAddCmd.Flags().String("type", "agent", "Member type: agent or member")
+	squadMemberAddCmd.Flags().String(flagMemberID, "", descMemberOrAgentID)
+	squadMemberAddCmd.Flags().String("type", "agent", descMemberType)
 	squadMemberAddCmd.Flags().String("role", "member", "Role in the squad")
-	squadMemberAddCmd.Flags().String("output", "json", "Output format: table or json")
+	squadMemberAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// member remove
-	squadMemberRemoveCmd.Flags().String("member-id", "", "Member or agent ID (required)")
-	squadMemberRemoveCmd.Flags().String("type", "agent", "Member type: agent or member")
-	squadMemberRemoveCmd.Flags().String("output", "table", "Output format: table or json")
+	squadMemberRemoveCmd.Flags().String(flagMemberID, "", descMemberOrAgentID)
+	squadMemberRemoveCmd.Flags().String("type", "agent", descMemberType)
+	squadMemberRemoveCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// member set-role
-	squadMemberSetRoleCmd.Flags().String("member-id", "", "Member or agent ID (required)")
-	squadMemberSetRoleCmd.Flags().String("member-type", "agent", "Member type: agent or member")
+	squadMemberSetRoleCmd.Flags().String(flagMemberID, "", descMemberOrAgentID)
+	squadMemberSetRoleCmd.Flags().String("member-type", "agent", descMemberType)
 	squadMemberSetRoleCmd.Flags().String("role", "", "New role in the squad (required)")
-	squadMemberSetRoleCmd.Flags().String("output", "json", "Output format: table or json")
+	squadMemberSetRoleCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// activity
 	squadActivityCmd.Flags().String("reason", "", "Short explanation of the decision")
-	squadActivityCmd.Flags().String("output", "table", "Output format: table or json")
+	squadActivityCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	squadMemberCmd.AddCommand(squadMemberListCmd)
 	squadMemberCmd.AddCommand(squadMemberAddCmd)

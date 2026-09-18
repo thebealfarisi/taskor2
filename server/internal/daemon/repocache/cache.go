@@ -39,8 +39,8 @@ func gitEnv() []string {
 	// rewrites, extra headers, etc.).
 	existing := 0
 	for _, e := range base {
-		if strings.HasPrefix(e, "GIT_CONFIG_COUNT=") {
-			if n, err := strconv.Atoi(strings.TrimPrefix(e, "GIT_CONFIG_COUNT=")); err == nil {
+		if strings.HasPrefix(e, envGitConfigCountPrefix) {
+			if n, err := strconv.Atoi(strings.TrimPrefix(e, envGitConfigCountPrefix)); err == nil {
 				existing = n
 			}
 		}
@@ -49,7 +49,7 @@ func gitEnv() []string {
 	idx := strconv.Itoa(existing)
 	return append(base,
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_COUNT="+strconv.Itoa(existing+1),
+		envGitConfigCountPrefix+strconv.Itoa(existing+1),
 		"GIT_CONFIG_KEY_"+idx+"=safe.directory",
 		"GIT_CONFIG_VALUE_"+idx+"=*",
 	)
@@ -93,7 +93,7 @@ func runGitCombinedOutputWithTimeoutContext(parent context.Context, timeout time
 	cmd := newGitCommand(args...)
 	out, err := processtree.CombinedOutput(ctx, cmd, 5*time.Second)
 	if ctx.Err() == context.DeadlineExceeded {
-		return out, fmt.Errorf("git command timed out after %s: %w", timeout, ctx.Err())
+		return out, fmt.Errorf(errFmtGitCommandTimeout, timeout, ctx.Err())
 	}
 	return out, err
 }
@@ -117,7 +117,7 @@ func runGitOutputWithTimeoutContext(parent context.Context, timeout time.Duratio
 	cmd := newGitCommand(args...)
 	out, err := processtree.Output(ctx, cmd, 5*time.Second)
 	if ctx.Err() == context.DeadlineExceeded {
-		return out, fmt.Errorf("git command timed out after %s: %w", timeout, ctx.Err())
+		return out, fmt.Errorf(errFmtGitCommandTimeout, timeout, ctx.Err())
 	}
 	return out, err
 }
@@ -141,7 +141,7 @@ func runGitWithTimeoutContext(parent context.Context, timeout time.Duration, arg
 	cmd := newGitCommand(args...)
 	err := processtree.Run(ctx, cmd, 5*time.Second)
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("git command timed out after %s: %w", timeout, ctx.Err())
+		return fmt.Errorf(errFmtGitCommandTimeout, timeout, ctx.Err())
 	}
 	return err
 }
@@ -761,7 +761,7 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 	// can't tolerate parallel fetch + worktree mutations on the same repo.
 	repoLock := c.lockForRepo(barePath)
 	lockCtx := ctx
-	cancel := func() {}
+	cancel := func() { /* no-op: timeout not set */ }
 	if params.LockWaitTimeout > 0 {
 		lockCtx, cancel = context.WithTimeout(ctx, params.LockWaitTimeout)
 	}
@@ -858,11 +858,11 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 		}
 		if params.CoAuthoredByEnabled {
 			if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
+				c.logger.Warn(msgRepoCheckoutInstallHookFailed, "error", err)
 			}
 		} else {
 			if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
+				c.logger.Warn(msgRepoCheckoutRemoveHookFailed, "error", err)
 			}
 		}
 		if err := ctx.Err(); err != nil {
@@ -897,11 +897,11 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 		// after the user toggles the setting off.
 		if params.CoAuthoredByEnabled {
 			if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
+				c.logger.Warn(msgRepoCheckoutInstallHookFailed, "error", err)
 			}
 		} else {
 			if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
+				c.logger.Warn(msgRepoCheckoutRemoveHookFailed, "error", err)
 			}
 		}
 		if err := ctx.Err(); err != nil {
@@ -938,11 +938,11 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 	// required when the setting is disabled.
 	if params.CoAuthoredByEnabled {
 		if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-			c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
+			c.logger.Warn(msgRepoCheckoutInstallHookFailed, "error", err)
 		}
 	} else {
 		if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-			c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
+			c.logger.Warn(msgRepoCheckoutRemoveHookFailed, "error", err)
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -1034,7 +1034,7 @@ func removeLinkedWorktree(barePath, checkoutPath string) error {
 }
 
 func removeLinkedWorktreeContext(ctx context.Context, barePath, checkoutPath string) error {
-	out, err := runGitOutputContext(ctx, "-C", checkoutPath, "rev-parse", "--git-common-dir")
+	out, err := runGitOutputContext(ctx, "-C", checkoutPath, gitSubcommandRevParse, gitFlagGitCommonDir)
 	if err != nil {
 		return fmt.Errorf("resolve linked worktree common dir: %w", err)
 	}
@@ -1045,7 +1045,7 @@ func removeLinkedWorktreeContext(ctx context.Context, barePath, checkoutPath str
 	if !sameResolvedPath(commonDir, barePath) {
 		return fmt.Errorf("linked worktree common dir %s does not match cache %s", commonDir, barePath)
 	}
-	if out, err := runGitCombinedOutputContext(ctx, "-C", barePath, "worktree", "remove", "--force", checkoutPath); err != nil {
+	if out, err := runGitCombinedOutputContext(ctx, "-C", barePath, "worktree", "remove", gitFlagForce, checkoutPath); err != nil {
 		return fmt.Errorf("remove linked worktree: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
@@ -1081,7 +1081,7 @@ func sameResolvedPath(a, b string) bool {
 // sandbox makes writable — from re-permissioning the daemon-owned cache's
 // object files. The cost is extra disk and a slower first checkout on Windows.
 func localCloneArgs(goos, barePath, checkoutPath string) []string {
-	args := []string{"clone", "--local", "--no-checkout", "--no-tags"}
+	args := []string{"clone", "--local", "--no-checkout", gitFlagNoTags}
 	if goos == "windows" {
 		args = append(args, "--no-hardlinks")
 	}
@@ -1154,7 +1154,7 @@ func resolveCommit(repoPath, ref string) (string, error) {
 }
 
 func resolveCommitContext(ctx context.Context, repoPath, ref string) (string, error) {
-	out, err := runGitOutputContext(ctx, "-C", repoPath, "rev-parse", "--verify", ref+"^{commit}")
+	out, err := runGitOutputContext(ctx, "-C", repoPath, gitSubcommandRevParse, gitFlagVerify, ref+"^{commit}")
 	if err != nil {
 		return "", fmt.Errorf("resolve checkout base %q: %w", ref, err)
 	}
@@ -1244,12 +1244,12 @@ func syncIsolatedCheckoutRefsContext(ctx context.Context, barePath, checkoutPath
 		"+refs/remotes/origin/*:refs/remotes/origin/*",
 		"+refs/tags/*:refs/tags/*",
 	}
-	args := []string{"-C", checkoutPath, "fetch", "--force", "--no-tags", barePath}
+	args := []string{"-C", checkoutPath, "fetch", gitFlagForce, gitFlagNoTags, barePath}
 	args = append(args, refspecs...)
 	if out, err := runGitCombinedOutputContext(ctx, args...); err != nil {
 		return fmt.Errorf("sync cache refs: %s: %w", strings.TrimSpace(string(out)), err)
 	}
-	if out, err := runGitCombinedOutputContext(ctx, "-C", checkoutPath, "fetch", "--force", "--no-tags", barePath, baseRef); err != nil {
+	if out, err := runGitCombinedOutputContext(ctx, "-C", checkoutPath, "fetch", gitFlagForce, gitFlagNoTags, barePath, baseRef); err != nil {
 		return fmt.Errorf("fetch checkout base: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 	return nil
@@ -1263,7 +1263,7 @@ func deleteAllLocalBranches(repoPath string) error {
 }
 
 func deleteAllLocalBranchesContext(ctx context.Context, repoPath string) error {
-	return deleteLocalBranchesUnderContext(ctx, repoPath, "refs/heads/", "")
+	return deleteLocalBranchesUnderContext(ctx, repoPath, refPrefixHeads, "")
 }
 
 // deleteStaleAgentBranches prunes branches left by earlier Multica tasks while
@@ -1273,7 +1273,7 @@ func deleteStaleAgentBranches(repoPath, keepBranch string) error {
 }
 
 func deleteStaleAgentBranchesContext(ctx context.Context, repoPath, keepBranch string) error {
-	return deleteLocalBranchesUnderContext(ctx, repoPath, "refs/heads/agent/", "refs/heads/"+keepBranch)
+	return deleteLocalBranchesUnderContext(ctx, repoPath, "refs/heads/agent/", refPrefixHeads+keepBranch)
 }
 
 func deleteLocalBranchesUnder(repoPath, namespace, keepRef string) error {
@@ -1330,7 +1330,7 @@ func resolveBaseRefContext(ctx context.Context, barePath, requestedRef string) (
 	// Prefer remote-tracking branches for human branch names. Then allow full
 	// local refs, tags, and raw commits that exist in the fetched bare cache.
 	candidates := []string{
-		"refs/remotes/origin/" + ref,
+		refPrefixRemotesOrigin + ref,
 		"refs/tags/" + ref,
 		ref,
 	}
@@ -1347,7 +1347,7 @@ func gitRefExists(repoPath, ref string) bool {
 }
 
 func gitRefExistsContext(ctx context.Context, repoPath, ref string) bool {
-	return runGitContext(ctx, "-C", repoPath, "rev-parse", "--verify", "--quiet", ref) == nil
+	return runGitContext(ctx, "-C", repoPath, gitSubcommandRevParse, gitFlagVerify, "--quiet", ref) == nil
 }
 
 // createWorktree creates a git worktree at the given path with a new branch.
@@ -1490,14 +1490,14 @@ func getRemoteDefaultBranchContext(ctx context.Context, barePath string) string 
 	if out, err := runGitOutputContext(ctx, "-C", barePath, "symbolic-ref", "refs/remotes/origin/HEAD"); err == nil {
 		ref := strings.TrimSpace(string(out))
 		if ref != "" {
-			if err := runGitContext(ctx, "-C", barePath, "rev-parse", "--verify", ref); err == nil {
+			if err := runGitContext(ctx, "-C", barePath, gitSubcommandRevParse, gitFlagVerify, ref); err == nil {
 				return ref
 			}
 		}
 	}
 	// 2) Common default branch names under the origin namespace.
 	for _, candidate := range []string{"refs/remotes/origin/main", "refs/remotes/origin/master"} {
-		if err := runGitContext(ctx, "-C", barePath, "rev-parse", "--verify", candidate); err == nil {
+		if err := runGitContext(ctx, "-C", barePath, gitSubcommandRevParse, gitFlagVerify, candidate); err == nil {
 			return candidate
 		}
 	}
@@ -1509,8 +1509,8 @@ func getRemoteDefaultBranchContext(ctx context.Context, barePath string) string 
 	//    rather than a stale local head.
 	bareRef := bareHeadBranchContext(ctx, barePath)
 	if bareRef != "" {
-		originRef := "refs/remotes/origin/" + strings.TrimPrefix(bareRef, "refs/heads/")
-		if err := runGitContext(ctx, "-C", barePath, "rev-parse", "--verify", originRef); err == nil {
+		originRef := refPrefixRemotesOrigin + strings.TrimPrefix(bareRef, refPrefixHeads)
+		if err := runGitContext(ctx, "-C", barePath, gitSubcommandRevParse, gitFlagVerify, originRef); err == nil {
 			return originRef
 		}
 	}
@@ -1522,7 +1522,7 @@ func getRemoteDefaultBranchContext(ctx context.Context, barePath string) string 
 	//    "legacy empty" apart from "ambiguous".
 	originCount := 0
 	var singleton string
-	if out, err := runGitOutputContext(ctx, "-C", barePath, "for-each-ref", "--format=%(refname)", "refs/remotes/origin/"); err == nil {
+	if out, err := runGitOutputContext(ctx, "-C", barePath, "for-each-ref", "--format=%(refname)", refPrefixRemotesOrigin); err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || line == "refs/remotes/origin/HEAD" {
@@ -1570,7 +1570,7 @@ func bareHeadBranchContext(ctx context.Context, barePath string) string {
 	if ref == "" {
 		return ""
 	}
-	if err := runGitContext(ctx, "-C", barePath, "rev-parse", "--verify", ref); err != nil {
+	if err := runGitContext(ctx, "-C", barePath, gitSubcommandRevParse, gitFlagVerify, ref); err != nil {
 		return ""
 	}
 	return ref
@@ -1630,7 +1630,7 @@ func installCoAuthoredByHook(worktreePath string) error {
 }
 
 func installCoAuthoredByHookContext(ctx context.Context, worktreePath string) error {
-	out, err := runGitOutputContext(ctx, "-C", worktreePath, "rev-parse", "--git-common-dir")
+	out, err := runGitOutputContext(ctx, "-C", worktreePath, gitSubcommandRevParse, gitFlagGitCommonDir)
 	if err != nil {
 		return fmt.Errorf("resolve git common dir: %w", err)
 	}
@@ -1676,7 +1676,7 @@ func removeCoAuthoredByHook(worktreePath string) error {
 }
 
 func removeCoAuthoredByHookContext(ctx context.Context, worktreePath string) error {
-	out, err := runGitOutputContext(ctx, "-C", worktreePath, "rev-parse", "--git-common-dir")
+	out, err := runGitOutputContext(ctx, "-C", worktreePath, gitSubcommandRevParse, gitFlagGitCommonDir)
 	if err != nil {
 		return fmt.Errorf("resolve git common dir: %w", err)
 	}
@@ -1709,7 +1709,7 @@ func excludeFromGit(worktreePath, pattern string) error {
 }
 
 func excludeFromGitContext(ctx context.Context, worktreePath, pattern string) error {
-	out, err := runGitOutputContext(ctx, "-C", worktreePath, "rev-parse", "--git-dir")
+	out, err := runGitOutputContext(ctx, "-C", worktreePath, gitSubcommandRevParse, "--git-dir")
 	if err != nil {
 		return fmt.Errorf("resolve git dir: %w", err)
 	}

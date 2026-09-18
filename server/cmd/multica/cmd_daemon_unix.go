@@ -36,7 +36,9 @@ func notifyShutdownContext(parent context.Context) (context.Context, context.Can
 // stdout/stderr — never blocks a rename or unlink, so the rotator works without
 // re-pointing our standard handles. Only Windows needs to release the inherited
 // handle (see the windows build for the rationale).
-func repointStdioToErrLog(_ string) {}
+func repointStdioToErrLog(_ string) {
+	// no-op on Unix: open file descriptors do not block rename or unlink on rotation.
+}
 
 func tailLogFile(logPath string, lines int, follow bool) error {
 	args := []string{"-n", strconv.Itoa(lines)}

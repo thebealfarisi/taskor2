@@ -226,7 +226,7 @@ func traceOutAttempt(log *slog.Logger, seq uint64, t *outTrace) {
 	attrs := make([]any, 0, len(t.attrs)+4)
 	attrs = append(attrs, "dir", "out", "seq", seq)
 	attrs = append(attrs, t.attrs...)
-	log.Info("wecom trace", attrs...)
+	log.Info(traceActionName, attrs...)
 }
 
 // traceOutResult records what became of the attempt carrying the same seq.
@@ -255,7 +255,7 @@ func traceOutResult(log *slog.Logger, seq uint64, t *outTrace, stage string, err
 	} else {
 		attrs = append(attrs, "ok", true)
 	}
-	log.Info("wecom trace", attrs...)
+	log.Info(traceActionName, attrs...)
 }
 
 // traceIn records a frame arriving from WeCom, including the server's verdict
@@ -267,7 +267,7 @@ func traceIn(log *slog.Logger, env frameEnvelope) {
 	if !tracingOn() || log == nil {
 		return
 	}
-	log.Info("wecom trace",
+	log.Info(traceActionName,
 		"dir", "in",
 		"cmd", env.Cmd,
 		"req_id", env.Headers.ReqID,
@@ -284,7 +284,7 @@ func traceInbound(log *slog.Logger, mc aibotMsgCallback, text string) {
 	if !tracingOn() || log == nil {
 		return
 	}
-	log.Info("wecom trace",
+	log.Info(traceActionName,
 		"dir", "in.msg",
 		"msg_id", mc.MsgID,
 		"chatid", mc.ChatID,
@@ -326,7 +326,7 @@ func traceMediaHeaders(log *slog.Logger, msgID string, index int, h mediaHeaders
 	if !tracingOn() || log == nil {
 		return
 	}
-	log.Info("wecom trace",
+	log.Info(traceActionName,
 		"dir", "in.media",
 		"msg_id", msgID,
 		"index", index,

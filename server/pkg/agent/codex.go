@@ -1086,7 +1086,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		codexVersion = "unknown"
 	}
 
-	b.cfg.Logger.Info("codex lifecycle", "phase", "spawn", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "process_group", cmd.Process.Pid, "cwd", opts.Cwd, "attempt", attempt, "active_launches", activeLaunches, "codex_version", codexVersion, "daemon_version", b.cfg.DaemonVersion)
+	b.cfg.Logger.Info(logCodexLifecycle, "phase", "spawn", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "process_group", cmd.Process.Pid, "cwd", opts.Cwd, "attempt", attempt, "active_launches", activeLaunches, "codex_version", codexVersion, "daemon_version", b.cfg.DaemonVersion)
 
 	msgCh := make(chan Message, 256)
 	resCh := make(chan Result, 1)
@@ -1133,7 +1133,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				outputMu.Unlock()
 			}
 			activity := describeCodexSemanticActivity(msg)
-			if activity == "status:running" {
+			if activity == statusRunningPrefix {
 				firstItemWait.start(time.Now())
 			}
 			trySend(msgCh, msg)
@@ -1306,7 +1306,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			if codexCleanupConfirmationOverride.Load() < 0 {
 				cleanupConfirmed = false
 			}
-			b.cfg.Logger.Info("codex lifecycle",
+			b.cfg.Logger.Info(logCodexLifecycle,
 				"phase", "cleanup",
 				"task_id", b.cfg.TaskID,
 				"runtime_id", b.cfg.RuntimeID,
@@ -1346,7 +1346,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 
 		// 1. Initialize handshake
 		initializeStarted := time.Now()
-		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_sent", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "active_launches", activeLaunches)
+		b.cfg.Logger.Info(logCodexLifecycle, "phase", "initialize_sent", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "active_launches", activeLaunches)
 		_, err := c.request(runCtx, "initialize", map[string]any{
 			"clientInfo": map[string]any{
 				"name":    "multica-agent-sdk",
@@ -1386,11 +1386,11 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			} else if timedOut && cleanupConfirmed && !codexInitializeRetrySupported() {
 				finalError += "; retry suppressed: process-tree cleanup cannot be confirmed on this platform"
 			}
-			b.cfg.Logger.Warn("codex lifecycle", "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
+			b.cfg.Logger.Warn(logCodexLifecycle, "phase", "initialize_failure", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", initializeLatency.Round(time.Millisecond).String(), "semantic_activity", semanticObserved.Load(), "cleanup_confirmed", cleanupConfirmed, "retry_safe", retrySafe)
 			resCh <- Result{Status: finalStatus, Error: finalError, DurationMs: time.Since(startTime).Milliseconds(), codexInitializeRetrySafe: retrySafe}
 			return
 		}
-		b.cfg.Logger.Info("codex lifecycle", "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
+		b.cfg.Logger.Info(logCodexLifecycle, "phase", "initialize_response", "task_id", b.cfg.TaskID, "runtime_id", b.cfg.RuntimeID, "pid", cmd.Process.Pid, "attempt", attempt, "latency", time.Since(initializeStarted).Round(time.Millisecond).String())
 		c.notify("initialized")
 
 		// 2. Start a new thread, or resume the prior one for this issue. When
@@ -1399,7 +1399,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		threadID, resumed, err := c.startOrResumeThread(runCtx, opts, b.cfg.Logger)
 		if err != nil {
 			var handshakeErr *codexHandshakeTimeoutError
-			timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == "thread/start"
+			timedOut := errors.As(err, &handshakeErr) && handshakeErr.Method == methodThreadStart
 			if timedOut {
 				// A timed-out thread/start has an uncertain provider outcome. Kill
 				// the whole process group before waiting so a leader that exits on
@@ -1412,14 +1412,14 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			finalError = err.Error()
 			if c.threadStartSent {
 				classification := classifyCodexStartupStderr(stderrTail, timedOut)
-				b.cfg.Logger.Warn("codex lifecycle",
+				b.cfg.Logger.Warn(logCodexLifecycle,
 					"phase", "thread_start_failure",
 					"task_id", b.cfg.TaskID,
 					"runtime_id", b.cfg.RuntimeID,
 					"pid", cmd.Process.Pid,
 					"attempt", attempt,
 					"active_launches", activeLaunches,
-					"method", "thread/start",
+					"method", methodThreadStart,
 					"latency", time.Since(c.threadStartStarted).Round(time.Millisecond).String(),
 					"latency_ms", time.Since(c.threadStartStarted).Milliseconds(),
 					"cleanup_confirmed", cleanupConfirmed,
@@ -1501,7 +1501,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 		}
 		turnNotificationGate.arm()
-		_, err = c.request(runCtx, "turn/start", turnParams)
+		_, err = c.request(runCtx, methodTurnStart, turnParams)
 		if err != nil {
 			select {
 			case aborted := <-turnDone:
@@ -1516,7 +1516,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 
 		lastSemanticActivity := time.Now()
-		lastSemanticActivityDescription := "turn/start"
+		lastSemanticActivityDescription := methodTurnStart
 		semanticTimer := time.NewTimer(semanticInactivityTimeout)
 		defer semanticTimer.Stop()
 
@@ -1554,7 +1554,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				lastSemanticActivity = time.Now()
 				lastSemanticActivityDescription = activity
 				resetTimer(semanticTimer, semanticInactivityTimeout)
-				if activity == "status:running" && !firstTurnStarted {
+				if activity == statusRunningPrefix && !firstTurnStarted {
 					firstTurnStarted = true
 					firstItemWait.start(time.Now())
 					firstTurnNoProgressTimer = time.NewTimer(firstTurnNoProgressTimeout)
@@ -1687,7 +1687,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				"pid", cmd.Process.Pid,
 				"attempt", attempt,
 				"active_launches", activeLaunches,
-				"method", "turn/start",
+				"method", methodTurnStart,
 				"thread_id", threadID,
 				"turn_id", c.turnID,
 				"outcome", outcome,
@@ -1709,9 +1709,9 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 			switch outcome {
 			case "progress", "turn_completed":
-				b.cfg.Logger.Info("codex lifecycle", fields...)
+				b.cfg.Logger.Info(logCodexLifecycle, fields...)
 			default:
-				b.cfg.Logger.Warn("codex lifecycle", fields...)
+				b.cfg.Logger.Warn(logCodexLifecycle, fields...)
 			}
 		}
 
@@ -1853,16 +1853,16 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 	applyCodexServiceTier(startParams, opts.ServiceTier)
 	c.threadStartSent = true
 	c.threadStartStarted = time.Now()
-	logger.Info("codex lifecycle",
+	logger.Info(logCodexLifecycle,
 		"phase", "thread_start_sent",
 		"task_id", c.cfg.TaskID,
 		"runtime_id", c.cfg.RuntimeID,
 		"pid", c.pid,
 		"attempt", c.attempt,
 		"active_launches", c.activeLaunches,
-		"method", "thread/start",
+		"method", methodThreadStart,
 	)
-	startResult, err := c.request(ctx, "thread/start", startParams)
+	startResult, err := c.request(ctx, methodThreadStart, startParams)
 	if err != nil {
 		return "", false, fmt.Errorf("codex thread/start failed: %w", err)
 	}
@@ -1870,14 +1870,14 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 	if threadID == "" {
 		return "", false, fmt.Errorf("codex thread/start returned no thread ID")
 	}
-	logger.Info("codex lifecycle",
+	logger.Info(logCodexLifecycle,
 		"phase", "thread_start_response",
 		"task_id", c.cfg.TaskID,
 		"runtime_id", c.cfg.RuntimeID,
 		"pid", c.pid,
 		"attempt", c.attempt,
 		"active_launches", c.activeLaunches,
-		"method", "thread/start",
+		"method", methodThreadStart,
 		"latency", time.Since(c.threadStartStarted).Round(time.Millisecond).String(),
 		"latency_ms", time.Since(c.threadStartStarted).Milliseconds(),
 	)
@@ -2004,7 +2004,7 @@ func codexFirstTurnNoProgressTimeout(semanticInactivityTimeout, configured time.
 }
 
 func isCodexFirstTurnProgressActivity(activity string) bool {
-	return activity != "" && activity != "status:running" && activity != "error:retry"
+	return activity != "" && activity != statusRunningPrefix && activity != "error:retry"
 }
 
 func buildCodexTimeoutDiagnosticError(diag codexTimeoutDiagnostic, stderrTail string) string {
@@ -2220,11 +2220,11 @@ func (g *codexTurnNotificationGate) accept(method string, params map[string]any)
 	}
 
 	switch {
-	case method == "turn/started":
+	case method == eventTurnStarted:
 		g.started = true
 		g.turnID = extractNestedString(params, "turn", "id")
 		return true
-	case method == "turn/completed":
+	case method == eventTurnCompleted:
 		if !g.started {
 			// Older app-server versions can complete a turn without first
 			// emitting turn/started. The pre-arm boundary still rejects resume
@@ -2288,7 +2288,7 @@ func (e *codexHandshakeTimeoutError) Unwrap() error {
 
 func isCodexHandshakeRPC(method string) bool {
 	switch method {
-	case "initialize", "thread/start", "thread/resume", "thread/name/set", "turn/start":
+	case "initialize", methodThreadStart, "thread/resume", "thread/name/set", methodTurnStart:
 		return true
 	default:
 		return false
@@ -2308,7 +2308,7 @@ func (c *codexClient) request(ctx context.Context, method string, params any) (j
 		return nil, err
 	}
 	requestCtx := ctx
-	cancelRequest := func() {}
+	cancelRequest := func() { /* no-op: timeout not set */ }
 	if c.handshakeTimeout > 0 && isCodexHandshakeRPC(method) {
 		timeoutErr := &codexHandshakeTimeoutError{Method: method, Timeout: c.handshakeTimeout}
 		requestCtx, cancelRequest = context.WithTimeoutCause(ctx, c.handshakeTimeout, timeoutErr)
@@ -2351,7 +2351,7 @@ func (c *codexClient) request(ctx context.Context, method string, params any) (j
 		c.mu.Unlock()
 		return nil, fmt.Errorf("write %s: %w", method, err)
 	}
-	if method == "turn/start" {
+	if method == methodTurnStart {
 		threadID := ""
 		if paramMap, ok := params.(map[string]any); ok {
 			threadID, _ = paramMap["threadId"].(string)
@@ -2656,7 +2656,7 @@ func (c *codexClient) handleNotification(raw map[string]json.RawMessage) {
 	// Raw v2 notifications
 	if c.notificationProtocol != "legacy" {
 		if c.notificationProtocol == "unknown" &&
-			(method == "turn/started" || method == "turn/completed" ||
+			(method == eventTurnStarted || method == eventTurnCompleted ||
 				method == "thread/started" || strings.HasPrefix(method, "item/")) {
 			c.notificationProtocol = "raw"
 		}
@@ -3110,7 +3110,7 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 	}
 
 	switch method {
-	case "turn/started":
+	case eventTurnStarted:
 		c.turnStarted = true
 		if turnID := extractNestedString(params, "turn", "id"); turnID != "" {
 			c.turnID = turnID
@@ -3119,7 +3119,7 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 			c.onMessage(Message{Type: MessageStatus, Status: "running", SessionID: c.threadID})
 		}
 
-	case "turn/completed":
+	case eventTurnCompleted:
 		turnID := extractNestedString(params, "turn", "id")
 		status := extractNestedString(params, "turn", "status")
 		threadID, _ := params["threadId"].(string)
@@ -3214,7 +3214,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 	}
 
 	switch {
-	case method == "item/started" && itemType == "commandExecution":
+	case method == eventItemStarted && itemType == "commandExecution":
 		command, _ := item["command"].(string)
 		if c.onMessage != nil {
 			c.onMessage(Message{
@@ -3225,7 +3225,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/completed" && itemType == "commandExecution":
+	case method == eventItemCompleted && itemType == "commandExecution":
 		output, _ := item["aggregatedOutput"].(string)
 		if c.onMessage != nil {
 			c.onMessage(Message{
@@ -3236,7 +3236,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/started" && itemType == "fileChange":
+	case method == eventItemStarted && itemType == "fileChange":
 		if c.onMessage != nil {
 			c.onMessage(Message{
 				Type:   MessageToolUse,
@@ -3246,7 +3246,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/completed" && itemType == "fileChange":
+	case method == eventItemCompleted && itemType == "fileChange":
 		status, _ := item["status"].(string)
 		changes := codexNormalizeRawChanges(item["changes"])
 		if c.onMessage != nil {
@@ -3258,7 +3258,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/started" && itemType == "mcpToolCall":
+	case method == eventItemStarted && itemType == "mcpToolCall":
 		if c.onMessage != nil {
 			c.onMessage(Message{
 				Type:   MessageToolUse,
@@ -3268,7 +3268,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/completed" && itemType == "mcpToolCall":
+	case method == eventItemCompleted && itemType == "mcpToolCall":
 		status, _ := item["status"].(string)
 		if c.onMessage != nil {
 			c.onMessage(Message{
@@ -3280,7 +3280,7 @@ func (c *codexClient) handleItemNotification(method string, params map[string]an
 			})
 		}
 
-	case method == "item/completed" && itemType == "agentMessage":
+	case method == eventItemCompleted && itemType == "agentMessage":
 		text, _ := item["text"].(string)
 		if text != "" && c.onMessage != nil {
 			c.onMessage(Message{Type: MessageText, Content: text})

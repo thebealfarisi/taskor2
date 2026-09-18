@@ -103,7 +103,7 @@ function resetAllSurfaceStoresFromRegistry() {
 }
 
 registerForWorkspaceRehydration(() => {
-  void Promise.resolve(issueSurfaceViewRegistryStore.persist.rehydrate()).then(
+  Promise.resolve(issueSurfaceViewRegistryStore.persist.rehydrate()).then(
     resetAllSurfaceStoresFromRegistry,
   );
 });

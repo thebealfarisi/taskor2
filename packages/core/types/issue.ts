@@ -22,13 +22,13 @@ export type IssueStatusCategory =
  * A status KEY as stored on the issue: one of the 7 built-ins, or a custom key
  * an admin defined for this workspace.
  *
- * OPEN by design. `(string & {})` keeps editor autocomplete for the 7 built-ins
+ * OPEN by design. `(string & Record<never, never>)` keeps editor autocomplete for the 7 built-ins
  * while accepting any catalog key, which is what the server has always been
  * able to send. Anything that needs presentation (label, colour, board column)
  * must resolve the key to its CATEGORY first — `useIssueStatuses(wsId)` in a
  * component, `statusCategoryOfKey` in a pure path. (MUL-6243)
  */
-export type IssueStatus = IssueStatusCategory | (string & {});
+export type IssueStatus = IssueStatusCategory | (string & Record<never, never>);
 
 export type IssuePriority = "urgent" | "high" | "medium" | "low" | "none";
 

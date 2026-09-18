@@ -221,16 +221,19 @@ export function parsePackageArgs(argv) {
   const requestedArchs = [];
   let allPlatforms = false;
 
-  for (let i = 0; i < argv.length; i += 1) {
+  let i = 0;
+  while (i < argv.length) {
     const token = argv[i];
     if (token === "--all-platforms") {
       allPlatforms = true;
+      i += 1;
       continue;
     }
 
     const expandedPlatforms = expandPlatformShorthand(token);
     if (expandedPlatforms) {
       requestedPlatforms.push(...expandedPlatforms);
+      i += 1;
       continue;
     }
 
@@ -241,16 +244,19 @@ export function parsePackageArgs(argv) {
         platformTargets[platform].push(argv[i + 1]);
         i += 1;
       }
+      i += 1;
       continue;
     }
 
     const arch = ARCH_FLAGS.get(token);
     if (arch) {
       requestedArchs.push(arch);
+      i += 1;
       continue;
     }
 
     sharedArgs.push(token);
+    i += 1;
   }
 
   return {

@@ -86,7 +86,7 @@ func workspaceMcpServerToResponse(server db.WorkspaceMcpServer) WorkspaceMcpServ
 // what is available to add.
 func (h *Handler) ListWorkspaceMcpServers(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -137,7 +137,7 @@ type WorkspaceMcpServerRequest struct {
 // anything, which is the whole shape of this feature.
 func (h *Handler) CreateWorkspaceMcpServer(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -147,7 +147,7 @@ func (h *Handler) CreateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 
 	var req WorkspaceMcpServerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	name := strings.TrimSpace(req.Name)
@@ -162,7 +162,7 @@ func (h *Handler) CreateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateMCPServer)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -188,11 +188,11 @@ func (h *Handler) CreateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		slog.Warn("create workspace mcp server failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateMCPServer)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateMCPServer)
 		return
 	}
 	// Name only — never the entry — so the audit trail cannot become a second
@@ -206,21 +206,21 @@ func (h *Handler) CreateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 // bindings key off the id, so an agent that uses this server keeps using it.
 func (h *Handler) UpdateWorkspaceMcpServer(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
 	if !h.requireWorkspaceMcpWriter(w, r, workspaceID) {
 		return
 	}
-	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), "server id")
+	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), paramServerID)
 	if !ok {
 		return
 	}
 
 	var req WorkspaceMcpServerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	params := db.UpdateWorkspaceMcpServerParams{ID: serverUUID, WorkspaceID: idUUID}
@@ -245,7 +245,7 @@ func (h *Handler) UpdateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusConflict, "an MCP server with this name already exists in the workspace")
 			return
 		}
-		writeError(w, http.StatusNotFound, "MCP server not found")
+		writeError(w, http.StatusNotFound, errMsgMCPServerNotFound)
 		return
 	}
 	slog.Info("workspace mcp server updated", append(logger.RequestAttrs(r),
@@ -258,21 +258,21 @@ func (h *Handler) UpdateWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 // otherwise keep pointing at a server that no longer exists.
 func (h *Handler) DeleteWorkspaceMcpServer(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	idUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
 	if !h.requireWorkspaceMcpWriter(w, r, workspaceID) {
 		return
 	}
-	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), "server id")
+	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), paramServerID)
 	if !ok {
 		return
 	}
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteMCPServer)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -287,7 +287,7 @@ func (h *Handler) DeleteWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 		ID:          serverUUID,
 		WorkspaceID: idUUID,
 	}); err != nil {
-		writeError(w, http.StatusNotFound, "MCP server not found")
+		writeError(w, http.StatusNotFound, errMsgMCPServerNotFound)
 		return
 	}
 
@@ -297,20 +297,20 @@ func (h *Handler) DeleteWorkspaceMcpServer(w http.ResponseWriter, r *http.Reques
 	})
 	if err != nil {
 		slog.Warn("delete workspace mcp server failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to delete the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteMCPServer)
 		return
 	}
 	if rows == 0 {
-		writeError(w, http.StatusNotFound, "MCP server not found")
+		writeError(w, http.StatusNotFound, errMsgMCPServerNotFound)
 		return
 	}
 	if err := qtx.DeleteAgentMcpServersByServer(r.Context(), serverUUID); err != nil {
 		slog.Warn("sweep agent mcp bindings failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to delete the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteMCPServer)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteMCPServer)
 		return
 	}
 	slog.Info("workspace mcp server deleted", append(logger.RequestAttrs(r),
@@ -384,7 +384,7 @@ func (h *Handler) AddAgentMcpServer(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AddAgentMcpServerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	serverUUID, ok := parseUUIDOrBadRequest(w, strings.TrimSpace(req.ServerID), "server_id")
@@ -393,7 +393,7 @@ func (h *Handler) AddAgentMcpServer(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAddMCPServer)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -422,11 +422,11 @@ func (h *Handler) AddAgentMcpServer(w http.ResponseWriter, r *http.Request) {
 		ServerID: serverUUID,
 	}); err != nil {
 		slog.Warn("add agent mcp server failed", append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(agent.ID))...)
-		writeError(w, http.StatusInternalServerError, "failed to add the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAddMCPServer)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to add the MCP server")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToAddMCPServer)
 		return
 	}
 	slog.Info("agent mcp server added", append(logger.RequestAttrs(r),
@@ -446,13 +446,13 @@ func (h *Handler) SetAgentMcpServerEnabled(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), "server id")
+	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), paramServerID)
 	if !ok {
 		return
 	}
 	var req SetAgentMcpServerEnabledRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Enabled == nil {
@@ -484,7 +484,7 @@ func (h *Handler) RemoveAgentMcpServer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), "server id")
+	serverUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "serverId"), paramServerID)
 	if !ok {
 		return
 	}

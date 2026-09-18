@@ -551,7 +551,7 @@ var piBlockedArgs = map[string]blockedArgMode{
 	"--print":    blockedStandalone, // alias for -p
 	"--mode":     blockedWithValue,  // "json" event stream protocol
 	"--session":  blockedWithValue,  // daemon manages the session path
-	"--thinking": blockedWithValue,  // owned by agent.thinking_level
+	flagThinking: blockedWithValue,  // owned by agent.thinking_level
 }
 
 // piCustomArgModes mirrors Pi 0.83's built-in parser closely enough to
@@ -587,7 +587,7 @@ var piCustomArgModes = map[string]blockedArgMode{
 	"-t":                     blockedWithValue,
 	"--exclude-tools":        blockedWithValue,
 	"-xt":                    blockedWithValue,
-	"--thinking":             blockedWithValue,
+	flagThinking:             blockedWithValue,
 	"--export":               blockedWithValue,
 	"--extension":            blockedWithValue,
 	"-e":                     blockedWithValue,
@@ -647,7 +647,7 @@ func buildPiArgs(sessionPath string, opts ExecOptions, logger *slog.Logger) []st
 		args = append(args, "--model", model)
 	}
 	if opts.ThinkingLevel != "" {
-		args = append(args, "--thinking", opts.ThinkingLevel)
+		args = append(args, flagThinking, opts.ThinkingLevel)
 	}
 	// Note: we intentionally do NOT pass --tools here. Omitting it lets
 	// Pi use its full tool registry, including user-installed extension

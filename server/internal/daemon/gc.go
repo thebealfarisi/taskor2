@@ -506,7 +506,7 @@ func (d *Daemon) gcDecisionIssueResult(taskDir string, meta *execenv.GCMeta, res
 
 	if (result.Status == "done" || result.Status == "cancelled") &&
 		time.Since(result.UpdatedAt) > d.cfg.GCTTL {
-		d.logger.Info("gc: eligible for cleanup",
+		d.logger.Info(msgGCEligibleForCleanup,
 			"dir", filepath.Base(taskDir),
 			"kind", "issue",
 			"issue", meta.IssueID,
@@ -609,7 +609,7 @@ func (d *Daemon) gcDecisionChat(ctx context.Context, taskDir string, meta *exece
 			// We don't gate on mtime: every chat_session_id in a meta file
 			// was written by this daemon under its current token, so there
 			// is no cross-workspace probe to defend against.
-			d.logger.Info("gc: eligible for cleanup",
+			d.logger.Info(msgGCEligibleForCleanup,
 				"dir", filepath.Base(taskDir),
 				"kind", "chat",
 				"chat_session", meta.ChatSessionID,
@@ -637,7 +637,7 @@ func (d *Daemon) gcDecisionChat(ctx context.Context, taskDir string, meta *exece
 		return gcActionSkip
 	case "archived":
 		if time.Since(status.UpdatedAt) > d.cfg.GCTTL {
-			d.logger.Info("gc: eligible for cleanup",
+			d.logger.Info(msgGCEligibleForCleanup,
 				"dir", filepath.Base(taskDir),
 				"kind", "chat",
 				"chat_session", meta.ChatSessionID,
@@ -681,7 +681,7 @@ func (d *Daemon) gcDecisionAutopilotRun(ctx context.Context, taskDir string, met
 	// active-env-root short-circuit in shouldCleanTaskDir still protects a run
 	// that is mid-flight, so this can't pull the rug from under live work.
 	if isAutopilotRunTerminal(status.Status) {
-		d.logger.Info("gc: eligible for cleanup",
+		d.logger.Info(msgGCEligibleForCleanup,
 			"dir", filepath.Base(taskDir),
 			"kind", "autopilot_run",
 			"autopilot_run", meta.AutopilotRunID,
@@ -728,7 +728,7 @@ func (d *Daemon) gcDecisionQuickCreate(ctx context.Context, taskDir string, meta
 	// waiting for GCTTL. If the user wants to revisit, the linked issue
 	// has the agent's output already.
 	if isAgentTaskTerminal(status.Status) {
-		d.logger.Info("gc: eligible for cleanup",
+		d.logger.Info(msgGCEligibleForCleanup,
 			"dir", filepath.Base(taskDir),
 			"kind", "quick_create",
 			"task", meta.TaskID,

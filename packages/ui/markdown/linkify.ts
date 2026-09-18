@@ -180,12 +180,22 @@ function findInlineLinkEnd(text: string, openParenIndex: number): number {
 export function findMarkdownLinkRanges(text: string): CodeRange[] {
   const ranges: CodeRange[] = []
 
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] !== '[' || isEscaped(text, i)) continue
-    if (ranges.some((r) => i >= r.start && i < r.end)) continue
+  let i = 0
+  while (i < text.length) {
+    if (text[i] !== '[' || isEscaped(text, i)) {
+      i++
+      continue
+    }
+    if (ranges.some((r) => i >= r.start && i < r.end)) {
+      i++
+      continue
+    }
 
     const labelEnd = findMatchingBracket(text, i)
-    if (labelEnd === -1) continue
+    if (labelEnd === -1) {
+      i++
+      continue
+    }
 
     const start = i > 0 && text[i - 1] === '!' && !isEscaped(text, i - 1) ? i - 1 : i
     const nextChar = text[labelEnd + 1]
@@ -194,18 +204,19 @@ export function findMarkdownLinkRanges(text: string): CodeRange[] {
       const end = findInlineLinkEnd(text, labelEnd + 1)
       if (end !== -1) {
         ranges.push({ start, end })
-        i = end - 1
+        i = end
+        continue
       }
-      continue
-    }
-
-    if (nextChar === '[') {
+    } else if (nextChar === '[') {
       const referenceEnd = findMatchingBracket(text, labelEnd + 1)
       if (referenceEnd !== -1) {
         ranges.push({ start, end: referenceEnd + 1 })
-        i = referenceEnd
+        i = referenceEnd + 1
+        continue
       }
     }
+
+    i++
   }
 
   return ranges

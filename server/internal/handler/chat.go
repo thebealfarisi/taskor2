@@ -46,7 +46,7 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateChatSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.AgentID == "" {
@@ -57,7 +57,7 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -87,7 +87,7 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 	// chat sessions are judged by the top-of-chain originator.
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	if !h.canInvokeAgent(r.Context(), agent, actorType, actorID, h.invokeOriginatorFromRequest(r, actorType, actorID), workspaceID) {
-		writeError(w, http.StatusForbidden, "you do not have access to this agent")
+		writeError(w, http.StatusForbidden, errMsgNoAccessToAgent)
 		return
 	}
 
@@ -98,7 +98,7 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 	// LockWorkspaceForChatSessionCreate).
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -167,7 +167,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -245,7 +245,7 @@ func (h *Handler) loadChatSessionForUser(w http.ResponseWriter, r *http.Request,
 	if !ok {
 		return db.ChatSession{}, false
 	}
-	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	workspaceUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return db.ChatSession{}, false
 	}
@@ -281,7 +281,7 @@ func (h *Handler) gateChatSessionForUser(w http.ResponseWriter, r *http.Request,
 	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	if !h.canAccessPrivateAgent(r.Context(), agent, actorType, actorID, workspaceID) {
-		writeError(w, http.StatusForbidden, "you do not have access to this agent")
+		writeError(w, http.StatusForbidden, errMsgNoAccessToAgent)
 		return db.ChatSession{}, false
 	}
 	return session, true
@@ -345,7 +345,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateChatSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	hasTitle := req.Title != nil
@@ -400,7 +400,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 
 		tx, txErr := h.TxStarter.Begin(r.Context())
 		if txErr != nil {
-			writeError(w, http.StatusInternalServerError, "failed to start transaction")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 			return
 		}
 		defer tx.Rollback(r.Context())
@@ -431,7 +431,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		projectIDChanged = true
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update chat session")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateChatSession)
 		return
 	}
 
@@ -468,7 +468,7 @@ func (h *Handler) SetChatSessionPinned(w http.ResponseWriter, r *http.Request) {
 
 	var req SetChatSessionPinnedRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -482,7 +482,7 @@ func (h *Handler) SetChatSessionPinned(w http.ResponseWriter, r *http.Request) {
 		Pinned: req.Pinned,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update chat session")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateChatSession)
 		return
 	}
 
@@ -537,7 +537,7 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 
 	var req SetChatSessionArchivedRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -548,7 +548,7 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -559,7 +559,7 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 		Archived: req.Archived,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update chat session")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateChatSession)
 		return
 	}
 
@@ -668,7 +668,7 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -814,7 +814,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 
 	var req SendChatMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Content == "" {
@@ -844,7 +844,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// for status='archived' and only offers unarchive/delete there. Legacy
 	// soft-archived rows from before the feature are covered by the same check.
 	if session.Status != "active" {
-		writeError(w, http.StatusBadRequest, "chat session is archived")
+		writeError(w, http.StatusBadRequest, errMsgChatSessionArchived)
 		return
 	}
 
@@ -860,7 +860,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if agent.ArchivedAt.Valid {
-		writeError(w, http.StatusConflict, "chat agent is archived")
+		writeError(w, http.StatusConflict, errMsgChatAgentArchived)
 		return
 	}
 	// Shared verdict: an unbound agent and a machine whose CLI cannot run are
@@ -917,9 +917,9 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrChatSessionArchived):
-			writeError(w, http.StatusConflict, "chat session is archived")
+			writeError(w, http.StatusConflict, errMsgChatSessionArchived)
 		case errors.Is(err, service.ErrChatTaskAgentArchived):
-			writeError(w, http.StatusConflict, "chat agent is archived")
+			writeError(w, http.StatusConflict, errMsgChatAgentArchived)
 		case errors.Is(err, service.ErrChatTaskAgentNoRuntime):
 			writeError(w, http.StatusConflict, "chat agent has no runtime")
 		default:
@@ -1012,15 +1012,15 @@ func parseChatMessagesPageParams(r *http.Request) (int, pgtype.Timestamptz, pgty
 		return limit, pgtype.Timestamptz{}, pgtype.UUID{}, nil
 	}
 	if rawBeforeCreatedAt == "" || rawBeforeID == "" {
-		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New("invalid cursor")
+		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New(errMsgInvalidCursor)
 	}
 	beforeTime, err := time.Parse(time.RFC3339Nano, rawBeforeCreatedAt)
 	if err != nil {
-		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New("invalid cursor")
+		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New(errMsgInvalidCursor)
 	}
 	beforeID, err := util.ParseUUID(rawBeforeID)
 	if err != nil {
-		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New("invalid cursor")
+		return 0, pgtype.Timestamptz{}, pgtype.UUID{}, errors.New(errMsgInvalidCursor)
 	}
 	return limit, pgtype.Timestamptz{Time: beforeTime, Valid: true}, beforeID, nil
 }
@@ -1060,7 +1060,7 @@ func (h *Handler) RegenerateChatQuickActions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if session.Status != "active" {
-		writeError(w, http.StatusBadRequest, "chat session is archived")
+		writeError(w, http.StatusBadRequest, errMsgChatSessionArchived)
 		return
 	}
 	agent, err := h.Queries.GetAgent(r.Context(), session.AgentID)
@@ -1069,7 +1069,7 @@ func (h *Handler) RegenerateChatQuickActions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if agent.ArchivedAt.Valid {
-		writeError(w, http.StatusConflict, "chat agent is archived")
+		writeError(w, http.StatusConflict, errMsgChatAgentArchived)
 		return
 	}
 	// The refresh no longer runs the agent, but it is still a user-triggered
@@ -1085,7 +1085,7 @@ func (h *Handler) RegenerateChatQuickActions(w http.ResponseWriter, r *http.Requ
 
 	var req RegenerateChatQuickActionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	expectedMessageID, ok := parseUUIDOrBadRequest(w, req.MessageID, "message_id")
@@ -1470,7 +1470,7 @@ func (h *Handler) ListPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -1540,7 +1540,7 @@ func (h *Handler) HasPendingChatTasks(w http.ResponseWriter, r *http.Request) {
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
 	allowed, ok := h.accessibleAgentIDs(r.Context(), workspaceID, actorType, actorID, member.Role)
 	if !ok {
-		writeError(w, http.StatusInternalServerError, "failed to resolve agent access")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToResolveAgentAccess)
 		return
 	}
 
@@ -1747,7 +1747,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := ctxWorkspaceID(r.Context())
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -1762,7 +1762,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "task not found")
+		writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 		return
 	}
 
@@ -1802,7 +1802,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: wsUUID,
 		})
 		if err != nil {
-			writeError(w, http.StatusNotFound, "task not found")
+			writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 			return
 		}
 		if uuidToString(cs.CreatorID) != userID {
@@ -1818,12 +1818,12 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: wsUUID,
 		})
 		if err != nil {
-			writeError(w, http.StatusNotFound, "task not found")
+			writeError(w, http.StatusNotFound, errMsgTaskNotFound)
 			return
 		}
 		actorType, actorID := h.resolveActor(r, userID, workspaceID)
 		if !h.canAccessPrivateAgent(r.Context(), agent, actorType, actorID, workspaceID) {
-			writeError(w, http.StatusForbidden, "you do not have access to this agent")
+			writeError(w, http.StatusForbidden, errMsgNoAccessToAgent)
 			return
 		}
 	}

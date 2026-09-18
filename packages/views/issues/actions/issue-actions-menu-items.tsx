@@ -150,7 +150,7 @@ export function IssueActionsMenuItems({
       toast.error(t(($) => $.detail.workdir_path_unavailable));
       return;
     }
-    void copyText(workdirCopyTarget.path).then((ok) => {
+    copyText(workdirCopyTarget.path).then((ok) => {
       if (!ok) {
         toast.error(t(($) => $.detail.workdir_path_copy_failed));
         return;

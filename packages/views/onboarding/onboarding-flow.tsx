@@ -213,7 +213,7 @@ function OnboardingStepFlow({
     (patch: Partial<QuestionnaireAnswers>) => {
       setAnswers((a) => {
         const next = { ...a, ...patch };
-        void saveQuestionnaire(next).catch((err) => {
+        saveQuestionnaire(next).catch((err) => {
           if (err instanceof Error) toast.error(err.message);
         });
         return next;

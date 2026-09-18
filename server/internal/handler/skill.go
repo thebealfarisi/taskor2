@@ -124,7 +124,7 @@ type ExistingSkillIdentity struct {
 
 func writeSkillImportDuplicateConflict(w http.ResponseWriter, existing ExistingSkillIdentity) {
 	writeJSON(w, http.StatusConflict, map[string]any{
-		"error":          "a skill with this name already exists",
+		"error":          errMsgSkillAlreadyExists,
 		"existing_skill": existing,
 	})
 }
@@ -284,7 +284,7 @@ func (h *Handler) loadSkillForUser(w http.ResponseWriter, r *http.Request, id st
 		WorkspaceID: parseUUID(workspaceID),
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "skill not found")
+		writeError(w, http.StatusNotFound, errMsgSkillNotFound)
 		return skill, false
 	}
 	return skill, true
@@ -376,7 +376,7 @@ func (h *Handler) CreateSkill(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateSkillRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -403,7 +403,7 @@ func (h *Handler) CreateSkill(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "a skill with this name already exists")
+			writeError(w, http.StatusConflict, errMsgSkillAlreadyExists)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create skill: "+err.Error())
@@ -418,7 +418,7 @@ func (h *Handler) CreateSkill(w http.ResponseWriter, r *http.Request) {
 // The skill creator or workspace owner/admin can manage any skill.
 func (h *Handler) canManageSkill(w http.ResponseWriter, r *http.Request, skill db.Skill) bool {
 	wsID := uuidToString(skill.WorkspaceID)
-	member, ok := h.requireWorkspaceRole(w, r, wsID, "skill not found", "owner", "admin", "member")
+	member, ok := h.requireWorkspaceRole(w, r, wsID, errMsgSkillNotFound, "owner", "admin", "member")
 	if !ok {
 		return false
 	}
@@ -452,7 +452,7 @@ func (h *Handler) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateSkillRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -465,7 +465,7 @@ func (h *Handler) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -492,7 +492,7 @@ func (h *Handler) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 	skill, err = qtx.UpdateSkill(r.Context(), params)
 	if err != nil {
 		if isUniqueViolation(err) {
-			writeError(w, http.StatusConflict, "a skill with this name already exists")
+			writeError(w, http.StatusConflict, errMsgSkillAlreadyExists)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to update skill: "+err.Error())
@@ -532,7 +532,7 @@ func (h *Handler) UpdateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCommit)
 		return
 	}
 
@@ -558,7 +558,7 @@ func (h *Handler) DeleteSkill(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -825,7 +825,7 @@ func detectImportSource(raw string) (importSource, string, error) {
 
 	parsed, err := url.Parse(normalized)
 	if err != nil {
-		return 0, "", fmt.Errorf("invalid URL: %w", err)
+		return 0, "", fmt.Errorf(errFmtInvalidURL, err)
 	}
 
 	host := strings.ToLower(parsed.Hostname())
@@ -851,7 +851,7 @@ func detectImportSource(raw string) (importSource, string, error) {
 func parseClawHubSlug(raw string) (string, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("invalid URL: %w", err)
+		return "", fmt.Errorf(errFmtInvalidURL, err)
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	// /{owner}/{slug} — take the last segment as the slug
@@ -1023,7 +1023,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 			// Cap violations must abort: silently dropping a file would
 			// produce an incomplete bundle that looks valid. SKILL.md is
 			// load-bearing, so any failure on it is fatal too.
-			if isCapError(err) || fp == "SKILL.md" {
+			if isCapError(err) || fp == fileSkillMD {
 				return nil, fmt.Errorf("clawhub import: %s: %w", fp, err)
 			}
 			// A cancelled context (overall deadline / client disconnect) is
@@ -1035,7 +1035,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 			slog.Warn("clawhub import: file download failed", "path", fp, "error", err)
 			continue
 		}
-		if fp == "SKILL.md" {
+		if fp == fileSkillMD {
 			result.content = string(body)
 			continue
 		}
@@ -1058,7 +1058,7 @@ func fetchFromClawHub(ctx context.Context, httpClient *http.Client, rawURL strin
 func parseSkillsShParts(raw string) (owner, repo, skillName string, err error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", "", "", fmt.Errorf("invalid URL: %w", err)
+		return "", "", "", fmt.Errorf(errFmtInvalidURL, err)
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	if len(parts) != 3 {
@@ -1240,7 +1240,7 @@ func fetchGitHubTree(ctx context.Context, httpClient *http.Client, owner, repo, 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, false, fmt.Errorf(formatHTTPStatus, resp.StatusCode)
 	}
 	var tree githubTreeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tree); err != nil {
@@ -1316,10 +1316,10 @@ func resolveSkillDirFromTree(ctx context.Context, p resolveSkillDirFromTreeParam
 // significant: it mirrors the pre-tree importer's probe order.
 func conventionalSkillMdPaths(skillName string) []string {
 	return []string{
-		"skills/" + skillName + "/SKILL.md",
-		".claude/skills/" + skillName + "/SKILL.md",
-		"plugin/skills/" + skillName + "/SKILL.md",
-		skillName + "/SKILL.md",
+		"skills/" + skillName + pathSkillMD,
+		".claude/skills/" + skillName + pathSkillMD,
+		"plugin/skills/" + skillName + pathSkillMD,
+		skillName + pathSkillMD,
 	}
 }
 
@@ -1401,7 +1401,7 @@ func addSupportingFilesFromTree(ctx context.Context, httpClient *http.Client, re
 			continue
 		}
 		lowerBase := strings.ToLower(filepath.Base(relPath))
-		if lowerBase == "skill.md" || lowerBase == "license" || lowerBase == "license.txt" || lowerBase == "license.md" {
+		if lowerBase == fileSkillMDLower || lowerBase == "license" || lowerBase == "license.txt" || lowerBase == "license.md" {
 			continue
 		}
 		if isLikelyBinaryFilePath(relPath) {
@@ -1495,7 +1495,7 @@ func collectGitHubFiles(ctx context.Context, httpClient *http.Client, entries []
 			return
 		}
 		lower := strings.ToLower(entry.Name)
-		if lower == "skill.md" || lower == "license" || lower == "license.txt" || lower == "license.md" {
+		if lower == fileSkillMDLower || lower == "license" || lower == "license.txt" || lower == "license.md" {
 			continue
 		}
 		if entry.Type == "file" {
@@ -1567,7 +1567,7 @@ func listGitHubSkillMdPaths(ctx context.Context, httpClient *http.Client, owner,
 		return nil, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf(formatHTTPStatus, resp.StatusCode)
 	}
 
 	var entries []githubContentEntry
@@ -1584,7 +1584,7 @@ func collectGitHubSkillMdPaths(ctx context.Context, httpClient *http.Client, ent
 	for _, entry := range entries {
 		lower := strings.ToLower(entry.Name)
 		if entry.Type == "file" {
-			if lower == "skill.md" {
+			if lower == fileSkillMDLower {
 				*out = append(*out, entry.Path)
 			}
 			continue
@@ -1632,7 +1632,7 @@ func collectGitHubSkillMdPaths(ctx context.Context, httpClient *http.Client, ent
 func extractSkillMdPaths(entries []githubTreeEntry) []string {
 	paths := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Type != "blob" || (!strings.HasSuffix(entry.Path, "/SKILL.md") && entry.Path != "SKILL.md") {
+		if entry.Type != "blob" || (!strings.HasSuffix(entry.Path, pathSkillMD) && entry.Path != fileSkillMD) {
 			continue
 		}
 		paths = append(paths, entry.Path)
@@ -1770,7 +1770,7 @@ type githubSpec struct {
 func parseGitHubURL(raw string) (githubSpec, error) {
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return githubSpec{}, fmt.Errorf("invalid URL: %w", err)
+		return githubSpec{}, fmt.Errorf(errFmtInvalidURL, err)
 	}
 	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
@@ -1790,7 +1790,7 @@ func parseGitHubURL(raw string) (githubSpec, error) {
 	spec.kind = kind
 	rest := parts[3:]
 	if kind == "blob" {
-		if !strings.EqualFold(rest[len(rest)-1], "SKILL.md") {
+		if !strings.EqualFold(rest[len(rest)-1], fileSkillMD) {
 			return githubSpec{}, fmt.Errorf("blob URL must point to a SKILL.md file")
 		}
 		rest = rest[:len(rest)-1]
@@ -1932,9 +1932,9 @@ func fetchFromGitHub(ctx context.Context, httpClient *http.Client, rawURL string
 	rawPrefix := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s",
 		url.PathEscape(spec.owner), url.PathEscape(spec.repo), escapeRefPath(spec.ref))
 
-	skillMdPath := "SKILL.md"
+	skillMdPath := fileSkillMD
 	if spec.skillDir != "" {
-		skillMdPath = spec.skillDir + "/SKILL.md"
+		skillMdPath = spec.skillDir + pathSkillMD
 	}
 	skillMdBody, err := fetchRawFile(ctx, httpClient, buildRawGitHubURL(rawPrefix, skillMdPath))
 	if err != nil {
@@ -2009,7 +2009,7 @@ func fetchRawFile(ctx context.Context, httpClient *http.Client, fileURL string) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf(formatHTTPStatus, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxImportFileSize+1))
 	if err != nil {
@@ -2074,10 +2074,10 @@ func buildGitHubContentsURL(owner, repo, repoPath, ref string) string {
 }
 
 func skillDirFromSkillFilePath(path string) string {
-	if path == "SKILL.md" {
+	if path == fileSkillMD {
 		return ""
 	}
-	return strings.TrimSuffix(path, "/SKILL.md")
+	return strings.TrimSuffix(path, pathSkillMD)
 }
 
 func skillMdNotFoundError(owner, repo, skillName string) error {
@@ -2149,7 +2149,7 @@ func (h *Handler) resolveImportSkillConflict(w http.ResponseWriter, r *http.Requ
 	case importOnConflictSkip:
 		writeJSON(w, http.StatusOK, SkillImportResult{
 			Status:        "skipped",
-			Reason:        "a skill with this name already exists",
+			Reason:        errMsgSkillAlreadyExists,
 			ExistingSkill: &existingInfo,
 		})
 	case importOnConflictOverwrite:
@@ -2235,7 +2235,7 @@ func (h *Handler) ImportSkill(w http.ResponseWriter, r *http.Request) {
 
 	var req ImportSkillRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if !validImportOnConflict(req.OnConflict) {
@@ -2405,7 +2405,7 @@ func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, p fi
 			if existing, found, findErr := h.existingSkillIdentityByName(r.Context(), workspaceUUID, name); findErr == nil && found {
 				writeSkillImportDuplicateConflict(w, existing)
 			} else {
-				writeError(w, http.StatusConflict, "a skill with this name already exists")
+				writeError(w, http.StatusConflict, errMsgSkillAlreadyExists)
 			}
 			return
 		}
@@ -2455,7 +2455,7 @@ func (h *Handler) UpsertSkillFile(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateSkillFileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -2554,7 +2554,7 @@ func (h *Handler) SetAgentSkills(w http.ResponseWriter, r *http.Request) {
 
 	var req SetAgentSkillsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	skillUUIDs, ok := parseUUIDSliceOrBadRequest(w, req.SkillIDs, "skill_ids")
@@ -2567,7 +2567,7 @@ func (h *Handler) SetAgentSkills(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -2590,7 +2590,7 @@ func (h *Handler) SetAgentSkills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCommit)
 		return
 	}
 
@@ -2609,7 +2609,7 @@ func (h *Handler) AddAgentSkills(w http.ResponseWriter, r *http.Request) {
 
 	var req AddAgentSkillsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	skillUUIDs, ok := parseUUIDSliceOrBadRequest(w, req.SkillIDs, "skill_ids")
@@ -2622,7 +2622,7 @@ func (h *Handler) AddAgentSkills(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to start transaction")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToStartTx)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -2639,7 +2639,7 @@ func (h *Handler) AddAgentSkills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to commit")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCommit)
 		return
 	}
 
@@ -2719,7 +2719,7 @@ func (h *Handler) validateAgentSkillIDsInWorkspace(w http.ResponseWriter, r *htt
 			ID:          skillID,
 			WorkspaceID: agent.WorkspaceID,
 		}); err != nil {
-			writeError(w, http.StatusNotFound, "skill not found")
+			writeError(w, http.StatusNotFound, errMsgSkillNotFound)
 			return false
 		}
 	}

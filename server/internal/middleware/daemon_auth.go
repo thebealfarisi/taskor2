@@ -87,7 +87,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			// downstream guard like handler.RequireHumanActor can
 			// trust this header regardless of which auth path the
 			// request arrived on.
-			r.Header.Del("X-Actor-Source")
+			r.Header.Del(headerXActorSource)
 
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
@@ -156,14 +156,14 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			if strings.HasPrefix(tokenString, auth.CloudPATPrefix) {
 				if cloudPAT == nil {
 					slog.Warn("daemon_auth: mcn_ token presented but cloud verifier not configured", "path", r.URL.Path)
-					writeError(w, http.StatusUnauthorized, "invalid token")
+					writeError(w, http.StatusUnauthorized, errMsgInvalidToken)
 					return
 				}
 				identity, err := cloudPAT.Verify(r.Context(), tokenString, ownerLookupFor(queries))
 				if err != nil {
 					if errors.Is(err, auth.ErrCloudPATInvalid) {
 						slog.Warn("daemon_auth: cloud rejected mcn_ token", "path", r.URL.Path, "error", err)
-						writeError(w, http.StatusUnauthorized, "invalid token")
+						writeError(w, http.StatusUnauthorized, errMsgInvalidToken)
 						return
 					}
 					slog.Warn("daemon_auth: cloud pat verify unavailable", "path", r.URL.Path, "error", err)
@@ -173,7 +173,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				if rejectTemporarilyDisabledUser(w, r, identity.OwnerID, "", DaemonAuthPathCloudPAT) {
 					return
 				}
-				r.Header.Set("X-User-ID", identity.OwnerID)
+				r.Header.Set(headerXUserID, identity.OwnerID)
 				// Mirror the regular Auth middleware: tag the auth
 				// path so any downstream guard (handler.
 				// RequireHumanActor and friends) can recognize this
@@ -183,7 +183,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				// avoids a future surprise where an endpoint moved
 				// or shared between the two middlewares would behave
 				// differently depending on which one routed it.
-				r.Header.Set("X-Actor-Source", "cloud_pat")
+				r.Header.Set(headerXActorSource, "cloud_pat")
 				ctx := context.WithValue(r.Context(), ctxKeyDaemonAuthPath, DaemonAuthPathCloudPAT)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -197,20 +197,20 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 					if rejectTemporarilyDisabledUser(w, r, userID, "", DaemonAuthPathPAT) {
 						return
 					}
-					r.Header.Set("X-User-ID", userID)
+					r.Header.Set(headerXUserID, userID)
 					ctx := context.WithValue(r.Context(), ctxKeyDaemonAuthPath, DaemonAuthPathPAT)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
 
 				if queries == nil {
-					writeError(w, http.StatusUnauthorized, "invalid token")
+					writeError(w, http.StatusUnauthorized, errMsgInvalidToken)
 					return
 				}
 				pat, err := queries.GetPersonalAccessTokenByHash(r.Context(), hash)
 				if err != nil {
 					slog.Warn("daemon_auth: invalid PAT", "path", r.URL.Path, "error", err)
-					writeError(w, http.StatusUnauthorized, "invalid token")
+					writeError(w, http.StatusUnauthorized, errMsgInvalidToken)
 					return
 				}
 
@@ -218,7 +218,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 				if rejectTemporarilyDisabledUser(w, r, userID, "", DaemonAuthPathPAT) {
 					return
 				}
-				r.Header.Set("X-User-ID", userID)
+				r.Header.Set(headerXUserID, userID)
 
 				var expiresAt time.Time
 				if pat.ExpiresAt.Valid {
@@ -244,7 +244,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			})
 			if err != nil || !token.Valid {
 				slog.Warn("daemon_auth: invalid token", "path", r.URL.Path, "error", err)
-				writeError(w, http.StatusUnauthorized, "invalid token")
+				writeError(w, http.StatusUnauthorized, errMsgInvalidToken)
 				return
 			}
 
@@ -262,7 +262,7 @@ func DaemonAuth(queries *db.Queries, patCache *auth.PATCache, daemonCache *auth.
 			if rejectTemporarilyDisabledUser(w, r, sub, email, DaemonAuthPathJWT) {
 				return
 			}
-			r.Header.Set("X-User-ID", sub)
+			r.Header.Set(headerXUserID, sub)
 			ctx := context.WithValue(r.Context(), ctxKeyDaemonAuthPath, DaemonAuthPathJWT)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

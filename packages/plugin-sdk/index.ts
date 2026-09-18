@@ -126,9 +126,9 @@ class Bridge {
     let attempts = 0;
     const beat = () => {
       if (this.port || attempts++ > ANNOUNCE_ATTEMPTS) return;
-      // targetOrigin "*" because this frame has an opaque origin and cannot
-      // know the embedder's. The message carries nothing but the signal.
-      window.parent.postMessage({ type: BRIDGE_READY_MESSAGE }, "*");
+      // targetOrigin computes referrer origin when available, or fallback for opaque origin
+      const targetOrigin = typeof document !== "undefined" && document.referrer ? new URL(document.referrer).origin : "*";
+      window.parent.postMessage({ type: BRIDGE_READY_MESSAGE }, targetOrigin);
       setTimeout(beat, ANNOUNCE_INTERVAL_MS);
     };
     beat();

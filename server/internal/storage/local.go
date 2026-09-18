@@ -140,9 +140,9 @@ func (s *LocalStorage) DeleteObject(_ context.Context, key string) error {
 // persist it BEFORE the upload.
 func (s *LocalStorage) ObjectURL(key string) string {
 	if s.baseURL != "" {
-		return fmt.Sprintf("%s/uploads/%s", s.baseURL, key)
+		return fmt.Sprintf(fmtUploadsHostPath, s.baseURL, key)
 	}
-	return fmt.Sprintf("/uploads/%s", key)
+	return fmt.Sprintf(fmtUploadsPath, key)
 }
 
 func (s *LocalStorage) DeleteKeys(ctx context.Context, keys []string) {
@@ -170,9 +170,9 @@ func (s *LocalStorage) Upload(ctx context.Context, key string, data []byte, cont
 	}
 
 	if s.baseURL != "" {
-		return fmt.Sprintf("%s/uploads/%s", s.baseURL, key), nil
+		return fmt.Sprintf(fmtUploadsHostPath, s.baseURL, key), nil
 	}
-	return fmt.Sprintf("/uploads/%s", key), nil
+	return fmt.Sprintf(fmtUploadsPath, key), nil
 }
 
 func (s *LocalStorage) UploadStream(ctx context.Context, key string, data io.Reader, _ int64, contentType string, filename string) (string, error) {
@@ -188,9 +188,9 @@ func (s *LocalStorage) UploadStream(ctx context.Context, key string, data io.Rea
 	}
 
 	if s.baseURL != "" {
-		return fmt.Sprintf("%s/uploads/%s", s.baseURL, key), nil
+		return fmt.Sprintf(fmtUploadsHostPath, s.baseURL, key), nil
 	}
-	return fmt.Sprintf("/uploads/%s", key), nil
+	return fmt.Sprintf(fmtUploadsPath, key), nil
 }
 
 // writeAtomic writes src through a temp file in the destination directory and

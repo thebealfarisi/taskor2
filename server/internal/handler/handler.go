@@ -924,7 +924,7 @@ func (h *Handler) getWorkspaceMember(ctx context.Context, userID, workspaceID st
 
 func (h *Handler) requireWorkspaceMember(w http.ResponseWriter, r *http.Request, workspaceID, notFoundMsg string) (db.Member, bool) {
 	if workspaceID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		writeError(w, http.StatusBadRequest, errMsgWorkspaceIDRequired)
 		return db.Member{}, false
 	}
 
@@ -987,7 +987,7 @@ func (h *Handler) loadIssueForUser(w http.ResponseWriter, r *http.Request, issue
 
 	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		writeError(w, http.StatusBadRequest, errMsgWorkspaceIDRequired)
 		return db.Issue{}, false
 	}
 
@@ -1127,7 +1127,7 @@ func (h *Handler) loadAgentForUser(w http.ResponseWriter, r *http.Request, agent
 
 	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		writeError(w, http.StatusBadRequest, errMsgWorkspaceIDRequired)
 		return db.Agent{}, false
 	}
 
@@ -1163,7 +1163,7 @@ func (h *Handler) loadInboxItemForUser(w http.ResponseWriter, r *http.Request, i
 
 	workspaceID := h.resolveWorkspaceID(r)
 	if workspaceID == "" {
-		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		writeError(w, http.StatusBadRequest, errMsgWorkspaceIDRequired)
 		return db.InboxItem{}, false
 	}
 

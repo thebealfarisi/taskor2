@@ -21,7 +21,7 @@ import (
 // hitting the Multica API). See upstream issue openai/codex#10390.
 //
 // Until a fixed Codex release ships, the per-task Codex config on macOS needs
-// to fall back to `sandbox_mode = "danger-full-access"` so the agent can
+// to fall back to `sandbox_mode = sandboxDangerFullAccess` so the agent can
 // actually reach the Multica API.
 //
 // Linux runs danger-full-access as a deliberate product decision (MUL-5578,
@@ -39,7 +39,7 @@ type codexSandboxPolicy struct {
 	// Mode is the value written as `sandbox_mode = "..."`.
 	Mode string
 	// NetworkAccess controls `[sandbox_workspace_write] network_access`.
-	// Only meaningful when Mode is "workspace-write".
+	// Only meaningful when Mode is sandboxWorkspaceWrite.
 	NetworkAccess bool
 	// Reason is a short human-readable label used in warn-level logs.
 	Reason string
@@ -101,20 +101,20 @@ func codexSandboxPolicyFor(goos, detectedVersion string) codexSandboxPolicy {
 	}
 	if goos == "windows" {
 		return codexSandboxPolicy{
-			Mode:   "danger-full-access",
+			Mode:   sandboxDangerFullAccess,
 			Reason: "codex on windows: compatibility fallback; no native windows.sandbox configured, so workspace-write cannot be enforced (MUL-4957)",
 		}
 	}
 	if goos != "darwin" {
 		return codexSandboxPolicy{
-			Mode:   "danger-full-access",
+			Mode:   sandboxDangerFullAccess,
 			Reason: "codex on " + goos + ": tasks run with the daemon user's real HOME and full filesystem access; isolation comes from the boundary the daemon runs inside (MUL-5578)",
 			Hint:   codexLinuxIsolationHint(),
 		}
 	}
 	if codexDarwinNetworkAccessFixed(detectedVersion) {
 		return codexSandboxPolicy{
-			Mode:          "workspace-write",
+			Mode:          sandboxWorkspaceWrite,
 			NetworkAccess: true,
 			Reason:        "codex version includes macOS network_access fix",
 		}
@@ -124,7 +124,7 @@ func codexSandboxPolicyFor(goos, detectedVersion string) codexSandboxPolicy {
 		reason += " — version unknown, assuming broken"
 	}
 	return codexSandboxPolicy{
-		Mode:          "danger-full-access",
+		Mode:          sandboxDangerFullAccess,
 		NetworkAccess: false,
 		Reason:        reason,
 		Hint:          codexUpgradeHint(),
@@ -178,19 +178,19 @@ func codexSandboxPolicyForWindows(state windowsSandboxConfig) codexSandboxPolicy
 	switch state {
 	case windowsSandboxNative:
 		return codexSandboxPolicy{
-			Mode:          "workspace-write",
+			Mode:          sandboxWorkspaceWrite,
 			NetworkAccess: true,
 			Reason:        "codex on windows: native windows.sandbox configured; keeping workspace-write so Codex enforces task isolation",
 		}
 	case windowsSandboxUndecidable:
 		return codexSandboxPolicy{
-			Mode:          "workspace-write",
+			Mode:          sandboxWorkspaceWrite,
 			NetworkAccess: true,
 			Reason:        "codex on windows: windows.sandbox config undecidable (unreadable/unparseable/invalid); failing closed to workspace-write rather than loosening (MUL-4957)",
 		}
 	default: // windowsSandboxAbsent
 		return codexSandboxPolicy{
-			Mode:   "danger-full-access",
+			Mode:   sandboxDangerFullAccess,
 			Reason: "codex on windows: compatibility fallback; no native windows.sandbox configured (MUL-4957)",
 		}
 	}
@@ -354,7 +354,7 @@ func renderMulticaManagedBlock(policy codexSandboxPolicy) string {
 	b.WriteString(multicaManagedBeginMarker)
 	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("sandbox_mode = %q\n", policy.Mode))
-	if policy.Mode == "workspace-write" {
+	if policy.Mode == sandboxWorkspaceWrite {
 		b.WriteString(fmt.Sprintf("sandbox_workspace_write.network_access = %t\n", policy.NetworkAccess))
 	}
 	b.WriteString(multicaManagedEndMarker)
@@ -455,7 +455,7 @@ func ensureCodexSandboxConfig(configPath string, policy codexSandboxPolicy, dete
 		return nil
 	}
 
-	if policy.Mode == "danger-full-access" && logger != nil {
+	if policy.Mode == sandboxDangerFullAccess && logger != nil {
 		version := detectedVersion
 		if version == "" {
 			version = "unknown"

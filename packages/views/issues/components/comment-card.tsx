@@ -666,7 +666,7 @@ function CommentRow({
             />
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => {
-                void copyText(entry.content ?? "").then((ok) => {
+                copyText(entry.content ?? "").then((ok) => {
                   if (ok) toast.success(t(($) => $.comment.copied_toast));
                 });
               }}>
@@ -982,7 +982,7 @@ function CommentCardImpl({
                     />
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => {
-                        void copyText(entry.content ?? "").then((ok) => {
+                        copyText(entry.content ?? "").then((ok) => {
                           if (ok) toast.success(t(($) => $.comment.copied_toast));
                         });
                       }}>

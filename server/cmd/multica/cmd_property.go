@@ -149,32 +149,32 @@ func init() {
 	propertyCmd.AddCommand(propertyArchiveCmd)
 	propertyCmd.AddCommand(propertyUnarchiveCmd)
 
-	propertyListCmd.Flags().String("output", "table", "Output format: table or json")
+	propertyListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	propertyListCmd.Flags().Bool("include-archived", false, "Include archived properties")
-	propertyGetCmd.Flags().String("output", "json", "Output format: table or json")
-	propertyCreateCmd.Flags().String("output", "table", "Output format: table or json")
+	propertyGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	propertyCreateCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	propertyCreateCmd.Flags().String("name", "", "Property name (required)")
 	propertyCreateCmd.Flags().String("type", "", "Property type: text, number, select, multi_select, date, checkbox, url, actor, multi_actor (required)")
 	propertyCreateCmd.Flags().String("description", "", "Property description")
 	propertyCreateCmd.Flags().String("icon", "", "Property icon key from the Web picker (for example, flag, tag, or shield)")
 	propertyCreateCmd.Flags().StringArray("option", nil, `Select option as "Name" or "Name:#rrggbb" (repeatable; select types only)`)
-	propertyUpdateCmd.Flags().String("output", "table", "Output format: table or json")
+	propertyUpdateCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	propertyUpdateCmd.Flags().String("name", "", "New property name")
 	propertyUpdateCmd.Flags().String("description", "", "New property description")
 	propertyUpdateCmd.Flags().String("icon", "", "New property icon key from the Web picker; pass an empty value to clear")
 	propertyUpdateCmd.Flags().StringArray("option", nil, `Replacement option list as "Name" or "Name:#rrggbb" (repeatable)`)
-	propertyArchiveCmd.Flags().String("output", "table", "Output format: table or json")
-	propertyUnarchiveCmd.Flags().String("output", "table", "Output format: table or json")
+	propertyArchiveCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	propertyUnarchiveCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	issuePropertyCmd.AddCommand(issuePropertyListCmd)
 	issuePropertyCmd.AddCommand(issuePropertySetCmd)
 	issuePropertyCmd.AddCommand(issuePropertyUnsetCmd)
 
-	issuePropertyListCmd.Flags().String("output", "table", "Output format: table or json")
-	issuePropertySetCmd.Flags().String("output", "table", "Output format: table or json")
+	issuePropertyListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issuePropertySetCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	issuePropertySetCmd.Flags().String("name", "", "Property name or UUID (required)")
 	issuePropertySetCmd.Flags().String("value", "", "Property value (required; see --help for per-type forms)")
-	issuePropertyUnsetCmd.Flags().String("output", "table", "Output format: table or json")
+	issuePropertyUnsetCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	issuePropertyUnsetCmd.Flags().String("name", "", "Property name or UUID (required)")
 
 	issueCmd.AddCommand(issuePropertyCmd)
@@ -314,7 +314,7 @@ func runPropertyCreate(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	propType, _ := cmd.Flags().GetString("type")
 	if name == "" {
-		return fmt.Errorf("--name is required")
+		return fmt.Errorf(errNameRequired)
 	}
 	if propType == "" {
 		return fmt.Errorf("--type is required")
@@ -660,7 +660,7 @@ func fetchIssuePropertyBag(ctx context.Context, client *cli.APIClient, issueID s
 	var issue struct {
 		Properties map[string]any `json:"properties"`
 	}
-	if err := client.GetJSON(ctx, "/api/issues/"+issueID, &issue); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueID, &issue); err != nil {
 		return nil, fmt.Errorf("get issue: %w", err)
 	}
 	if issue.Properties == nil {
@@ -688,7 +688,7 @@ func runIssuePropertyList(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
@@ -710,7 +710,7 @@ func runIssuePropertyList(cmd *cobra.Command, args []string) error {
 func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
-		return fmt.Errorf("--name is required")
+		return fmt.Errorf(errNameRequired)
 	}
 	if !cmd.Flags().Changed("value") {
 		return fmt.Errorf("--value is required")
@@ -726,7 +726,7 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
@@ -744,7 +744,7 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 	var result struct {
 		Properties map[string]any `json:"properties"`
 	}
-	path := "/api/issues/" + issueRef.ID + "/properties/" + property.ID
+	path := apiIssuesPrefix + issueRef.ID + "/properties/" + property.ID
 	if err := client.PutJSON(ctx, path, map[string]any{"value": value}, &result); err != nil {
 		return fmt.Errorf("set property: %w", err)
 	}
@@ -760,7 +760,7 @@ func runIssuePropertySet(cmd *cobra.Command, args []string) error {
 func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	if name == "" {
-		return fmt.Errorf("--name is required")
+		return fmt.Errorf(errNameRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -772,7 +772,7 @@ func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 	properties, err := fetchProperties(ctx, client)
 	if err != nil {
@@ -783,7 +783,7 @@ func runIssuePropertyUnset(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	path := "/api/issues/" + issueRef.ID + "/properties/" + property.ID
+	path := apiIssuesPrefix + issueRef.ID + "/properties/" + property.ID
 	if err := client.DeleteJSON(ctx, path); err != nil {
 		return fmt.Errorf("unset property: %w", err)
 	}

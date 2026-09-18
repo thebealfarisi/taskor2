@@ -311,7 +311,7 @@ func (c *APIClient) DeleteJSONWithBody(ctx context.Context, path string, body an
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	c.setHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -338,7 +338,7 @@ func (c *APIClient) PostJSON(ctx context.Context, path string, body any, out any
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	c.setHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -368,7 +368,7 @@ func (c *APIClient) PutJSON(ctx context.Context, path string, body any, out any)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	c.setHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -398,7 +398,7 @@ func (c *APIClient) PatchJSON(ctx context.Context, path string, body any, out an
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	c.setHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -439,10 +439,10 @@ func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename st
 
 	part, err := writer.CreateFormFile("file", filepath.Base(filename))
 	if err != nil {
-		return "", fmt.Errorf("create form file: %w", err)
+		return "", fmt.Errorf(errFmtCreateFormFile, err)
 	}
 	if _, err := part.Write(fileData); err != nil {
-		return "", fmt.Errorf("write file data: %w", err)
+		return "", fmt.Errorf(errFmtWriteFileData, err)
 	}
 
 	if issueID != "" {
@@ -452,14 +452,14 @@ func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename st
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", fmt.Errorf("close multipart writer: %w", err)
+		return "", fmt.Errorf(errFmtCloseMultipartWriter, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/upload-file", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+pathUploadFile, &body)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set(headerContentType, writer.FormDataContentType())
 	c.setHeaders(req)
 
 	resp, err := c.HTTPClient.Do(req)
@@ -470,12 +470,12 @@ func (c *APIClient) UploadFile(ctx context.Context, fileData []byte, filename st
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "", newHTTPError(http.MethodPost, "/api/upload-file", resp)
+		return "", newHTTPError(http.MethodPost, pathUploadFile, resp)
 	}
 
 	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("decode upload response: %w", err)
+		return "", fmt.Errorf(errFmtDecodeUploadResponse, err)
 	}
 
 	id, _ := result["id"].(string)
@@ -495,10 +495,10 @@ func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, f
 
 	part, err := writer.CreateFormFile("file", filepath.Base(filename))
 	if err != nil {
-		return AttachmentResponse{}, fmt.Errorf("create form file: %w", err)
+		return AttachmentResponse{}, fmt.Errorf(errFmtCreateFormFile, err)
 	}
 	if _, err := part.Write(fileData); err != nil {
-		return AttachmentResponse{}, fmt.Errorf("write file data: %w", err)
+		return AttachmentResponse{}, fmt.Errorf(errFmtWriteFileData, err)
 	}
 	if taskID != "" {
 		if err := writer.WriteField("task_id", taskID); err != nil {
@@ -506,14 +506,14 @@ func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, f
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return AttachmentResponse{}, fmt.Errorf("close multipart writer: %w", err)
+		return AttachmentResponse{}, fmt.Errorf(errFmtCloseMultipartWriter, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/upload-file", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+pathUploadFile, &body)
 	if err != nil {
 		return AttachmentResponse{}, err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set(headerContentType, writer.FormDataContentType())
 	c.setHeaders(req)
 
 	// Honor a longer context deadline for large images, same as UploadFileWithURL.
@@ -535,12 +535,12 @@ func (c *APIClient) UploadChatAttachment(ctx context.Context, fileData []byte, f
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return AttachmentResponse{}, newHTTPError(http.MethodPost, "/api/upload-file", resp)
+		return AttachmentResponse{}, newHTTPError(http.MethodPost, pathUploadFile, resp)
 	}
 
 	var result AttachmentResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return AttachmentResponse{}, fmt.Errorf("decode upload response: %w", err)
+		return AttachmentResponse{}, fmt.Errorf(errFmtDecodeUploadResponse, err)
 	}
 	if result.ID == "" {
 		return AttachmentResponse{}, fmt.Errorf("upload response missing attachment id")
@@ -557,21 +557,21 @@ func (c *APIClient) UploadFileWithURL(ctx context.Context, fileData []byte, file
 
 	part, err := writer.CreateFormFile("file", filepath.Base(filename))
 	if err != nil {
-		return "", "", fmt.Errorf("create form file: %w", err)
+		return "", "", fmt.Errorf(errFmtCreateFormFile, err)
 	}
 	if _, err := part.Write(fileData); err != nil {
-		return "", "", fmt.Errorf("write file data: %w", err)
+		return "", "", fmt.Errorf(errFmtWriteFileData, err)
 	}
 
 	if err := writer.Close(); err != nil {
-		return "", "", fmt.Errorf("close multipart writer: %w", err)
+		return "", "", fmt.Errorf(errFmtCloseMultipartWriter, err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/upload-file", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+pathUploadFile, &body)
 	if err != nil {
 		return "", "", err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set(headerContentType, writer.FormDataContentType())
 	c.setHeaders(req)
 
 	// Use a client that respects the context deadline for slow uploads
@@ -595,12 +595,12 @@ func (c *APIClient) UploadFileWithURL(ctx context.Context, fileData []byte, file
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		return "", "", newHTTPError(http.MethodPost, "/api/upload-file", resp)
+		return "", "", newHTTPError(http.MethodPost, pathUploadFile, resp)
 	}
 
 	var result AttachmentResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", "", fmt.Errorf("decode upload response: %w", err)
+		return "", "", fmt.Errorf(errFmtDecodeUploadResponse, err)
 	}
 	if result.URL == "" {
 		return "", "", fmt.Errorf("upload response missing attachment url")
@@ -620,10 +620,10 @@ func (c *APIClient) ImportSkillFile(ctx context.Context, fileData []byte, filena
 
 	part, err := writer.CreateFormFile("file", filepath.Base(filename))
 	if err != nil {
-		return fmt.Errorf("create form file: %w", err)
+		return fmt.Errorf(errFmtCreateFormFile, err)
 	}
 	if _, err := part.Write(fileData); err != nil {
-		return fmt.Errorf("write file data: %w", err)
+		return fmt.Errorf(errFmtWriteFileData, err)
 	}
 	if onConflict != "" {
 		if err := writer.WriteField("on_conflict", onConflict); err != nil {
@@ -631,14 +631,14 @@ func (c *APIClient) ImportSkillFile(ctx context.Context, fileData []byte, filena
 		}
 	}
 	if err := writer.Close(); err != nil {
-		return fmt.Errorf("close multipart writer: %w", err)
+		return fmt.Errorf(errFmtCloseMultipartWriter, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api/skills/import", &body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set(headerContentType, writer.FormDataContentType())
 	c.setHeaders(req)
 
 	// Respect a longer context deadline for slow uploads, mirroring
@@ -690,7 +690,7 @@ func (c *APIClient) UploadPrivatePlugin(ctx context.Context, path string, archiv
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set(headerContentType, writer.FormDataContentType())
 	c.setHeaders(req)
 	resp, err := c.HTTPClient.Do(req)
 	err = wrapTransport(req, err)

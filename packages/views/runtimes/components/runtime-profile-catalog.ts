@@ -93,7 +93,8 @@ export function parseCommandLine(input: string): ParsedCommandLine {
   let quote: "'" | '"' | null = null;
   let tokenStarted = false;
 
-  for (let i = 0; i < line.length; i += 1) {
+  let i = 0;
+  while (i < line.length) {
     const ch = line[i] ?? "";
     const next = line[i + 1] ?? "";
 
@@ -103,6 +104,7 @@ export function parseCommandLine(input: string): ParsedCommandLine {
         token = "";
         tokenStarted = false;
       }
+      i += 1;
       continue;
     }
 
@@ -119,7 +121,7 @@ export function parseCommandLine(input: string): ParsedCommandLine {
       if (ch === "\\" && next) {
         token += next;
         tokenStarted = true;
-        i += 1;
+        i += 2;
         continue;
       }
       if (ch === "\\") {
@@ -128,34 +130,29 @@ export function parseCommandLine(input: string): ParsedCommandLine {
       if (ch === "'" || ch === '"') {
         quote = ch;
         tokenStarted = true;
+        i += 1;
         continue;
       }
       token += ch;
       tokenStarted = true;
+      i += 1;
       continue;
     }
 
     if (ch === quote) {
       quote = null;
       tokenStarted = true;
+      i += 1;
       continue;
     }
-    if (quote === '"') {
-      if (ch === "\\" && next) {
-        token += next;
-        tokenStarted = true;
-        i += 1;
-        continue;
-      }
-      if (ch === "\\") {
-        return { ok: false, error: "trailing_escape" };
-      }
-      if (ch === "`" || ch === "$") {
-        return {
-          ok: false,
-          error: ch === "$" ? "shell_expansion" : "shell_syntax",
-        };
-      }
+    if (quote === '"' && ch === "\\" && next) {
+      token += next;
+      tokenStarted = true;
+      i += 2;
+      continue;
+    }
+    if (quote === '"' && ch === "\\") {
+      return { ok: false, error: "trailing_escape" };
     }
     if (quote !== "'" && (ch === "`" || ch === "$")) {
       return {
@@ -165,6 +162,7 @@ export function parseCommandLine(input: string): ParsedCommandLine {
     }
     token += ch;
     tokenStarted = true;
+    i += 1;
   }
 
   if (quote != null) return { ok: false, error: "unclosed_quote" };

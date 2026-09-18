@@ -122,12 +122,12 @@ func init() {
 	projectResourceCmd.AddCommand(projectResourceRemoveCmd)
 
 	// project list
-	projectListCmd.Flags().String("output", "table", "Output format: table or json")
-	projectListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
+	projectListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	projectListCmd.Flags().Bool(flagFullID, false, "Show full UUIDs in table output")
 	projectListCmd.Flags().String("status", "", "Filter by status")
 
 	// project get
-	projectGetCmd.Flags().String("output", "json", "Output format: table or json")
+	projectGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project create
 	projectCreateCmd.Flags().String("title", "", "Project title (required)")
@@ -135,14 +135,14 @@ func init() {
 	projectCreateCmd.Flags().String("status", "", "Project status")
 	projectCreateCmd.Flags().String("icon", "", "Project icon (emoji)")
 	projectCreateCmd.Flags().String("lead", "", "Lead name (member or agent)")
-	projectCreateCmd.Flags().String("start-date", "", "Start date (calendar day, YYYY-MM-DD)")
-	projectCreateCmd.Flags().String("due-date", "", "Due date (calendar day, YYYY-MM-DD)")
+	projectCreateCmd.Flags().String(flagStartDate, "", "Start date (calendar day, YYYY-MM-DD)")
+	projectCreateCmd.Flags().String(flagDueDate, "", "Due date (calendar day, YYYY-MM-DD)")
 	projectCreateCmd.Flags().StringArray("repo", nil, "Attach a github_repo resource by URL (may be repeated)")
-	projectCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	projectCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project resource list
-	projectResourceListCmd.Flags().String("output", "table", "Output format: table or json")
-	projectResourceListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
+	projectResourceListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	projectResourceListCmd.Flags().Bool(flagFullID, false, "Show full UUIDs in table output")
 
 	// project resource add — generic shape: any --type with a JSON --ref
 	// payload works without further CLI changes. github_repo is supported via
@@ -150,31 +150,31 @@ func init() {
 	// the default checkout ref.
 	projectResourceAddCmd.Flags().String("type", "github_repo", "Resource type (e.g. github_repo, local_directory — see docs)")
 	projectResourceAddCmd.Flags().String("url", "", "Shortcut: the repo URL (only used when --type github_repo)")
-	projectResourceAddCmd.Flags().String("default-branch-hint", "", "Shortcut: optional default branch hint (only used when --type github_repo)")
-	projectResourceAddCmd.Flags().String("local-path", "", "Shortcut: absolute path to the working directory (only used when --type local_directory)")
-	projectResourceAddCmd.Flags().String("daemon-id", "", "Shortcut: id of the daemon that owns the local path (only used when --type local_directory)")
-	projectResourceAddCmd.Flags().String("ref-label", "", "Shortcut: optional label embedded in resource_ref (only used when --type local_directory)")
-	projectResourceAddCmd.Flags().String("execution-mode", "", "Shortcut: how tasks share the directory — in_place (default, one task at a time) or worktree (each task gets its own git worktree; requires a git repo) (only used when --type local_directory)")
+	projectResourceAddCmd.Flags().String(flagDefaultBranchHint, "", "Shortcut: optional default branch hint (only used when --type github_repo)")
+	projectResourceAddCmd.Flags().String(flagLocalPath, "", "Shortcut: absolute path to the working directory (only used when --type local_directory)")
+	projectResourceAddCmd.Flags().String(flagDaemonID, "", "Shortcut: id of the daemon that owns the local path (only used when --type local_directory)")
+	projectResourceAddCmd.Flags().String(flagRefLabel, "", "Shortcut: optional label embedded in resource_ref (only used when --type local_directory)")
+	projectResourceAddCmd.Flags().String(flagExecutionMode, "", "Shortcut: how tasks share the directory — in_place (default, one task at a time) or worktree (each task gets its own git worktree; requires a git repo) (only used when --type local_directory)")
 	projectResourceAddCmd.Flags().String("ref", "", "Generic JSON resource_ref payload, or a github_repo checkout ref when used with --url")
 	projectResourceAddCmd.Flags().String("label", "", "Optional human-readable label")
-	projectResourceAddCmd.Flags().String("output", "json", "Output format: table or json")
+	projectResourceAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project resource update — mirrors `add` flags, but every field is
 	// optional so the caller can edit one thing at a time.
 	projectResourceUpdateCmd.Flags().String("url", "", "Shortcut: new repo URL (github_repo)")
-	projectResourceUpdateCmd.Flags().String("default-branch-hint", "", "Shortcut: new default branch hint (github_repo)")
-	projectResourceUpdateCmd.Flags().String("local-path", "", "Shortcut: new absolute local path (local_directory)")
-	projectResourceUpdateCmd.Flags().String("daemon-id", "", "Shortcut: new daemon id (local_directory)")
-	projectResourceUpdateCmd.Flags().String("ref-label", "", "Shortcut: new label embedded in resource_ref (local_directory)")
-	projectResourceUpdateCmd.Flags().String("execution-mode", "", "Shortcut: new execution mode — in_place or worktree (local_directory)")
+	projectResourceUpdateCmd.Flags().String(flagDefaultBranchHint, "", "Shortcut: new default branch hint (github_repo)")
+	projectResourceUpdateCmd.Flags().String(flagLocalPath, "", "Shortcut: new absolute local path (local_directory)")
+	projectResourceUpdateCmd.Flags().String(flagDaemonID, "", "Shortcut: new daemon id (local_directory)")
+	projectResourceUpdateCmd.Flags().String(flagRefLabel, "", "Shortcut: new label embedded in resource_ref (local_directory)")
+	projectResourceUpdateCmd.Flags().String(flagExecutionMode, "", "Shortcut: new execution mode — in_place or worktree (local_directory)")
 	projectResourceUpdateCmd.Flags().String("ref", "", "Generic JSON resource_ref payload, or a github_repo checkout ref")
 	projectResourceUpdateCmd.Flags().String("label", "", "New human-readable label; pass an empty string to clear")
 	projectResourceUpdateCmd.Flags().Bool("clear-label", false, "Clear the human-readable label")
 	projectResourceUpdateCmd.Flags().Int32("position", 0, "New display position")
-	projectResourceUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	projectResourceUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project resource remove
-	projectResourceRemoveCmd.Flags().String("output", "table", "Output format: table or json")
+	projectResourceRemoveCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// project update
 	projectUpdateCmd.Flags().String("title", "", "New title")
@@ -182,15 +182,15 @@ func init() {
 	projectUpdateCmd.Flags().String("status", "", "New status")
 	projectUpdateCmd.Flags().String("icon", "", "New icon (emoji)")
 	projectUpdateCmd.Flags().String("lead", "", "New lead name (member or agent)")
-	projectUpdateCmd.Flags().String("start-date", "", "New start date (calendar day, YYYY-MM-DD; pass empty string to clear)")
-	projectUpdateCmd.Flags().String("due-date", "", "New due date (calendar day, YYYY-MM-DD; pass empty string to clear)")
-	projectUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	projectUpdateCmd.Flags().String(flagStartDate, "", "New start date (calendar day, YYYY-MM-DD; pass empty string to clear)")
+	projectUpdateCmd.Flags().String(flagDueDate, "", "New due date (calendar day, YYYY-MM-DD; pass empty string to clear)")
+	projectUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project delete
-	projectDeleteCmd.Flags().String("output", "json", "Output format: table or json")
+	projectDeleteCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// project status
-	projectStatusCmd.Flags().String("output", "table", "Output format: table or json")
+	projectStatusCmd.Flags().String("output", "table", flagOutputFormatDesc)
 }
 
 // ---------------------------------------------------------------------------
@@ -231,7 +231,7 @@ func runProjectList(cmd *cobra.Command, _ []string) error {
 		return cli.PrintJSON(os.Stdout, projectsRaw)
 	}
 
-	fullID, _ := cmd.Flags().GetBool("full-id")
+	fullID, _ := cmd.Flags().GetBool(flagFullID)
 	actors := loadActorDisplayLookup(ctx, client)
 	headers := []string{"ID", "TITLE", "STATUS", "LEAD", "CREATED"}
 	rows := make([][]string, 0, len(projectsRaw))
@@ -268,11 +268,11 @@ func runProjectGet(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
 	var project map[string]any
-	if err := client.GetJSON(ctx, "/api/projects/"+projectRef.ID, &project); err != nil {
+	if err := client.GetJSON(ctx, apiProjectsPrefix+projectRef.ID, &project); err != nil {
 		return fmt.Errorf("get project: %w", err)
 	}
 
@@ -338,10 +338,10 @@ func runProjectCreate(cmd *cobra.Command, _ []string) error {
 		body["lead_type"] = aType
 		body["lead_id"] = aID
 	}
-	if v, _ := cmd.Flags().GetString("start-date"); v != "" {
+	if v, _ := cmd.Flags().GetString(flagStartDate); v != "" {
 		body["start_date"] = v
 	}
-	if v, _ := cmd.Flags().GetString("due-date"); v != "" {
+	if v, _ := cmd.Flags().GetString(flagDueDate); v != "" {
 		body["due_date"] = v
 	}
 
@@ -397,7 +397,7 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
 	body := map[string]any{}
@@ -431,12 +431,12 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 	}
 	// Changed() (not "") so an explicit --start-date "" reaches the server as a
 	// clear, mirroring the issue update CLI.
-	if cmd.Flags().Changed("start-date") {
-		v, _ := cmd.Flags().GetString("start-date")
+	if cmd.Flags().Changed(flagStartDate) {
+		v, _ := cmd.Flags().GetString(flagStartDate)
 		body["start_date"] = v
 	}
-	if cmd.Flags().Changed("due-date") {
-		v, _ := cmd.Flags().GetString("due-date")
+	if cmd.Flags().Changed(flagDueDate) {
+		v, _ := cmd.Flags().GetString(flagDueDate)
 		body["due_date"] = v
 	}
 
@@ -445,7 +445,7 @@ func runProjectUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/projects/"+projectRef.ID, body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiProjectsPrefix+projectRef.ID, body, &result); err != nil {
 		return fmt.Errorf("update project: %w", err)
 	}
 
@@ -475,10 +475,10 @@ func runProjectDelete(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
-	if err := client.DeleteJSON(ctx, "/api/projects/"+projectRef.ID); err != nil {
+	if err := client.DeleteJSON(ctx, apiProjectsPrefix+projectRef.ID); err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
 
@@ -504,12 +504,12 @@ func runProjectStatus(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, id)
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
 	body := map[string]any{"status": status}
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/projects/"+projectRef.ID, body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiProjectsPrefix+projectRef.ID, body, &result); err != nil {
 		return fmt.Errorf("update status: %w", err)
 	}
 
@@ -537,11 +537,11 @@ func runProjectResourceList(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
 	var result map[string]any
-	if err := client.GetJSON(ctx, "/api/projects/"+projectRef.ID+"/resources", &result); err != nil {
+	if err := client.GetJSON(ctx, apiProjectsPrefix+projectRef.ID+pathResources, &result); err != nil {
 		return fmt.Errorf("list project resources: %w", err)
 	}
 	resourcesRaw, _ := result["resources"].([]any)
@@ -551,7 +551,7 @@ func runProjectResourceList(cmd *cobra.Command, args []string) error {
 		return cli.PrintJSON(os.Stdout, resourcesRaw)
 	}
 
-	fullID, _ := cmd.Flags().GetBool("full-id")
+	fullID, _ := cmd.Flags().GetBool(flagFullID)
 	headers := []string{"ID", "TYPE", "REF", "LABEL"}
 	rows := make([][]string, 0, len(resourcesRaw))
 	for _, raw := range resourcesRaw {
@@ -598,18 +598,18 @@ func runProjectResourceAdd(cmd *cobra.Command, args []string) error {
 			}
 			body["resource_ref"] = ref
 		case "local_directory":
-			pathVal, _ := cmd.Flags().GetString("local-path")
+			pathVal, _ := cmd.Flags().GetString(flagLocalPath)
 			pathVal = strings.TrimSpace(pathVal)
-			daemonVal, _ := cmd.Flags().GetString("daemon-id")
+			daemonVal, _ := cmd.Flags().GetString(flagDaemonID)
 			daemonVal = strings.TrimSpace(daemonVal)
 			if pathVal == "" || daemonVal == "" {
 				return fmt.Errorf("local_directory requires --local-path and --daemon-id (or pass a JSON payload via --ref)")
 			}
 			ref := map[string]any{"local_path": pathVal, "daemon_id": daemonVal}
-			if refLabel, _ := cmd.Flags().GetString("ref-label"); strings.TrimSpace(refLabel) != "" {
+			if refLabel, _ := cmd.Flags().GetString(flagRefLabel); strings.TrimSpace(refLabel) != "" {
 				ref["label"] = strings.TrimSpace(refLabel)
 			}
-			if mode, _ := cmd.Flags().GetString("execution-mode"); strings.TrimSpace(mode) != "" {
+			if mode, _ := cmd.Flags().GetString(flagExecutionMode); strings.TrimSpace(mode) != "" {
 				ref["execution_mode"] = strings.TrimSpace(mode)
 			}
 			body["resource_ref"] = ref
@@ -632,11 +632,11 @@ func runProjectResourceAdd(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, "/api/projects/"+projectRef.ID+"/resources", body, &result); err != nil {
+	if err := client.PostJSON(ctx, apiProjectsPrefix+projectRef.ID+pathResources, body, &result); err != nil {
 		return fmt.Errorf("add project resource: %w", err)
 	}
 
@@ -665,7 +665,7 @@ func runProjectResourceUpdate(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 	resourceRef, err := resolveProjectResourceID(ctx, client, projectRef.ID, args[1])
 	if err != nil {
@@ -678,7 +678,7 @@ func runProjectResourceUpdate(cmd *cobra.Command, args []string) error {
 	// rebuild the full payload here — otherwise the unmentioned `url` would
 	// vanish and the server would 400.
 	var existing map[string]any
-	if err := client.GetJSON(ctx, "/api/projects/"+projectRef.ID+"/resources", &existing); err != nil {
+	if err := client.GetJSON(ctx, apiProjectsPrefix+projectRef.ID+pathResources, &existing); err != nil {
 		return fmt.Errorf("list project resources: %w", err)
 	}
 	var resourceType string
@@ -733,7 +733,7 @@ func runProjectResourceUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/projects/"+projectRef.ID+"/resources/"+resourceRef.ID, body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiProjectsPrefix+projectRef.ID+"/resources/"+resourceRef.ID, body, &result); err != nil {
 		return fmt.Errorf("update project resource: %w", err)
 	}
 
@@ -799,7 +799,7 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 	switch resourceType {
 	case "github_repo":
 		urlSet := cmd.Flags().Changed("url")
-		hintSet := cmd.Flags().Changed("default-branch-hint")
+		hintSet := cmd.Flags().Changed(flagDefaultBranchHint)
 		refSet := cmd.Flags().Changed("ref")
 		if !urlSet && !hintSet && !refSet {
 			return nil, false, nil
@@ -827,7 +827,7 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 			ref["url"] = urlVal
 		}
 		if hintSet {
-			hint := strings.TrimSpace(mustString(cmd, "default-branch-hint"))
+			hint := strings.TrimSpace(mustString(cmd, flagDefaultBranchHint))
 			if hint == "" {
 				delete(ref, "default_branch_hint")
 			} else {
@@ -847,10 +847,10 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 		}
 		return ref, true, nil
 	case "local_directory":
-		pathSet := cmd.Flags().Changed("local-path")
-		daemonSet := cmd.Flags().Changed("daemon-id")
-		labelSet := cmd.Flags().Changed("ref-label")
-		modeSet := cmd.Flags().Changed("execution-mode")
+		pathSet := cmd.Flags().Changed(flagLocalPath)
+		daemonSet := cmd.Flags().Changed(flagDaemonID)
+		labelSet := cmd.Flags().Changed(flagRefLabel)
+		modeSet := cmd.Flags().Changed(flagExecutionMode)
 		if !pathSet && !daemonSet && !labelSet && !modeSet {
 			return nil, false, nil
 		}
@@ -870,21 +870,21 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 			}
 		}
 		if pathSet {
-			pathVal := strings.TrimSpace(mustString(cmd, "local-path"))
+			pathVal := strings.TrimSpace(mustString(cmd, flagLocalPath))
 			if pathVal == "" {
 				return nil, false, fmt.Errorf("--local-path cannot be empty")
 			}
 			ref["local_path"] = pathVal
 		}
 		if daemonSet {
-			daemonVal := strings.TrimSpace(mustString(cmd, "daemon-id"))
+			daemonVal := strings.TrimSpace(mustString(cmd, flagDaemonID))
 			if daemonVal == "" {
 				return nil, false, fmt.Errorf("--daemon-id cannot be empty")
 			}
 			ref["daemon_id"] = daemonVal
 		}
 		if labelSet {
-			refLabel := strings.TrimSpace(mustString(cmd, "ref-label"))
+			refLabel := strings.TrimSpace(mustString(cmd, flagRefLabel))
 			if refLabel == "" {
 				delete(ref, "label")
 			} else {
@@ -894,7 +894,7 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 		if modeSet {
 			// An empty value clears the field back to the in_place default,
 			// mirroring how --ref-label clears a label.
-			mode := strings.TrimSpace(mustString(cmd, "execution-mode"))
+			mode := strings.TrimSpace(mustString(cmd, flagExecutionMode))
 			if mode == "" {
 				delete(ref, "execution_mode")
 			} else {
@@ -910,9 +910,9 @@ func buildResourceRefFromFlags(cmd *cobra.Command, resourceType string, existing
 		return ref, true, nil
 	default:
 		// Unknown type or empty (resource not found) — caller must use --ref.
-		if cmd.Flags().Changed("url") || cmd.Flags().Changed("default-branch-hint") ||
-			cmd.Flags().Changed("local-path") || cmd.Flags().Changed("daemon-id") ||
-			cmd.Flags().Changed("ref-label") || cmd.Flags().Changed("execution-mode") {
+		if cmd.Flags().Changed("url") || cmd.Flags().Changed(flagDefaultBranchHint) ||
+			cmd.Flags().Changed(flagLocalPath) || cmd.Flags().Changed(flagDaemonID) ||
+			cmd.Flags().Changed(flagRefLabel) || cmd.Flags().Changed(flagExecutionMode) {
 			return nil, false, fmt.Errorf("no built-in shortcut for resource type %q; pass the full payload via --ref '<json>'", resourceType)
 		}
 		return nil, false, nil
@@ -935,14 +935,14 @@ func runProjectResourceRemove(cmd *cobra.Command, args []string) error {
 
 	projectRef, err := resolveProjectID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve project: %w", err)
+		return fmt.Errorf(errResolveProject, err)
 	}
 	resourceRef, err := resolveProjectResourceID(ctx, client, projectRef.ID, args[1])
 	if err != nil {
 		return fmt.Errorf("resolve project resource: %w", err)
 	}
 
-	if err := client.DeleteJSON(ctx, "/api/projects/"+projectRef.ID+"/resources/"+resourceRef.ID); err != nil {
+	if err := client.DeleteJSON(ctx, apiProjectsPrefix+projectRef.ID+"/resources/"+resourceRef.ID); err != nil {
 		return fmt.Errorf("remove project resource: %w", err)
 	}
 

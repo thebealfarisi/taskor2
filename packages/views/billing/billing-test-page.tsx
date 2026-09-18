@@ -221,7 +221,7 @@ function BalanceCard() {
         </div>
         <RefreshButton
           isLoading={balance.isFetching}
-          onClick={() => void balance.refetch()}
+          onClick={() => balance.refetch()}
         />
       </CardHeader>
       <CardContent>
@@ -425,7 +425,7 @@ function TransactionsCard() {
         </div>
         <RefreshButton
           isLoading={txs.isFetching}
-          onClick={() => void txs.refetch()}
+          onClick={() => txs.refetch()}
         />
       </CardHeader>
       <CardContent>
@@ -505,7 +505,7 @@ function BatchesCard() {
         </div>
         <RefreshButton
           isLoading={batches.isFetching}
-          onClick={() => void batches.refetch()}
+          onClick={() => batches.refetch()}
         />
       </CardHeader>
       <CardContent>
@@ -578,7 +578,7 @@ function TopupsCard() {
         </div>
         <RefreshButton
           isLoading={topups.isFetching}
-          onClick={() => void topups.refetch()}
+          onClick={() => topups.refetch()}
         />
       </CardHeader>
       <CardContent>

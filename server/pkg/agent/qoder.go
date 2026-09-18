@@ -341,7 +341,7 @@ func (b *qoderBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		// Flip just before session/prompt so history replay flushed during setup
 		// is dropped; every notification for this turn is processed afterward.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": userText},

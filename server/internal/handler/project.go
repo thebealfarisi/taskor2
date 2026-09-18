@@ -175,11 +175,11 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	workspaceID := h.resolveWorkspaceID(r)
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "project id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramProjectID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -187,7 +187,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		ID: idUUID, WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, http.StatusNotFound, errMsgProjectNotFound)
 		return
 	}
 	resp := projectToResponse(project)
@@ -316,18 +316,18 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		}
 		ref, err := validateAndNormalizeResourceRef(res.ResourceType, res.ResourceRef)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "resources["+strconv.Itoa(i)+"]: "+err.Error())
+			writeError(w, http.StatusBadRequest, prefixResourcesBracket+strconv.Itoa(i)+"]: "+err.Error())
 			return
 		}
 		normalizedRefs[i] = ref
 		if res.ResourceType == "local_directory" {
 			var ld localDirectoryRef
 			if err := json.Unmarshal(ref, &ld); err != nil {
-				writeError(w, http.StatusBadRequest, "resources["+strconv.Itoa(i)+"]: "+err.Error())
+				writeError(w, http.StatusBadRequest, prefixResourcesBracket+strconv.Itoa(i)+"]: "+err.Error())
 				return
 			}
 			if prev, ok := localDirSeen[ld.DaemonID]; ok {
-				writeError(w, http.StatusBadRequest, "resources["+strconv.Itoa(i)+"]: duplicate local_directory for daemon (already at index "+strconv.Itoa(prev)+"); each daemon may attach at most one local_directory per project")
+				writeError(w, http.StatusBadRequest, prefixResourcesBracket+strconv.Itoa(i)+"]: duplicate local_directory for daemon (already at index "+strconv.Itoa(prev)+"); each daemon may attach at most one local_directory per project")
 				return
 			}
 			localDirSeen[ld.DaemonID] = i
@@ -406,7 +406,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			if isUniqueViolation(err) {
-				writeError(w, http.StatusConflict, "resources["+strconv.Itoa(i)+"]: this resource is already attached")
+				writeError(w, http.StatusConflict, prefixResourcesBracket+strconv.Itoa(i)+"]: this resource is already attached")
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "failed to attach resource at index "+strconv.Itoa(i))
@@ -447,11 +447,11 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	workspaceID := h.resolveWorkspaceID(r)
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "project id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramProjectID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -459,7 +459,7 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		ID: idUUID, WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, http.StatusNotFound, errMsgProjectNotFound)
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -576,11 +576,11 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	workspaceID := h.resolveWorkspaceID(r)
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "project id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramProjectID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -588,10 +588,10 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		ID: idUUID, WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "project not found")
+		writeError(w, http.StatusNotFound, errMsgProjectNotFound)
 		return
 	}
-	requester, ok := h.requireWorkspaceRole(w, r, uuidToString(project.WorkspaceID), "project not found", "owner", "admin")
+	requester, ok := h.requireWorkspaceRole(w, r, uuidToString(project.WorkspaceID), errMsgProjectNotFound, "owner", "admin")
 	if !ok {
 		return
 	}
@@ -609,7 +609,7 @@ func (h *Handler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: project.WorkspaceID,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "project not found")
+			writeError(w, http.StatusNotFound, errMsgProjectNotFound)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to lock project")
@@ -671,8 +671,8 @@ func buildProjectSearchQuery(phrase string, terms []string, includeClosed bool) 
 
 	escapedPhrase := escapeLike(phrase)
 	phraseParam := nextArg(escapedPhrase)
-	phraseContains := "'%' || " + phraseParam + " || '%'"
-	phraseStartsWith := phraseParam + " || '%'"
+	phraseContains := "'%' || " + phraseParam + sqlLikeWildcardSuffix
+	phraseStartsWith := phraseParam + sqlLikeWildcardSuffix
 
 	wsParam := nextArg(nil) // workspace_id placeholder
 
@@ -698,7 +698,7 @@ func buildProjectSearchQuery(phrase string, terms []string, includeClosed bool) 
 	if len(termParams) > 1 {
 		var termConditions []string
 		for _, tp := range termParams {
-			tc := "'%' || " + tp + " || '%'"
+			tc := "'%' || " + tp + sqlLikeWildcardSuffix
 			termConditions = append(termConditions, fmt.Sprintf(
 				"(LOWER(p.title) LIKE %s OR LOWER(COALESCE(p.description, '')) LIKE %s)",
 				tc, tc,

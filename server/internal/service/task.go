@@ -1132,22 +1132,22 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, p enqueueIssueTaskPa
 func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, p enqueueIssueTaskParams) (db.AgentTaskQueue, error) {
 	issue, triggerCommentID, coalescedCommentIDs, forceFreshSession, handoffNote, actorUserID, rerunOfTaskID, fireAt := p.Issue, p.TriggerCommentID, p.CoalescedCommentIDs, p.ForceFreshSession, p.HandoffNote, p.ActorUserID, p.RerunOfTaskID, p.FireAt
 	if !issue.AssigneeID.Valid {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
+		slog.Error(errMsgTaskEnqueueFailed, "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
 		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
 	}
 
 	agent, err := s.Queries.GetAgent(ctx, issue.AssigneeID)
 	if err != nil {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		slog.Error(errMsgTaskEnqueueFailed, "issue_id", util.UUIDToString(issue.ID), "error", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLoadAgent, err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agent.ID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentArchived)
 	}
 	if !agent.RuntimeID.Valid {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "agent has no runtime")
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		slog.Error(errMsgTaskEnqueueFailed, "issue_id", util.UUIDToString(issue.ID), "error", errMsgAgentNoRuntime)
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentNoRuntime)
 	}
 
 	// The issue assignee reacting to an agent-authored comment is a
@@ -1223,7 +1223,7 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, p enq
 		task, err = s.Queries.CreateAgentTask(ctx, createParams)
 	}
 	if err != nil {
-		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
+		slog.Error(errMsgTaskEnqueueFailed, "issue_id", util.UUIDToString(issue.ID), "error", err)
 		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
 	}
 
@@ -1331,15 +1331,15 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, p e
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("mention task enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLoadAgent, err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("mention task enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentArchived)
 	}
 	if !agent.RuntimeID.Valid {
 		slog.Error("mention task enqueue failed: agent has no runtime", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentNoRuntime)
 	}
 
 	// An explicit mention / thread-parent / squad-leader hop from an
@@ -1411,15 +1411,15 @@ func (s *TaskService) EnqueueDeferredAssigneeFallback(ctx context.Context, issue
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("deferred fallback enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLoadAgent, err)
 	}
 	if agent.ArchivedAt.Valid {
 		slog.Debug("deferred fallback enqueue skipped: agent is archived", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentArchived)
 	}
 	if !agent.RuntimeID.Valid {
 		slog.Error("deferred fallback enqueue failed: agent has no runtime", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentNoRuntime)
 	}
 
 	// The fallback assignee is reacting to the same trigger comment as the primary
@@ -1548,13 +1548,13 @@ func (s *TaskService) EnqueueQuickCreateTask(ctx context.Context, p EnqueueQuick
 	workspaceID, requesterID, agentID, squadID, prompt, priority, dueDate, projectID, parentIssueID, attachmentIDs := p.WorkspaceID, p.RequesterID, p.AgentID, p.SquadID, p.Prompt, p.Priority, p.DueDate, p.ProjectID, p.ParentIssueID, p.AttachmentIDs
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLoadAgent, err)
 	}
 	if agent.ArchivedAt.Valid {
-		return db.AgentTaskQueue{}, fmt.Errorf("agent is archived")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentArchived)
 	}
 	if !agent.RuntimeID.Valid {
-		return db.AgentTaskQueue{}, fmt.Errorf("agent has no runtime")
+		return db.AgentTaskQueue{}, fmt.Errorf(errMsgAgentNoRuntime)
 	}
 
 	payload := QuickCreateContext{
@@ -1715,8 +1715,8 @@ var ErrChatSessionArchived = errors.New("chat task: session archived")
 func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSession, initiatorUserID pgtype.UUID, forceFreshSession bool) (db.AgentTaskQueue, error) {
 	agent, err := s.Queries.GetAgent(ctx, chatSession.AgentID)
 	if err != nil {
-		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
-		return db.AgentTaskQueue{}, fmt.Errorf("load agent: %w", err)
+		slog.Error(errMsgChatTaskEnqueueFailed, "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLoadAgent, err)
 	}
 	if agent.ArchivedAt.Valid {
 		return db.AgentTaskQueue{}, ErrChatTaskAgentArchived
@@ -1772,7 +1772,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 	// unchanged and no new deadlock edge appears.
 	currentSession, err := qtx.LockChatSessionForEnqueue(ctx, chatSession.ID)
 	if err != nil {
-		return db.AgentTaskQueue{}, fmt.Errorf("lock chat session: %w", err)
+		return db.AgentTaskQueue{}, fmt.Errorf(errFmtLockChatSession, err)
 	}
 	if currentSession.Status != "active" {
 		return db.AgentTaskQueue{}, ErrChatSessionArchived
@@ -1789,7 +1789,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 	}
 	mediaPendingUntil, err := qtx.GetChannelMediaPendingUntil(ctx, chatSession.ID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
+		slog.Error(errMsgChatTaskEnqueueFailed, "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
 		return db.AgentTaskQueue{}, fmt.Errorf("load channel media pending deadline: %w", err)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1816,7 +1816,7 @@ func (s *TaskService) EnqueueChatTask(ctx context.Context, chatSession db.ChatSe
 		TriggerEvidenceRefID: attrEvidenceRef,
 	})
 	if err != nil {
-		slog.Error("chat task enqueue failed", "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
+		slog.Error(errMsgChatTaskEnqueueFailed, "chat_session_id", util.UUIDToString(chatSession.ID), "error", err)
 		return db.AgentTaskQueue{}, fmt.Errorf("create chat task: %w", err)
 	}
 	task, err = qtx.SetChatTaskInputOwnerSelf(ctx, task.ID)
@@ -2057,7 +2057,7 @@ func (s *TaskService) SendDirectChatMessage(ctx context.Context, p SendDirectCha
 		// running on the old runtime. Locking chat_session first also matches the
 		// delete path's lock order, so the two cannot deadlock.
 		if _, err := qtx.LockChatSessionForRuntimeBind(ctx, session.ID); err != nil {
-			return fmt.Errorf("lock chat session: %w", err)
+			return fmt.Errorf(errFmtLockChatSession, err)
 		}
 		currentSession, err := qtx.GetChatSession(ctx, session.ID)
 		if err != nil {
@@ -2210,7 +2210,7 @@ func (s *TaskService) OpenMikaOnboardingChat(ctx context.Context, session db.Cha
 		// Same lock and lock ORDER as the send path, so an opening racing a
 		// first send or a runtime rebind serializes instead of deadlocking.
 		if _, err := qtx.LockChatSessionForRuntimeBind(ctx, session.ID); err != nil {
-			return fmt.Errorf("lock chat session: %w", err)
+			return fmt.Errorf(errFmtLockChatSession, err)
 		}
 		current, err := qtx.GetChatSession(ctx, session.ID)
 		if err != nil {
@@ -2614,7 +2614,7 @@ func (s *TaskService) CancelQueuedChatTasks(ctx context.Context, sessionID, agen
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil
 			}
-			return fmt.Errorf("lock chat session: %w", err)
+			return fmt.Errorf(errFmtLockChatSession, err)
 		}
 		if _, err := qtx.GetAgentForClaimUpdate(ctx, agentID); err != nil {
 			return fmt.Errorf("lock chat agent: %w", err)
@@ -2730,7 +2730,7 @@ func (s *TaskService) settleQueuedChatInput(
 			ID:            dbid.NewV7(),
 			ChatSessionID: task.ChatSessionID,
 			Role:          "assistant",
-			Content:       "Stopped.",
+			Content:       statusTextStopped,
 			TaskID:        task.ID,
 			ElapsedMs:     computeChatElapsedMs(task),
 		}); err != nil {
@@ -2819,7 +2819,7 @@ func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.
 			// the binding while the messages (and a still-cancellable task)
 			// remain. Keyed by the input-batch owner id so an auto-retry
 			// clone (which inherits chat_input_task_id) reaches the same
-			// verdict as its parent. A channel task settles as "Stopped."
+			// verdict as its parent. A channel task settles as statusTextStopped
 			// below instead of deleting its sealed input batch.
 			channelIngested, err := qtx.TaskHasChannelIngestedMessages(ctx, chatInputOwnerID(task))
 			if err != nil {
@@ -2878,7 +2878,7 @@ func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.
 			ID:            dbid.NewV7(),
 			ChatSessionID: task.ChatSessionID,
 			Role:          "assistant",
-			Content:       "Stopped.",
+			Content:       statusTextStopped,
 			TaskID:        task.ID,
 			ElapsedMs:     computeChatElapsedMs(task),
 		}); err != nil {
@@ -3034,7 +3034,7 @@ func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID 
 			ID:            dbid.NewV7(),
 			ChatSessionID: claimed.ChatSessionID,
 			Role:          "assistant",
-			Content:       "Stopped.",
+			Content:       statusTextStopped,
 			TaskID:        claimed.ID,
 			ElapsedMs:     computeChatElapsedMs(claimed),
 		})
@@ -5507,7 +5507,7 @@ func (s *TaskService) ensureDelegatedFailureRecoveryComment(ctx context.Context,
 					"type":           target.comment.Type,
 					"parent_id":      util.UUIDToPtr(target.comment.ParentID),
 					"source_task_id": util.UUIDToPtr(target.comment.SourceTaskID),
-					"created_at":     target.comment.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+					"created_at":     target.comment.CreatedAt.Time.Format(timeLayoutISO),
 				},
 				"issue_title":  target.issue.Title,
 				"issue_status": target.issue.Status,
@@ -5657,7 +5657,7 @@ func (s *TaskService) exhaustDelegatedFailureRecovery(ctx context.Context, targe
 					"type":           exhaustedComment.Type,
 					"parent_id":      util.UUIDToPtr(exhaustedComment.ParentID),
 					"source_task_id": util.UUIDToPtr(exhaustedComment.SourceTaskID),
-					"created_at":     exhaustedComment.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+					"created_at":     exhaustedComment.CreatedAt.Time.Format(timeLayoutISO),
 				},
 				"issue_title":  target.issue.Title,
 				"issue_status": target.issue.Status,
@@ -6450,7 +6450,7 @@ func (s *TaskService) createAgentComment(ctx context.Context, issueID, agentID p
 				"type":           comment.Type,
 				"parent_id":      util.UUIDToPtr(comment.ParentID),
 				"source_task_id": util.UUIDToPtr(comment.SourceTaskID),
-				"created_at":     comment.CreatedAt.Time.Format("2006-01-02T15:04:05Z"),
+				"created_at":     comment.CreatedAt.Time.Format(timeLayoutISO),
 				"revision":       comment.Revision,
 			},
 			"issue_title":    issue.Title,

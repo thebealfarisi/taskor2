@@ -69,7 +69,7 @@ export function installContextMenu(webContents: WebContents): void {
             // openExternalSafely re-validates the scheme — defense in
             // depth in case Electron ever surfaces a non-http linkURL
             // we forgot to filter at this layer.
-            void openExternalSafely(linkURL);
+            openExternalSafely(linkURL);
           },
         }),
       );

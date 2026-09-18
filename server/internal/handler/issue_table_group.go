@@ -88,7 +88,7 @@ type resolvedIssueTableGroup struct {
 // exactly `i.status`. (MUL-6243)
 func statusCategoryExpr(customKeys map[string]string, addArg func(any) string) string {
 	if len(customKeys) == 0 {
-		return "i.status"
+		return sqlStatusCol
 	}
 	keys := make([]string, 0, len(customKeys))
 	for key := range customKeys {
@@ -167,7 +167,7 @@ func (h *Handler) resolveIssueTableGroup(w http.ResponseWriter, r *http.Request,
 		}
 		return resolvedIssueTableGroup{kind: "none"}, true
 	case "status":
-		return resolvedIssueTableGroup{kind: "status", groupExpr: "i.status"}, true
+		return resolvedIssueTableGroup{kind: "status", groupExpr: sqlStatusCol}, true
 	case "status_category":
 		// Board / list / swimlane columns are CATEGORIES, so a custom status
 		// groups into the column it behaves as instead of getting a column of
@@ -175,7 +175,7 @@ func (h *Handler) resolveIssueTableGroup(w http.ResponseWriter, r *http.Request,
 		customKeys, categoryKeys, err := h.resolveStatusCategoryMaps(r.Context(), workspaceID)
 		if err != nil {
 			slog.Warn("resolve status category group failed", append(logger.RequestAttrs(r), "error", err)...)
-			writeIssueTableQueryFailure(w, r, "failed to resolve table group")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToResolveTableGroup)
 			return resolvedIssueTableGroup{}, false
 		}
 		return resolvedIssueTableGroup{
@@ -251,7 +251,7 @@ END, ''))`,
 			customKeys, categoryKeys, err := h.resolveStatusCategoryMaps(r.Context(), workspaceID)
 			if err != nil {
 				slog.Warn("resolve compound status category group failed", append(logger.RequestAttrs(r), "error", err)...)
-				writeIssueTableQueryFailure(w, r, "failed to resolve table group")
+				writeIssueTableQueryFailure(w, r, errMsgFailedToResolveTableGroup)
 				return resolvedIssueTableGroup{}, false
 			}
 			resolved.statusCustomKeys = customKeys
@@ -274,7 +274,7 @@ END, ''))`,
 				return resolvedIssueTableGroup{}, false
 			}
 			slog.Warn("resolve table group property failed", append(logger.RequestAttrs(r), "error", err)...)
-			writeIssueTableQueryFailure(w, r, "failed to resolve table group")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToResolveTableGroup)
 			return resolvedIssueTableGroup{}, false
 		}
 		if property.ArchivedAt.Valid {
@@ -565,7 +565,7 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 	if group.kind == "compound" && group.primary != nil {
 		const prefix = "compound:"
 		if !strings.HasPrefix(key, prefix) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		encodedAndStatus := strings.TrimPrefix(key, prefix)
@@ -575,12 +575,12 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		}
 		encoded, status, ok := strings.Cut(encodedAndStatus, axis)
 		if !ok || !issueTableContainsString(validIssueStatuses, status) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		decoded, err := base64.RawURLEncoding.DecodeString(encoded)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		primaryPredicate, ok := group.primary.predicate(w, string(decoded), addArg)
@@ -606,14 +606,14 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		// key match either way. Length-bounded so an arbitrary blob cannot ride
 		// in as a status key.
 		if !found || status == "" || len(status) > 64 {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		return fmt.Sprintf("i.status = %s::text", addArg(status)), true
 	case "status_category":
 		category, ok := parseStatusCategoryGroupKey(key)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		// Expanded to concrete keys rather than wrapping the column in a
@@ -623,7 +623,7 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 	case "assignee":
 		const prefix = "assignee:"
 		if !strings.HasPrefix(key, prefix) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		raw := strings.TrimPrefix(key, prefix)
@@ -632,19 +632,19 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		}
 		parts := strings.SplitN(raw, ":", 2)
 		if len(parts) != 2 || !isIssueActorType(parts[0]) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		id, err := util.ParseUUID(parts[1])
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		return fmt.Sprintf("i.assignee_type = %s::text AND i.assignee_id = %s::uuid", addArg(parts[0]), addArg(id)), true
 	case "project":
 		const prefix = "project:"
 		if !strings.HasPrefix(key, prefix) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		raw := strings.TrimPrefix(key, prefix)
@@ -653,14 +653,14 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		}
 		id, err := util.ParseUUID(raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		return fmt.Sprintf("i.project_id = %s::uuid", addArg(id)), true
 	case "parent":
 		const prefix = "parent:"
 		if !strings.HasPrefix(key, prefix) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		raw := strings.TrimPrefix(key, prefix)
@@ -669,25 +669,25 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		}
 		id, err := util.ParseUUID(raw)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		return fmt.Sprintf("i.parent_issue_id = %s::uuid", addArg(id)), true
 	case "property":
 		prefix := "property:" + group.propertyID + ":"
 		if !strings.HasPrefix(key, prefix) {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		rest := strings.TrimPrefix(key, prefix)
 		state, encoded, ok := strings.Cut(rest, ":")
 		if !ok {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		decoded, err := base64.RawURLEncoding.DecodeString(encoded)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 		value := string(decoded)
@@ -695,20 +695,20 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 		switch state {
 		case "unset":
 			if value != "" {
-				writeError(w, http.StatusBadRequest, "invalid group_key")
+				writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 				return "", false
 			}
 			return fmt.Sprintf("NOT (i.properties ? %s)", keySQL), true
 		case "value":
 			if group.propertyType == "select" {
 				if _, exists := group.activeOptions[value]; !exists {
-					writeError(w, http.StatusBadRequest, "invalid group_key")
+					writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 					return "", false
 				}
 				return fmt.Sprintf("jsonb_typeof(i.properties -> %s) = 'string' AND i.properties ->> %s = %s::text", keySQL, keySQL, addArg(value)), true
 			}
 			if value != "true" && value != "false" {
-				writeError(w, http.StatusBadRequest, "invalid group_key")
+				writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 				return "", false
 			}
 			return fmt.Sprintf("jsonb_typeof(i.properties -> %s) = 'boolean' AND i.properties ->> %s = %s::text", keySQL, keySQL, addArg(value)), true
@@ -718,11 +718,11 @@ func (group resolvedIssueTableGroup) predicate(w http.ResponseWriter, key string
 			}
 			return fmt.Sprintf("i.properties ? %s AND jsonb_typeof(i.properties -> %s) <> %s::text", keySQL, keySQL, addArg(map[string]string{"select": "string", "checkbox": "boolean"}[group.propertyType])), true
 		default:
-			writeError(w, http.StatusBadRequest, "invalid group_key")
+			writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 			return "", false
 		}
 	default:
-		writeError(w, http.StatusBadRequest, "invalid group_key")
+		writeError(w, http.StatusBadRequest, errMsgInvalidGroupKey)
 		return "", false
 	}
 }
@@ -801,11 +801,11 @@ func (h *Handler) ListIssueTableGroups(w http.ResponseWriter, r *http.Request) {
   GROUP BY 1
 )`, groupExpr, compiled.where)
 	if request.Group.IncludeEmpty && group.kind == "property" {
-		expectedValues := []string{"unset:"}
+		expectedValues := []string{prefixUnset}
 		if group.propertyType == "select" {
-			expectedValues = append(append([]string(nil), group.activeOptionOrder...), "unset:")
+			expectedValues = append(append([]string(nil), group.activeOptionOrder...), prefixUnset)
 		} else {
-			expectedValues = []string{"value:false", "value:true", "unset:"}
+			expectedValues = []string{"value:false", "value:true", prefixUnset}
 		}
 		expectedRef := addArg(expectedValues)
 		groupedCTE = fmt.Sprintf(`actual AS (
@@ -832,7 +832,7 @@ func (h *Handler) ListIssueTableGroups(w http.ResponseWriter, r *http.Request) {
 		// The secondary axis is either the status key itself or the CATEGORY it
 		// behaves as. In the category case a custom status counts into the cell
 		// of the column it renders in, never a cell of its own. (MUL-6243)
-		secondaryExpr := "i.status"
+		secondaryExpr := sqlStatusCol
 		if group.secondaryCategory {
 			secondaryExpr = statusCategoryExpr(group.statusCustomKeys, addArg)
 		}
@@ -920,7 +920,7 @@ func (h *Handler) ListIssueTableGroups(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.DB.Query(r.Context(), query, args...)
 	if err != nil {
 		slog.Warn("ListIssueTableGroups query failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeIssueTableQueryFailure(w, r, "failed to list table groups")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableGroups)
 		return
 	}
 	defer rows.Close()
@@ -938,27 +938,27 @@ func (h *Handler) ListIssueTableGroups(w http.ResponseWriter, r *http.Request) {
 		var contextJSON []byte
 		var order int
 		if err := rows.Scan(&raw, &count, &secondaryJSON, &sortValue, &contextJSON, &order, &total); err != nil {
-			writeIssueTableQueryFailure(w, r, "failed to list table groups")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToListTableGroups)
 			return
 		}
 		var context issueTableGroupContext
 		if len(contextJSON) > 0 {
 			if err := json.Unmarshal(contextJSON, &context); err != nil {
-				writeIssueTableQueryFailure(w, r, "failed to resolve table group")
+				writeIssueTableQueryFailure(w, r, errMsgFailedToResolveTableGroup)
 				return
 			}
 		}
 		secondaryCounts := map[string]int64{}
 		if len(secondaryJSON) > 0 {
 			if err := json.Unmarshal(secondaryJSON, &secondaryCounts); err != nil {
-				writeIssueTableQueryFailure(w, r, "failed to resolve table group")
+				writeIssueTableQueryFailure(w, r, errMsgFailedToResolveTableGroup)
 				return
 			}
 		}
 		descriptor, err := group.descriptor(raw, count, context, secondaryCounts)
 		if err != nil {
 			slog.Warn("ListIssueTableGroups descriptor failed", append(logger.RequestAttrs(r), "error", err)...)
-			writeError(w, http.StatusInternalServerError, "failed to resolve table group")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToResolveTableGroup)
 			return
 		}
 		groups = append(groups, descriptor)
@@ -967,7 +967,7 @@ func (h *Handler) ListIssueTableGroups(w http.ResponseWriter, r *http.Request) {
 		values = append(values, raw)
 	}
 	if err := rows.Err(); err != nil {
-		writeIssueTableQueryFailure(w, r, "failed to list table groups")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableGroups)
 		return
 	}
 	rows.Close()

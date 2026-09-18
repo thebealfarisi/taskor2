@@ -228,7 +228,7 @@ func (h *Handler) CreateSquad(w http.ResponseWriter, r *http.Request) {
 	// Any workspace member can create a squad and becomes its creator
 	// (CreatorID below). This aligns squads with agents/projects, which are
 	// also member-creatable; management stays creator-scoped (MUL-4223).
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -240,7 +240,7 @@ func (h *Handler) CreateSquad(w http.ResponseWriter, r *http.Request) {
 		AvatarURL   *string `json:"avatar_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Name == "" {
@@ -309,7 +309,7 @@ func (h *Handler) CreateSquad(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.squadToResponseWithPreview(r.Context(), squad)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load squad member preview")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadSquadMemberPreview)
 		return
 	}
 	h.publish(protocol.EventSquadCreated, workspaceID, "member", uuidToString(member.UserID), map[string]any{"squad": resp})
@@ -329,7 +329,7 @@ func (h *Handler) GetSquad(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := h.squadToResponseWithPreview(r.Context(), squad)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load squad member preview")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadSquadMemberPreview)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -337,7 +337,7 @@ func (h *Handler) GetSquad(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "workspaceId")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -347,7 +347,7 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canManageSquad(member, squad) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
@@ -363,7 +363,7 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 		AvatarURL    *string `json:"avatar_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -387,7 +387,7 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update squad")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -401,7 +401,7 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 		ID:          squad.ID,
 		WorkspaceID: wsUUID,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update squad")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 		return
 	}
 
@@ -432,14 +432,14 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 			SquadID: squad.ID, MemberType: "agent", MemberID: lid,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update squad")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 			return
 		}
 		if !isMember {
 			if _, err := qtx.AddSquadMember(r.Context(), db.AddSquadMemberParams{
 				SquadID: squad.ID, MemberType: "agent", MemberID: lid, Role: "leader",
 			}); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to update squad")
+				writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 				return
 			}
 		}
@@ -449,25 +449,25 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 
 	updated, err := qtx.UpdateSquad(r.Context(), params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update squad")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 		return
 	}
 	var pausedAutopilots []db.Autopilot
 	if req.LeaderID != nil && !newLeaderRuntimeBound {
 		pausedAutopilots, err = qtx.PauseAutopilotsByUnrunnableSquad(r.Context(), squad.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update squad")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update squad")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateSquad)
 		return
 	}
 
 	resp, err := h.squadToResponseWithPreview(r.Context(), updated)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load squad member preview")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadSquadMemberPreview)
 		return
 	}
 	h.publish(protocol.EventSquadUpdated, workspaceID, "member", requestUserID(r), map[string]any{"squad": resp})
@@ -481,7 +481,7 @@ func (h *Handler) UpdateSquad(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteSquad(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "workspaceId")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -491,7 +491,7 @@ func (h *Handler) DeleteSquad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canManageSquad(member, squad) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -750,7 +750,7 @@ func (h *Handler) ListSquadMemberStatus(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) AddSquadMember(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "workspaceId")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -760,7 +760,7 @@ func (h *Handler) AddSquadMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canManageSquad(member, squad) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace_id")
@@ -774,7 +774,7 @@ func (h *Handler) AddSquadMember(w http.ResponseWriter, r *http.Request) {
 		Role       string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.MemberType != "agent" && req.MemberType != "member" {
@@ -839,7 +839,7 @@ func (h *Handler) AddSquadMember(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) RemoveSquadMember(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "workspaceId")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -849,7 +849,7 @@ func (h *Handler) RemoveSquadMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canManageSquad(member, squad) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -858,7 +858,7 @@ func (h *Handler) RemoveSquadMember(w http.ResponseWriter, r *http.Request) {
 		MemberID   string `json:"member_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -895,7 +895,7 @@ func (h *Handler) RemoveSquadMember(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) UpdateSquadMemberRole(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "workspaceId")
-	member, ok := h.requireWorkspaceMember(w, r, workspaceID, "workspace not found")
+	member, ok := h.requireWorkspaceMember(w, r, workspaceID, errMsgWorkspaceNotFound)
 	if !ok {
 		return
 	}
@@ -905,7 +905,7 @@ func (h *Handler) UpdateSquadMemberRole(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if !canManageSquad(member, squad) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
+		writeError(w, http.StatusForbidden, errMsgInsufficientPermissions)
 		return
 	}
 
@@ -915,7 +915,7 @@ func (h *Handler) UpdateSquadMemberRole(w http.ResponseWriter, r *http.Request) 
 		Role       string `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -957,7 +957,7 @@ func (h *Handler) RecordSquadLeaderEvaluation(w http.ResponseWriter, r *http.Req
 		Reason  string `json:"reason"`  // short explanation from leader
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 

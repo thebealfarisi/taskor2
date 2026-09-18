@@ -23,7 +23,7 @@ export function UpdatesSettingsTab() {
 
   useEffect(() => {
     let mounted = true;
-    void window.updater
+    window.updater
       .getPreferences()
       .then((preferences) => {
         if (mounted) setAutomaticUpdates(preferences.automaticUpdates);

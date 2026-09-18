@@ -167,7 +167,7 @@ func endpointHostname(endpointURL string) string {
 		return ""
 	}
 	if parsed.Hostname() == "" {
-		parsed, err = url.Parse("https://" + endpointURL)
+		parsed, err = url.Parse(schemeHTTPS + endpointURL)
 		if err != nil {
 			return ""
 		}
@@ -225,19 +225,19 @@ func (s *S3Storage) KeyFromURL(rawURL string) string {
 	// prefix that we used to write before the suffix bug was fixed.
 	prefixes := make([]string, 0, 5)
 	if s.cdnDomain != "" {
-		prefixes = append(prefixes, "https://"+s.cdnDomain+"/")
+		prefixes = append(prefixes, schemeHTTPS+s.cdnDomain+"/")
 	}
 	if s.region != "" {
 		// virtual-hosted-style: https://<bucket>.s3.<region>.amazonaws.com/<key>
 		prefixes = append(prefixes,
-			"https://"+s.bucket+".s3."+s.region+".amazonaws.com/",
+			schemeHTTPS+s.bucket+".s3."+s.region+".amazonaws.com/",
 			// path-style: https://s3.<region>.amazonaws.com/<bucket>/<key>
 			"https://s3."+s.region+".amazonaws.com/"+s.bucket+"/",
 		)
 	}
 	// Legacy / fallback: the buggy "https://<bucket>/<key>" form that older
 	// records may still hold, plus a generic bucket-host prefix.
-	prefixes = append(prefixes, "https://"+s.bucket+"/")
+	prefixes = append(prefixes, schemeHTTPS+s.bucket+"/")
 
 	for _, prefix := range prefixes {
 		if strings.HasPrefix(rawURL, prefix) {

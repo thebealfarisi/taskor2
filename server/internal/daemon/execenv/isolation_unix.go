@@ -36,4 +36,6 @@ func (*preparationProcessController) stop(cmd *exec.Cmd) error {
 }
 
 func (*preparationProcessController) finish() error { return nil }
-func (*preparationProcessController) close()        {}
+func (*preparationProcessController) close() {
+	// no-op on Unix: no preparation process controller resources to release.
+}

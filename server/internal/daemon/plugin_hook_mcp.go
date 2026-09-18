@@ -233,12 +233,12 @@ func (s *pluginHookMCPServer) handleCall(w http.ResponseWriter, r *http.Request,
 }
 
 func writePluginHookMCPResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 func writePluginHookMCPError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, contentTypeJSON)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"jsonrpc": "2.0", "id": id,
 		"error": map[string]any{"code": code, "message": message},

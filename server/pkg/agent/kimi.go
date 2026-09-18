@@ -375,7 +375,7 @@ func (b *kimiBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 
 		// 5. Send the prompt and wait for PromptResponse.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": userText},

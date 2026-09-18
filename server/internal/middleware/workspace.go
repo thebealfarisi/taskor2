@@ -42,7 +42,7 @@ func SetMemberContext(ctx context.Context, workspaceID string, member db.Member)
 // errWorkspaceNotFound is returned when a slug was provided but doesn't match
 // any workspace. This lets the middleware distinguish "no identifier provided"
 // (400) from "identifier provided but invalid" (404).
-var errWorkspaceNotFound = errors.New("workspace not found")
+var errWorkspaceNotFound = errors.New(errMsgWorkspaceNotFound)
 
 // ResolveWorkspaceIDFromRequest returns the workspace UUID for an HTTP
 // request using the same priority order as the workspace middleware. This is
@@ -72,8 +72,8 @@ func ResolveWorkspaceIDFromRequest(r *http.Request, queries *db.Queries) string 
 	// workspace identifier on the request (slug header/query, ID
 	// query, URL param) is the agent trying to widen its blast
 	// radius — ignore it.
-	if r.Header.Get("X-Actor-Source") == "task_token" {
-		return r.Header.Get("X-Workspace-ID")
+	if r.Header.Get(headerXActorSource) == "task_token" {
+		return r.Header.Get(headerXWorkspaceID)
 	}
 	if id := WorkspaceIDFromContext(r.Context()); id != "" {
 		return id
@@ -88,7 +88,7 @@ func ResolveWorkspaceIDFromRequest(r *http.Request, queries *db.Queries) string 
 			return util.UUIDToString(ws.ID)
 		}
 	}
-	if id := r.Header.Get("X-Workspace-ID"); id != "" {
+	if id := r.Header.Get(headerXWorkspaceID); id != "" {
 		return id
 	}
 	return r.URL.Query().Get("workspace_id")
@@ -116,8 +116,8 @@ func resolveWorkspaceUUID(queries *db.Queries) workspaceResolver {
 		// token's bound workspace. The auth middleware wrote that ID
 		// into X-Workspace-ID; nothing the agent can put on the wire
 		// (slug header/query, id query, URL param) can override it.
-		if r.Header.Get("X-Actor-Source") == "task_token" {
-			id := r.Header.Get("X-Workspace-ID")
+		if r.Header.Get(headerXActorSource) == "task_token" {
+			id := r.Header.Get(headerXWorkspaceID)
 			if id == "" {
 				return "", errWorkspaceNotFound
 			}
@@ -142,7 +142,7 @@ func resolveWorkspaceUUID(queries *db.Queries) workspaceResolver {
 		if id := r.URL.Query().Get("workspace_id"); id != "" {
 			return id, nil
 		}
-		if id := r.Header.Get("X-Workspace-ID"); id != "" {
+		if id := r.Header.Get(headerXWorkspaceID); id != "" {
 			return id, nil
 		}
 		return "", nil
@@ -197,7 +197,7 @@ func buildMiddleware(queries *db.Queries, resolve workspaceResolver, roles []str
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			workspaceID, resolveErr := resolve(r)
 			if resolveErr != nil {
-				writeError(w, http.StatusNotFound, "workspace not found")
+				writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
 				return
 			}
 			if workspaceID == "" {
@@ -211,15 +211,15 @@ func buildMiddleware(queries *db.Queries, resolve workspaceResolver, roles []str
 			// allowed to operate on a workspace other than the one
 			// stamped into its task token. This is the catch-all
 			// behind resolveWorkspaceUUID's earlier check. MUL-2600.
-			if r.Header.Get("X-Actor-Source") == "task_token" {
-				bound := r.Header.Get("X-Workspace-ID")
+			if r.Header.Get(headerXActorSource) == "task_token" {
+				bound := r.Header.Get(headerXWorkspaceID)
 				if bound == "" || workspaceID != bound {
 					writeError(w, http.StatusForbidden, "task token is bound to a different workspace")
 					return
 				}
 			}
 
-			userID := r.Header.Get("X-User-ID")
+			userID := r.Header.Get(headerXUserID)
 			if userID == "" {
 				writeError(w, http.StatusUnauthorized, "user not authenticated")
 				return
@@ -240,7 +240,7 @@ func buildMiddleware(queries *db.Queries, resolve workspaceResolver, roles []str
 				WorkspaceID: wsUUID,
 			})
 			if err != nil {
-				writeError(w, http.StatusNotFound, "workspace not found")
+				writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
 				return
 			}
 

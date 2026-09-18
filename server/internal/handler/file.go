@@ -26,8 +26,8 @@ import (
 var extContentTypes = map[string]string{
 	".svg":  "image/svg+xml",
 	".css":  "text/css",
-	".js":   "application/javascript",
-	".mjs":  "application/javascript",
+	".js":   mimeAppJavascript,
+	".mjs":  mimeAppJavascript,
 	".json": "application/json",
 	".wasm": "application/wasm",
 }
@@ -409,7 +409,7 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	buf := make([]byte, 512)
 	n, err := file.Read(buf)
 	if err != nil && err != io.EOF {
-		writeError(w, http.StatusBadRequest, "failed to read file")
+		writeError(w, http.StatusBadRequest, errMsgFailedToReadFile)
 		return
 	}
 	contentType := http.DetectContentType(buf[:n])
@@ -419,13 +419,13 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 	// Seek back so the full file is uploaded.
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to read file")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToReadFile)
 		return
 	}
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "failed to read file")
+		writeError(w, http.StatusBadRequest, errMsgFailedToReadFile)
 		return
 	}
 
@@ -736,7 +736,7 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 		return db.Attachment{}, false
 	}
 
-	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, "attachment id")
+	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, paramAttachmentID)
 	if !ok {
 		return db.Attachment{}, false
 	}
@@ -750,7 +750,7 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "attachment not found")
+		writeError(w, http.StatusNotFound, errMsgAttachmentNotFound)
 		return db.Attachment{}, false
 	}
 
@@ -777,7 +777,7 @@ func (h *Handler) loadAttachmentForRequest(w http.ResponseWriter, r *http.Reques
 // canReadWorkspaceUpload exactly.
 func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Request) (db.Attachment, bool) {
 	attachmentID := chi.URLParam(r, "id")
-	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, "attachment id")
+	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, paramAttachmentID)
 	if !ok {
 		return db.Attachment{}, false
 	}
@@ -786,7 +786,7 @@ func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Reque
 		// 404 (not 403/401) so non-member and non-existent look identical
 		// to outside callers. Same shape as ServeLocalUpload's
 		// canReadWorkspaceUpload deny path.
-		writeError(w, http.StatusNotFound, "attachment not found")
+		writeError(w, http.StatusNotFound, errMsgAttachmentNotFound)
 		return db.Attachment{}, false
 	}
 
@@ -797,14 +797,14 @@ func (h *Handler) loadAttachmentForDownload(w http.ResponseWriter, r *http.Reque
 
 	workspaceID := uuidToString(att.WorkspaceID)
 	if workspaceID == "" {
-		writeError(w, http.StatusNotFound, "attachment not found")
+		writeError(w, http.StatusNotFound, errMsgAttachmentNotFound)
 		return db.Attachment{}, false
 	}
 	if h.MembershipCache.Get(r.Context(), userID, workspaceID) {
 		return att, true
 	}
 	if _, err := h.getWorkspaceMember(r.Context(), userID, workspaceID); err != nil {
-		writeError(w, http.StatusNotFound, "attachment not found")
+		writeError(w, http.StatusNotFound, errMsgAttachmentNotFound)
 		return db.Attachment{}, false
 	}
 	h.MembershipCache.Set(r.Context(), userID, workspaceID)
@@ -977,9 +977,9 @@ func (h *Handler) proxyAttachmentDownload(w http.ResponseWriter, r *http.Request
 	defer reader.Close()
 
 	if att.ContentType != "" {
-		w.Header().Set("Content-Type", att.ContentType)
+		w.Header().Set(headerContentType, att.ContentType)
 	} else {
-		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set(headerContentType, "application/octet-stream")
 	}
 	disposition := storage.ContentDisposition(att.ContentType, att.Filename)
 	if forceAttachment {
@@ -1052,7 +1052,7 @@ func (h *Handler) serveProxyRange(w http.ResponseWriter, r *http.Request, att db
 
 	if serveFull {
 		if total >= 0 {
-			w.Header().Set("Content-Length", strconv.FormatInt(total, 10))
+			w.Header().Set(headerContentLength, strconv.FormatInt(total, 10))
 		}
 		if _, err := io.Copy(w, reader); err != nil {
 			slog.Error("failed to stream attachment download", "id", uuidToString(att.ID), "error", err)
@@ -1080,7 +1080,7 @@ func (h *Handler) serveProxyRange(w http.ResponseWriter, r *http.Request, att db
 		}
 	}
 	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+length-1, total))
-	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
+	w.Header().Set(headerContentLength, strconv.FormatInt(length, 10))
 	w.WriteHeader(http.StatusPartialContent)
 	if _, err := io.CopyN(w, reader, length); err != nil {
 		slog.Error("failed to stream attachment range", "id", uuidToString(att.ID), "error", err)
@@ -1304,7 +1304,7 @@ func (h *Handler) GetAttachmentContent(w http.ResponseWriter, r *http.Request) {
 	// Always reply as text/plain so a hostile HTML payload can't be
 	// re-interpreted as a document by the browser. The original MIME is
 	// surfaced via X-Original-Content-Type for the client-side dispatcher.
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(headerContentType, "text/plain; charset=utf-8")
 	w.Header().Set("X-Original-Content-Type", att.ContentType)
 	// No-store: workspace membership / attachment ACL can change between
 	// requests (member removed, attachment deleted). A cached body would
@@ -1314,7 +1314,7 @@ func (h *Handler) GetAttachmentContent(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	h.setAttachmentPreviewSecurityHeaders(w)
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w.Header().Set(headerContentLength, fmt.Sprintf("%d", len(body)))
 	if _, err := w.Write(body); err != nil {
 		slog.Error("failed to write attachment preview body", "id", attachmentID, "error", err)
 	}
@@ -1349,7 +1349,7 @@ func isTextPreviewable(contentType, filename string) bool {
 	}
 	switch ct {
 	case "application/json",
-		"application/javascript",
+		mimeAppJavascript,
 		"application/xml",
 		"application/x-yaml",
 		"application/yaml",
@@ -1404,7 +1404,7 @@ func (h *Handler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, "attachment id")
+	attUUID, ok := parseUUIDOrBadRequest(w, attachmentID, paramAttachmentID)
 	if !ok {
 		return
 	}
@@ -1418,7 +1418,7 @@ func (h *Handler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "attachment not found")
+		writeError(w, http.StatusNotFound, errMsgAttachmentNotFound)
 		return
 	}
 

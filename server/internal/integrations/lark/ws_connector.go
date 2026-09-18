@@ -366,7 +366,7 @@ func (c *WSLongConnConnector) Run(ctx context.Context, inst Installation, emit E
 			// already proven we can't parse.
 			if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
 				log.Warn("lark ws connector: ack-after-decode-error write failed", "err", werr.Error())
-				return fmt.Errorf("write ack: %w", werr)
+				return fmt.Errorf(errFmtWriteAck, werr)
 			}
 			continue
 		}
@@ -376,7 +376,7 @@ func (c *WSLongConnConnector) Run(ctx context.Context, inst Installation, emit E
 			// policy.
 			if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
 				log.Warn("lark ws connector: ack-after-drop write failed", "err", werr.Error())
-				return fmt.Errorf("write ack: %w", werr)
+				return fmt.Errorf(errFmtWriteAck, werr)
 			}
 			continue
 		}
@@ -409,7 +409,7 @@ func (c *WSLongConnConnector) Run(ctx context.Context, inst Installation, emit E
 		}
 		if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
 			log.Warn("lark ws connector: ack write failed", "err", werr.Error())
-			return fmt.Errorf("write ack: %w", werr)
+			return fmt.Errorf(errFmtWriteAck, werr)
 		}
 	}
 }

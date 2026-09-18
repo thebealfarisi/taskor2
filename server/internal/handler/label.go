@@ -166,11 +166,11 @@ func (h *Handler) ListLabels(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetLabel(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	workspaceID := h.resolveWorkspaceID(r)
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "label id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramLabelID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -179,7 +179,7 @@ func (h *Handler) GetLabel(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "label not found")
+			writeError(w, http.StatusNotFound, errMsgLabelNotFound)
 			return
 		}
 		slog.Warn("GetLabel failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -192,7 +192,7 @@ func (h *Handler) GetLabel(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateLabel(w http.ResponseWriter, r *http.Request) {
 	var req CreateLabelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	name, err := validateLabelName(req.Name)
@@ -243,7 +243,7 @@ func (h *Handler) UpdateLabel(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateLabelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	userID, ok := requireUserID(w, r)
@@ -251,11 +251,11 @@ func (h *Handler) UpdateLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "label id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramLabelID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -290,7 +290,7 @@ func (h *Handler) UpdateLabel(w http.ResponseWriter, r *http.Request) {
 	label, err := h.Queries.UpdateLabel(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "label not found")
+			writeError(w, http.StatusNotFound, errMsgLabelNotFound)
 			return
 		}
 		if isUniqueViolation(err) {
@@ -313,11 +313,11 @@ func (h *Handler) DeleteLabel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "label id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramLabelID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -349,7 +349,7 @@ func (h *Handler) DeleteLabel(w http.ResponseWriter, r *http.Request) {
 		ID: idUUID, WorkspaceID: wsUUID,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "label not found")
+			writeError(w, http.StatusNotFound, errMsgLabelNotFound)
 			return
 		}
 		slog.Warn("DeleteLabel failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -424,11 +424,11 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 
 	var req AttachLabelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.LabelID == "" {
-		writeError(w, http.StatusBadRequest, "label_id is required")
+		writeError(w, http.StatusBadRequest, errMsgLabelIDRequired)
 		return
 	}
 
@@ -446,7 +446,7 @@ func (h *Handler) AttachLabel(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "label not found")
+			writeError(w, http.StatusNotFound, errMsgLabelNotFound)
 			return
 		}
 		slog.Warn("GetLabel in AttachLabel failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -510,7 +510,7 @@ func (h *Handler) DetachLabel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	labelUUID, ok := parseUUIDOrBadRequest(w, labelID, "label id")
+	labelUUID, ok := parseUUIDOrBadRequest(w, labelID, paramLabelID)
 	if !ok {
 		return
 	}
@@ -519,7 +519,7 @@ func (h *Handler) DetachLabel(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "label not found")
+			writeError(w, http.StatusNotFound, errMsgLabelNotFound)
 			return
 		}
 		slog.Warn("GetLabel in DetachLabel failed", append(logger.RequestAttrs(r), "error", err)...)
@@ -588,7 +588,7 @@ func (h *Handler) AttachLabelToAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AttachLabelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LabelID == "" {
-		writeError(w, http.StatusBadRequest, "label_id is required")
+		writeError(w, http.StatusBadRequest, errMsgLabelIDRequired)
 		return
 	}
 	labelID, ok := parseUUIDOrBadRequest(w, req.LabelID, "label_id")
@@ -615,7 +615,7 @@ func (h *Handler) DetachLabelFromAgent(w http.ResponseWriter, r *http.Request) {
 	if !ok || !h.canManageAgent(w, r, agent) {
 		return
 	}
-	labelID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "labelId"), "label id")
+	labelID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "labelId"), paramLabelID)
 	if !ok {
 		return
 	}
@@ -651,7 +651,7 @@ func (h *Handler) AttachLabelToSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	var req AttachLabelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LabelID == "" {
-		writeError(w, http.StatusBadRequest, "label_id is required")
+		writeError(w, http.StatusBadRequest, errMsgLabelIDRequired)
 		return
 	}
 	labelID, ok := parseUUIDOrBadRequest(w, req.LabelID, "label_id")
@@ -678,7 +678,7 @@ func (h *Handler) DetachLabelFromSkill(w http.ResponseWriter, r *http.Request) {
 	if !ok || !h.canManageSkill(w, r, skill) {
 		return
 	}
-	labelID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "labelId"), "label id")
+	labelID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "labelId"), paramLabelID)
 	if !ok {
 		return
 	}

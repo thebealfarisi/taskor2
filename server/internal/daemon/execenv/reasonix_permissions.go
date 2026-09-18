@@ -21,7 +21,7 @@ const reasonixProjectConfigFile = "reasonix.toml"
 // reasonixUserConfigFile is the runtime owner's own Reasonix config; where it
 // lives is resolved in reasonix_user_config.go. It is never written to — the
 // daemon only reads the permissions the owner set there.
-const reasonixUserConfigFile = "config.toml"
+const reasonixUserConfigFile = fileConfigTOML
 
 // reasonixAskTool is the Reasonix tool the per-task config denies.
 const reasonixAskTool = "ask"

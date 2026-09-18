@@ -87,25 +87,25 @@ func init() {
 	runtimeProfileCmd.AddCommand(runtimeProfileUnsetPathCmd)
 
 	// list
-	runtimeProfileListCmd.Flags().String("output", "table", "Output format: table or json")
+	runtimeProfileListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	// create
 	runtimeProfileCreateCmd.Flags().String("protocol-family", "", "Supported backend the profile routes to (required)")
-	runtimeProfileCreateCmd.Flags().String("command-name", "", "Executable the daemon resolves on PATH (required)")
-	runtimeProfileCreateCmd.Flags().String("display-name", "", "Human-readable profile name (required)")
+	runtimeProfileCreateCmd.Flags().String(flagCommandName, "", "Executable the daemon resolves on PATH (required)")
+	runtimeProfileCreateCmd.Flags().String(flagDisplayName, "", "Human-readable profile name (required)")
 	runtimeProfileCreateCmd.Flags().String("description", "", "Optional description")
-	runtimeProfileCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	runtimeProfileCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// update
-	runtimeProfileUpdateCmd.Flags().String("display-name", "", "New display name")
-	runtimeProfileUpdateCmd.Flags().String("command-name", "", "New command name")
+	runtimeProfileUpdateCmd.Flags().String(flagDisplayName, "", "New display name")
+	runtimeProfileUpdateCmd.Flags().String(flagCommandName, "", "New command name")
 	runtimeProfileUpdateCmd.Flags().String("description", "", "New description")
 	// NOTE: --fixed-arg remains out of the CLI create/update surface for now:
 	// the product path parses command + args in the UI and stores them as
 	// command_name + fixed_args. Keep this CLI shape narrow until we add an
 	// argv-aware command-line parser here too.
 	runtimeProfileUpdateCmd.Flags().Bool("enabled", true, "Enable or disable the profile")
-	runtimeProfileUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	runtimeProfileUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	// set-path
 	runtimeProfileSetPathCmd.Flags().String("path", "", "Absolute path to the executable on this machine (required)")
@@ -162,8 +162,8 @@ func runRuntimeProfileList(cmd *cobra.Command, _ []string) error {
 
 func runRuntimeProfileCreate(cmd *cobra.Command, _ []string) error {
 	family, _ := cmd.Flags().GetString("protocol-family")
-	commandName, _ := cmd.Flags().GetString("command-name")
-	displayName, _ := cmd.Flags().GetString("display-name")
+	commandName, _ := cmd.Flags().GetString(flagCommandName)
+	displayName, _ := cmd.Flags().GetString(flagDisplayName)
 	description, _ := cmd.Flags().GetString("description")
 
 	if strings.TrimSpace(family) == "" {
@@ -211,12 +211,12 @@ func runRuntimeProfileUpdate(cmd *cobra.Command, args []string) error {
 	profileID := args[0]
 
 	body := map[string]any{}
-	if cmd.Flags().Changed("display-name") {
-		v, _ := cmd.Flags().GetString("display-name")
+	if cmd.Flags().Changed(flagDisplayName) {
+		v, _ := cmd.Flags().GetString(flagDisplayName)
 		body["display_name"] = v
 	}
-	if cmd.Flags().Changed("command-name") {
-		v, _ := cmd.Flags().GetString("command-name")
+	if cmd.Flags().Changed(flagCommandName) {
+		v, _ := cmd.Flags().GetString(flagCommandName)
 		body["command_name"] = v
 	}
 	if cmd.Flags().Changed("description") {

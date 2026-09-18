@@ -58,10 +58,10 @@ type Metrics interface {
 // nil-pointer dereference on the read loop.
 type nopMetrics struct{}
 
-func (nopMetrics) RecordConnectFailure()       {}
-func (nopMetrics) RecordAuthFailure()          {}
-func (nopMetrics) RecordCallbackQueued()       {}
-func (nopMetrics) RecordCallbackQueueBlocked() {}
+func (nopMetrics) RecordConnectFailure()       { /* no-op: default metric sink */ }
+func (nopMetrics) RecordAuthFailure()          { /* no-op: default metric sink */ }
+func (nopMetrics) RecordCallbackQueued()       { /* no-op: default metric sink */ }
+func (nopMetrics) RecordCallbackQueueBlocked() { /* no-op: default metric sink */ }
 
 // orNopMetrics turns an unset sink into one that is safe to call.
 func orNopMetrics(m Metrics) Metrics {

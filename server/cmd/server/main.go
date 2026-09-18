@@ -106,7 +106,7 @@ func realtimeRelayModeFromEnv() string {
 	case "sharded", "dual", "legacy":
 		return raw
 	default:
-		slog.Warn("invalid env var, using default", "name", "REALTIME_RELAY_MODE", "value", raw, "default", defaultMode)
+		slog.Warn(msgInvalidEnvVarDefault, "name", "REALTIME_RELAY_MODE", "value", raw, "default", defaultMode)
 		return defaultMode
 	}
 }
@@ -118,7 +118,7 @@ func envPositiveInt(name string, def int) int {
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil || v <= 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def, "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def, "error", err)
 		return def
 	}
 	return v
@@ -131,7 +131,7 @@ func envNonNegativeInt(name string, def int) int {
 	}
 	v, err := strconv.Atoi(raw)
 	if err != nil || v < 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def, "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def, "error", err)
 		return def
 	}
 	return v
@@ -184,7 +184,7 @@ func envPositiveInt64(name string, def int64) int64 {
 	}
 	v, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || v <= 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def, "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def, "error", err)
 		return def
 	}
 	return v
@@ -197,7 +197,7 @@ func envDuration(name string, def time.Duration) time.Duration {
 	}
 	v, err := time.ParseDuration(raw)
 	if err != nil || v <= 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def.String(), "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def.String(), "error", err)
 		return def
 	}
 	return v
@@ -210,7 +210,7 @@ func envNonNegativeDuration(name string, def time.Duration) time.Duration {
 	}
 	v, err := time.ParseDuration(raw)
 	if err != nil || v < 0 {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def.String(), "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def.String(), "error", err)
 		return def
 	}
 	return v
@@ -245,7 +245,7 @@ func envBool(name string, def bool) bool {
 	}
 	v, err := strconv.ParseBool(raw)
 	if err != nil {
-		slog.Warn("invalid env var, using default", "name", name, "value", raw, "default", def, "error", err)
+		slog.Warn(msgInvalidEnvVarDefault, "name", name, "value", raw, "default", def, "error", err)
 		return def
 	}
 	return v
@@ -370,7 +370,7 @@ func main() {
 		}
 		closeRedisClient("realtime-read-legacy", legacyReadRedis)
 		closeRedisClient("realtime-read-sharded", shardedReadRedis)
-		closeRedisClient("realtime-read", relayReadRedis)
+		closeRedisClient(scopeRealtimeRead, relayReadRedis)
 		closeRedisClient("realtime-write", relayWriteRedis)
 		closeRedisClient("channel-lease", channelLeaseRedis)
 		closeRedisClient("store", storeRedis)
@@ -398,7 +398,7 @@ func main() {
 			relayConfig := shardedRelayConfigFromEnv()
 			switch relayMode {
 			case "legacy":
-				relayReadRedis = newNamedRedisClient(opts, "realtime-read")
+				relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
 				relay = realtime.NewRedisRelayWithClientsAndConfig(hub, relayWriteRedis, relayReadRedis, relayConfig.RetentionConfig())
 				slog.Info("daemon websocket wakeup: Redis fanout disabled in legacy realtime relay mode")
 			case "dual":
@@ -410,7 +410,7 @@ func main() {
 				relay = realtime.NewMirroredRelay(sharded, legacy)
 				daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
 			default:
-				relayReadRedis = newNamedRedisClient(opts, "realtime-read")
+				relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
 				sharded := realtime.NewShardedStreamRelay(hub, relayWriteRedis, relayReadRedis, relayConfig)
 				sharded.SetDaemonRuntimeDeliverer(daemonHub)
 				relay = sharded

@@ -25,7 +25,7 @@ var codexSymlinkedFiles = []string{
 // the shared home.
 var codexCopiedFiles = []string{
 	"config.json",
-	"config.toml",
+	fileConfigTOML,
 	"instructions.md",
 }
 
@@ -40,7 +40,7 @@ const (
 // into the binding separately by codexModelsCacheConfigFingerprint.
 var codexModelsCacheConfigFiles = []string{
 	"config.json",
-	"config.toml",
+	fileConfigTOML,
 }
 
 // CodexHomeOptions carries optional inputs for prepareCodexHomeWithOpts that
@@ -126,7 +126,7 @@ func statSharedCodexConfig(sharedHome string) sharedConfigPresence {
 	if sharedHome == "" {
 		return sharedConfigAbsent
 	}
-	_, err := os.Stat(filepath.Join(sharedHome, "config.toml"))
+	_, err := os.Stat(filepath.Join(sharedHome, fileConfigTOML))
 	switch {
 	case err == nil:
 		return sharedConfigPresent
@@ -238,7 +238,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 		dst := filepath.Join(codexHome, name)
 		if err := syncCopiedFile(src, dst); err != nil {
 			logger.Warn("execenv: codex-home sync failed", "file", name, "error", err)
-			if name == "config.toml" {
+			if name == fileConfigTOML {
 				configSyncErr = err
 			}
 		}
@@ -249,7 +249,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 	// `missing field path` and bails out of `thread/start`. Multica writes the
 	// agent's active skills directly to `codex-home/skills/`, so the
 	// user-level registry is redundant here. See codex_skill_strip.go.
-	if err := sanitizeCopiedCodexConfig(filepath.Join(codexHome, "config.toml")); err != nil {
+	if err := sanitizeCopiedCodexConfig(filepath.Join(codexHome, fileConfigTOML)); err != nil {
 		logger.Warn("execenv: codex-home sanitize config failed", "error", err)
 	}
 
@@ -280,7 +280,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 	// rationale. On Windows, resolve the native-sandbox state across the copied
 	// config and the effective custom args so an explicit user opt-in is honored
 	// and an undecidable config fails closed instead of loosening.
-	configFile := filepath.Join(codexHome, "config.toml")
+	configFile := filepath.Join(codexHome, fileConfigTOML)
 	winState := windowsSandboxAbsent
 	if resolveGOOS(opts.GOOS) == "windows" {
 		winState = resolveWindowsSandboxState(configFile, configSyncErr, statSharedCodexConfig(sharedHome), opts.CodexCustomArgs, logger)
@@ -302,7 +302,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 	// so the parent thread's `turn/completed` is not interpreted as task
 	// completion while spawned subagents are still running. See
 	// codex_multi_agent.go for the full rationale and escape hatch.
-	if err := ensureCodexMultiAgentConfig(filepath.Join(codexHome, "config.toml"), logger); err != nil {
+	if err := ensureCodexMultiAgentConfig(filepath.Join(codexHome, fileConfigTOML), logger); err != nil {
 		logger.Warn("execenv: codex-home ensure multi-agent config failed", "error", err)
 	}
 
@@ -310,7 +310,7 @@ func prepareCodexHomeWithOpts(codexHome string, opts CodexHomeOptions, logger *s
 	// so cross-task and cross-workspace context leaks (multica#3130) cannot
 	// happen via `codex-home/memories/` or `~/.codex/memories/`. See
 	// codex_memory.go for the full rationale and escape hatch.
-	if err := ensureCodexMemoryConfig(filepath.Join(codexHome, "config.toml"), logger); err != nil {
+	if err := ensureCodexMemoryConfig(filepath.Join(codexHome, fileConfigTOML), logger); err != nil {
 		logger.Warn("execenv: codex-home ensure memory config failed", "error", err)
 	}
 
@@ -846,7 +846,7 @@ func linkCodexRollout(src, dst string) error {
 // files into a task sandbox, and copying the whole shared home would drag
 // auth.json and the machine's session history along with it.
 func syncCodexReferencedFiles(codexHome, sharedHome string) error {
-	configPath := filepath.Join(codexHome, "config.toml")
+	configPath := filepath.Join(codexHome, fileConfigTOML)
 	data, err := os.ReadFile(configPath)
 	if os.IsNotExist(err) {
 		return nil
@@ -1134,7 +1134,7 @@ func codexModelsCacheConfigFingerprint(sharedHome string) (string, error) {
 		}
 		fmt.Fprintf(h, "%s\x00%d\x00", name, len(data))
 		_, _ = h.Write(data)
-		if name == "config.toml" {
+		if name == fileConfigTOML {
 			configTOML = data
 		}
 	}
@@ -1144,7 +1144,7 @@ func codexModelsCacheConfigFingerprint(sharedHome string) (string, error) {
 			ModelCatalogJSON string `toml:"model_catalog_json"`
 		}
 		if err := toml.Unmarshal(configTOML, &cfg); err != nil {
-			return "", fmt.Errorf("parse codex model cache config %s: %w", filepath.Join(sharedHome, "config.toml"), err)
+			return "", fmt.Errorf("parse codex model cache config %s: %w", filepath.Join(sharedHome, fileConfigTOML), err)
 		}
 		catalogPath := strings.TrimSpace(cfg.ModelCatalogJSON)
 		if catalogPath != "" {

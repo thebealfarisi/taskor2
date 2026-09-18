@@ -649,7 +649,7 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
 		return nil, err
 	}
 	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", authBearerPrefix+c.token)
 	}
 	c.setIdentityHeaders(req)
 	if c.workspaceETag != "" {
@@ -1087,9 +1087,9 @@ func (c *Client) postJSONVia(ctx context.Context, httpClient *http.Client, path 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", authBearerPrefix+c.token)
 	}
 	c.setIdentityHeaders(req)
 
@@ -1123,7 +1123,7 @@ func (c *Client) getJSONWithToken(ctx context.Context, path, token string, respB
 		return err
 	}
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", authBearerPrefix+token)
 	}
 	c.setIdentityHeaders(req)
 
@@ -1155,9 +1155,9 @@ func (c *Client) postJSONWithToken(ctx context.Context, path, token string, reqB
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(headerContentType, contentTypeJSON)
 	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", authBearerPrefix+token)
 	}
 	c.setIdentityHeaders(req)
 

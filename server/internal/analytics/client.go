@@ -124,5 +124,5 @@ func normalizeEnvironment(v string) string {
 // POSTHOG_API_KEY is unset, and in self-hosted instances that opt out.
 type NoopClient struct{}
 
-func (NoopClient) Capture(Event) {}
-func (NoopClient) Close()        {}
+func (NoopClient) Capture(Event) { /* no-op: analytics event silently dropped */ }
+func (NoopClient) Close()        { /* no-op: no resources to release */ }

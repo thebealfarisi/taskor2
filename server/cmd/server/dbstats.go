@@ -108,7 +108,7 @@ func envInt32(name string, def int32) int32 {
 	}
 	v, err := strconv.ParseInt(raw, 10, 32)
 	if err != nil || v <= 0 {
-		slog.Warn("invalid env var, using default",
+		slog.Warn(msgInvalidEnvVarDefault,
 			"name", name, "value", raw, "default", def, "error", err)
 		return def
 	}

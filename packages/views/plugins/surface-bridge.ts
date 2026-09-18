@@ -138,12 +138,11 @@ export function createSurfaceBridge(options: SurfaceBridgeOptions): SurfaceBridg
           void handle(portEvent.data, channel!.port1);
         };
         channel.port1.start();
-        // targetOrigin "*" is required, not lax: an opaque origin can never
-        // match a string. The message carries no secret, and the port is
-        // transferred into this specific contentWindow.
+        // targetOrigin uses frame origin when an http(s) URL is used, or fallback for opaque sandboxed frames
+        const targetOrigin = frame.src && frame.src.startsWith("http") ? new URL(frame.src).origin : "*";
         frame.contentWindow.postMessage(
           { type: BRIDGE_INIT_MESSAGE, version: BRIDGE_PROTOCOL_VERSION, theme },
-          "*",
+          targetOrigin,
           [channel.port2],
         );
       };

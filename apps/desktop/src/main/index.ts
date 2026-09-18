@@ -234,9 +234,9 @@ function loadRenderer(window: BrowserWindow): void {
   installNavigationGuard(window, rendererURL);
 
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    void window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+    window.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    void window.loadFile(rendererEntry);
+    window.loadFile(rendererEntry);
   }
 }
 
@@ -489,7 +489,7 @@ function createIssueWindow(context: IssueWindowContext): void {
   installDownloadSaveDialogHandler(window);
 
   window.webContents.setWindowOpenHandler((details) => {
-    void openExternalSafely(details.url);
+    openExternalSafely(details.url);
     return { action: "deny" };
   });
   installWindowShortcutHandler(window);

@@ -171,43 +171,43 @@ func init() {
 	workspaceMcpCmd.AddCommand(workspaceMcpUpdateCmd)
 	workspaceMcpCmd.AddCommand(workspaceMcpRemoveCmd)
 
-	workspaceListCmd.Flags().String("output", "table", "Output format: table or json")
+	workspaceListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	workspaceListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
 	workspaceCreateCmd.Flags().String("name", "", "Workspace name")
 	workspaceCreateCmd.Flags().String("slug", "", "Workspace slug")
 	workspaceCreateCmd.Flags().String("description", "", "Workspace description (decodes \\n, \\r, \\t, \\\\; pipe via --description-stdin to preserve literal backslashes)")
-	workspaceCreateCmd.Flags().Bool("description-stdin", false, "Read description from stdin (preserves multi-line content verbatim)")
+	workspaceCreateCmd.Flags().Bool(flagDescriptionStdin, false, "Read description from stdin (preserves multi-line content verbatim)")
 	workspaceCreateCmd.Flags().String("context", "", "Workspace context (decodes \\n, \\r, \\t, \\\\; pipe via --context-stdin to preserve literal backslashes)")
-	workspaceCreateCmd.Flags().Bool("context-stdin", false, "Read context from stdin (preserves multi-line content verbatim)")
-	workspaceCreateCmd.Flags().String("issue-prefix", "", "Issue prefix (uppercased server-side)")
-	workspaceCreateCmd.Flags().String("output", "json", "Output format: table or json")
-	workspaceGetCmd.Flags().String("output", "json", "Output format: table or json")
-	workspaceMemberListCmd.Flags().String("output", "table", "Output format: table or json")
+	workspaceCreateCmd.Flags().Bool(flagContextStdin, false, "Read context from stdin (preserves multi-line content verbatim)")
+	workspaceCreateCmd.Flags().String(flagIssuePrefix, "", "Issue prefix (uppercased server-side)")
+	workspaceCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	workspaceGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	workspaceMemberListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	workspaceMemberInviteCmd.Flags().String("role", "member", "Member role to grant: member or admin (owner is not allowed)")
-	workspaceMemberInviteCmd.Flags().String("output", "table", "Output format: table or json")
+	workspaceMemberInviteCmd.Flags().String("output", "table", flagOutputFormatDesc)
 
 	workspaceUpdateCmd.Flags().String("name", "", "New workspace name")
 	workspaceUpdateCmd.Flags().String("description", "", "New description (decodes \\n, \\r, \\t, \\\\; pipe via --description-stdin to preserve literal backslashes)")
-	workspaceUpdateCmd.Flags().Bool("description-stdin", false, "Read description from stdin (preserves multi-line content verbatim)")
+	workspaceUpdateCmd.Flags().Bool(flagDescriptionStdin, false, "Read description from stdin (preserves multi-line content verbatim)")
 	workspaceUpdateCmd.Flags().String("context", "", "New workspace context (decodes \\n, \\r, \\t, \\\\; pipe via --context-stdin to preserve literal backslashes)")
-	workspaceUpdateCmd.Flags().Bool("context-stdin", false, "Read context from stdin (preserves multi-line content verbatim)")
-	workspaceUpdateCmd.Flags().String("issue-prefix", "", "New issue prefix (uppercased server-side)")
-	workspaceUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	workspaceUpdateCmd.Flags().Bool(flagContextStdin, false, "Read context from stdin (preserves multi-line content verbatim)")
+	workspaceUpdateCmd.Flags().String(flagIssuePrefix, "", "New issue prefix (uppercased server-side)")
+	workspaceUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
-	workspaceMcpListCmd.Flags().String("output", "json", "Output format: table or json")
+	workspaceMcpListCmd.Flags().String("output", "json", flagOutputFormatDesc)
 	// Same three mutually-exclusive secret-safe channels as `agent update`,
 	// resolved by the shared resolveMcpJSONObject so every surface agrees on
 	// what a valid payload is.
-	workspaceMcpAddCmd.Flags().String("server-config", "", "Server entry as JSON (avoid: lands in shell history)")
+	workspaceMcpAddCmd.Flags().String(flagServerConfig, "", "Server entry as JSON (avoid: lands in shell history)")
 	workspaceMcpAddCmd.Flags().Bool("server-config-stdin", false, "Read the server entry JSON from stdin")
 	workspaceMcpAddCmd.Flags().String("server-config-file", "", "Read the server entry JSON from a file")
-	workspaceMcpAddCmd.Flags().String("output", "json", "Output format: table or json")
+	workspaceMcpAddCmd.Flags().String("output", "json", flagOutputFormatDesc)
 	workspaceMcpUpdateCmd.Flags().String("name", "", "New server name")
-	workspaceMcpUpdateCmd.Flags().String("server-config", "", "Replacement server entry as JSON (avoid: lands in shell history)")
+	workspaceMcpUpdateCmd.Flags().String(flagServerConfig, "", "Replacement server entry as JSON (avoid: lands in shell history)")
 	workspaceMcpUpdateCmd.Flags().Bool("server-config-stdin", false, "Read the replacement server entry JSON from stdin")
 	workspaceMcpUpdateCmd.Flags().String("server-config-file", "", "Read the replacement server entry JSON from a file")
-	workspaceMcpUpdateCmd.Flags().String("output", "json", "Output format: table or json")
-	workspaceMcpRemoveCmd.Flags().String("output", "json", "Output format: table or json")
+	workspaceMcpUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	workspaceMcpRemoveCmd.Flags().String("output", "json", flagOutputFormatDesc)
 }
 
 // workspaceSummary is the subset of fields the CLI needs from /api/workspaces
@@ -296,29 +296,29 @@ func buildWorkspaceCreateBody(cmd *cobra.Command) (map[string]any, error) {
 	// A single stdin stream cannot feed two fields: whichever field reads first
 	// drains it and the other gets EOF. Reject the ambiguous combination up
 	// front instead of surfacing a misleading "content is empty" error.
-	descStdin, _ := cmd.Flags().GetBool("description-stdin")
-	ctxStdin, _ := cmd.Flags().GetBool("context-stdin")
+	descStdin, _ := cmd.Flags().GetBool(flagDescriptionStdin)
+	ctxStdin, _ := cmd.Flags().GetBool(flagContextStdin)
 	if descStdin && ctxStdin {
 		return nil, fmt.Errorf("--description-stdin and --context-stdin cannot be combined; a single stdin cannot feed both fields — pass one of them inline")
 	}
 
 	body := map[string]any{"name": name, "slug": slug}
-	if cmd.Flags().Changed("description") || cmd.Flags().Changed("description-stdin") {
+	if cmd.Flags().Changed("description") || cmd.Flags().Changed(flagDescriptionStdin) {
 		desc, _, err := resolveTextFlag(cmd, "description")
 		if err != nil {
 			return nil, err
 		}
 		body["description"] = desc
 	}
-	if cmd.Flags().Changed("context") || cmd.Flags().Changed("context-stdin") {
+	if cmd.Flags().Changed("context") || cmd.Flags().Changed(flagContextStdin) {
 		ctxText, _, err := resolveTextFlag(cmd, "context")
 		if err != nil {
 			return nil, err
 		}
 		body["context"] = ctxText
 	}
-	if cmd.Flags().Changed("issue-prefix") {
-		v, _ := cmd.Flags().GetString("issue-prefix")
+	if cmd.Flags().Changed(flagIssuePrefix) {
+		v, _ := cmd.Flags().GetString(flagIssuePrefix)
 		if strings.TrimSpace(v) == "" {
 			return nil, fmt.Errorf("--issue-prefix cannot be empty; omit it to use the server-generated prefix")
 		}
@@ -485,7 +485,7 @@ func runWorkspaceGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -497,7 +497,7 @@ func runWorkspaceGet(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var ws map[string]any
-	if err := client.GetJSON(ctx, "/api/workspaces/"+wsID, &ws); err != nil {
+	if err := client.GetJSON(ctx, apiWorkspacesPrefix+wsID, &ws); err != nil {
 		return fmt.Errorf("get workspace: %w", err)
 	}
 
@@ -542,22 +542,22 @@ func buildWorkspaceUpdateBody(cmd *cobra.Command) (map[string]any, error) {
 		v, _ := cmd.Flags().GetString("name")
 		body["name"] = v
 	}
-	if cmd.Flags().Changed("description") || cmd.Flags().Changed("description-stdin") {
+	if cmd.Flags().Changed("description") || cmd.Flags().Changed(flagDescriptionStdin) {
 		desc, _, err := resolveTextFlag(cmd, "description")
 		if err != nil {
 			return nil, err
 		}
 		body["description"] = desc
 	}
-	if cmd.Flags().Changed("context") || cmd.Flags().Changed("context-stdin") {
+	if cmd.Flags().Changed("context") || cmd.Flags().Changed(flagContextStdin) {
 		ctxText, _, err := resolveTextFlag(cmd, "context")
 		if err != nil {
 			return nil, err
 		}
 		body["context"] = ctxText
 	}
-	if cmd.Flags().Changed("issue-prefix") {
-		v, _ := cmd.Flags().GetString("issue-prefix")
+	if cmd.Flags().Changed(flagIssuePrefix) {
+		v, _ := cmd.Flags().GetString(flagIssuePrefix)
 		// The handler silently skips an empty prefix (workspace.go:274), so
 		// `--issue-prefix ""` would otherwise return 200 without changing
 		// anything. Reject it here so the failure is visible.
@@ -575,7 +575,7 @@ func runWorkspaceUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	body, err := buildWorkspaceUpdateBody(cmd)
@@ -595,7 +595,7 @@ func runWorkspaceUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var ws map[string]any
-	if err := client.PatchJSON(ctx, "/api/workspaces/"+wsID, body, &ws); err != nil {
+	if err := client.PatchJSON(ctx, apiWorkspacesPrefix+wsID, body, &ws); err != nil {
 		return fmt.Errorf("update workspace: %w", err)
 	}
 
@@ -608,7 +608,7 @@ func runWorkspaceMcpList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -620,7 +620,7 @@ func runWorkspaceMcpList(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var servers []workspaceMcpServer
-	if err := client.GetJSON(ctx, "/api/workspaces/"+wsID+"/mcp-servers", &servers); err != nil {
+	if err := client.GetJSON(ctx, apiWorkspacesPrefix+wsID+"/mcp-servers", &servers); err != nil {
 		return fmt.Errorf("list workspace mcp servers: %w", err)
 	}
 
@@ -637,10 +637,10 @@ func runWorkspaceMcpAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
-	entry, ok, err := resolveMcpJSONObject(cmd, "server-config", false)
+	entry, ok, err := resolveMcpJSONObject(cmd, flagServerConfig, false)
 	if err != nil {
 		return err
 	}
@@ -658,7 +658,7 @@ func runWorkspaceMcpAdd(cmd *cobra.Command, args []string) error {
 
 	var server workspaceMcpServer
 	body := map[string]any{"name": serverName, "config": entry}
-	if err := client.PostJSON(ctx, "/api/workspaces/"+wsID+"/mcp-servers", body, &server); err != nil {
+	if err := client.PostJSON(ctx, apiWorkspacesPrefix+wsID+"/mcp-servers", body, &server); err != nil {
 		return fmt.Errorf("add workspace mcp server: %w", err)
 	}
 
@@ -675,7 +675,7 @@ func runWorkspaceMcpUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	body := map[string]any{}
@@ -683,7 +683,7 @@ func runWorkspaceMcpUpdate(cmd *cobra.Command, args []string) error {
 		name, _ := cmd.Flags().GetString("name")
 		body["name"] = strings.TrimSpace(name)
 	}
-	entry, ok, err := resolveMcpJSONObject(cmd, "server-config", false)
+	entry, ok, err := resolveMcpJSONObject(cmd, flagServerConfig, false)
 	if err != nil {
 		return err
 	}
@@ -703,7 +703,7 @@ func runWorkspaceMcpUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var server workspaceMcpServer
-	path := "/api/workspaces/" + wsID + "/mcp-servers/" + url.PathEscape(serverID)
+	path := apiWorkspacesPrefix + wsID + "/mcp-servers/" + url.PathEscape(serverID)
 	if err := client.PutJSON(ctx, path, body, &server); err != nil {
 		return fmt.Errorf("update workspace mcp server: %w", err)
 	}
@@ -721,7 +721,7 @@ func runWorkspaceMcpRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -732,7 +732,7 @@ func runWorkspaceMcpRemove(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	path := "/api/workspaces/" + wsID + "/mcp-servers/" + url.PathEscape(serverID)
+	path := apiWorkspacesPrefix + wsID + "/mcp-servers/" + url.PathEscape(serverID)
 	if err := client.DeleteJSON(ctx, path); err != nil {
 		return fmt.Errorf("remove workspace mcp server: %w", err)
 	}
@@ -789,7 +789,7 @@ func runWorkspaceMembers(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -801,7 +801,7 @@ func runWorkspaceMembers(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var members []map[string]any
-	if err := client.GetJSON(ctx, "/api/workspaces/"+wsID+"/members", &members); err != nil {
+	if err := client.GetJSON(ctx, apiWorkspacesPrefix+wsID+"/members", &members); err != nil {
 		return fmt.Errorf("list members: %w", err)
 	}
 
@@ -851,7 +851,7 @@ func runWorkspaceMemberInvite(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if wsID == "" {
-		return fmt.Errorf("workspace ID is required: pass an id/slug/prefix as argument or set MULTICA_WORKSPACE_ID")
+		return fmt.Errorf(errWorkspaceIDRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -864,7 +864,7 @@ func runWorkspaceMemberInvite(cmd *cobra.Command, args []string) error {
 
 	body := map[string]any{"email": email, "role": role}
 	var inv map[string]any
-	if err := client.PostJSON(ctx, "/api/workspaces/"+wsID+"/members", body, &inv); err != nil {
+	if err := client.PostJSON(ctx, apiWorkspacesPrefix+wsID+"/members", body, &inv); err != nil {
 		return fmt.Errorf("invite member: %w", err)
 	}
 

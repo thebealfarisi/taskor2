@@ -671,7 +671,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 	numParam := ""
 	if hasNum {
 		numParam = nextArg(queryNum)
-		whereParts = append(whereParts, fmt.Sprintf("i.number = %s", numParam))
+		whereParts = append(whereParts, fmt.Sprintf(sqlNumberEq, numParam))
 	}
 
 	whereClause := "(" + strings.Join(whereParts, " OR ") + ")"
@@ -702,7 +702,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 	if len(termContainsParams) > 1 {
 		var titleTerms []string
 		for _, tp := range termContainsParams {
-			titleTerms = append(titleTerms, fmt.Sprintf("LOWER(i.title) LIKE %s", tp))
+			titleTerms = append(titleTerms, fmt.Sprintf(sqlLikeLowerTitle, tp))
 		}
 		rankCases = append(rankCases, fmt.Sprintf("WHEN (%s) THEN 4", strings.Join(titleTerms, " AND ")))
 	}
@@ -765,7 +765,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 	// around an escaping bug that belongs with tier 1.
 	directHitParts := []string{fmt.Sprintf("LOWER(i.title) = %s", phraseParam)}
 	if hasNum {
-		directHitParts = append(directHitParts, fmt.Sprintf("i.number = %s", numParam))
+		directHitParts = append(directHitParts, fmt.Sprintf(sqlNumberEq, numParam))
 	}
 	cancelledRank := fmt.Sprintf(
 		"CASE WHEN i.status = 'cancelled' AND NOT (%s) THEN 1 ELSE 0 END",
@@ -784,7 +784,7 @@ func buildSearchQuery(phrase string, terms []string, queryNum int, hasNum bool, 
 		var titleTerms []string
 		var descTerms []string
 		for _, tp := range termContainsParams {
-			titleTerms = append(titleTerms, fmt.Sprintf("LOWER(i.title) LIKE %s", tp))
+			titleTerms = append(titleTerms, fmt.Sprintf(sqlLikeLowerTitle, tp))
 			descTerms = append(descTerms, fmt.Sprintf("LOWER(COALESCE(i.description, '')) LIKE %s", tp))
 		}
 		matchSourceExpr = fmt.Sprintf(`CASE
@@ -1000,7 +1000,7 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) QueryIssues(w http.ResponseWriter, r *http.Request) {
 	var params map[string]string
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&params); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	values := make(url.Values, len(params))
@@ -1098,7 +1098,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		if len(propertiesFilter) > 0 {
 			marshaled, marshalErr := json.Marshal(propertiesFilter)
 			if marshalErr != nil {
-				writeError(w, http.StatusInternalServerError, "failed to list issues")
+				writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
 				return
 			}
 			openPropertiesFilter = marshaled
@@ -1115,7 +1115,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			PropertiesFilter: openPropertiesFilter,
 		})
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to list issues")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
 			return
 		}
 
@@ -1222,11 +1222,11 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			// position order instead of erroring stale clients.
 			expr, handled, sortErr := h.propertySortExpr(r, workspaceID, s)
 			if !handled {
-				writeError(w, http.StatusBadRequest, "invalid sort value")
+				writeError(w, http.StatusBadRequest, errMsgInvalidSortValue)
 				return
 			}
 			if sortErr != nil {
-				if sortErr.Error() == "invalid sort value" || sortErr.Error() == "invalid workspace id" {
+				if sortErr.Error() == errMsgInvalidSortValue || sortErr.Error() == "invalid workspace id" {
 					writeError(w, http.StatusBadRequest, sortErr.Error())
 					return
 				}
@@ -1278,10 +1278,10 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to resolve status categories")
 			return
 		}
-		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(keys)))
+		where = append(where, fmt.Sprintf(sqlStatusAny, addArg(keys)))
 	}
 	if len(statusesFilter) > 0 {
-		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(statusesFilter)))
+		where = append(where, fmt.Sprintf(sqlStatusAny, addArg(statusesFilter)))
 	}
 	if len(prioritiesFilter) > 0 {
 		where = append(where, fmt.Sprintf("i.priority = ANY(%s::text[])", addArg(prioritiesFilter)))
@@ -1314,13 +1314,13 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		ors := make([]string, 0, len(assigneeFilters)+1)
 		for _, filter := range assigneeFilters {
 			ors = append(ors, fmt.Sprintf(
-				"(i.assignee_type = %s::text AND i.assignee_id = %s::uuid)",
+				sqlAssigneeMatch,
 				addArg(filter.actorType),
 				addArg(filter.actorID),
 			))
 		}
 		if includeNoAssignee {
-			ors = append(ors, "(i.assignee_type IS NULL AND i.assignee_id IS NULL)")
+			ors = append(ors, sqlAssigneeNull)
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
@@ -1467,7 +1467,7 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 	rows, err := h.DB.Query(ctx, query, args...)
 	if err != nil {
 		slog.Warn("ListIssues query failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list issues")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
 		return
 	}
 	defer rows.Close()
@@ -1501,14 +1501,14 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 			&row.Revision,
 		); err != nil {
 			slog.Warn("ListIssues scan failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to list issues")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
 			return
 		}
 		issues = append(issues, row)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("ListIssues rows failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list issues")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToListIssues)
 		return
 	}
 
@@ -1628,12 +1628,12 @@ func appendIssueTableSearchFilter(where []string, addArg func(any) string, raw s
 		titleMatches := make([]string, 0, len(words))
 		for _, word := range words {
 			pattern := "%" + escapeLike(word) + "%"
-			titleMatches = append(titleMatches, fmt.Sprintf("LOWER(i.title) LIKE %s", addArg(pattern)))
+			titleMatches = append(titleMatches, fmt.Sprintf(sqlLikeLowerTitle, addArg(pattern)))
 		}
 		ors = append(ors, "("+strings.Join(titleMatches, " AND ")+")")
 	}
 	if number, ok := parseQueryNumber(query); ok {
-		ors = append(ors, fmt.Sprintf("i.number = %s", addArg(number)))
+		ors = append(ors, fmt.Sprintf(sqlNumberEq, addArg(number)))
 	}
 	if len(ors) == 0 {
 		return where
@@ -1749,7 +1749,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		statuses = splitCommaParam(r.URL.Query().Get("status"))
 	}
 	if len(statuses) > 0 {
-		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(statuses)))
+		where = append(where, fmt.Sprintf(sqlStatusAny, addArg(statuses)))
 	}
 	// See ListIssues: category filtering is what lets the board keep a fixed
 	// column count as a workspace adds custom statuses. (MUL-6243)
@@ -1766,7 +1766,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to resolve status categories")
 			return
 		}
-		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(keys)))
+		where = append(where, fmt.Sprintf(sqlStatusAny, addArg(keys)))
 	}
 
 	priorities := splitCommaParam(r.URL.Query().Get("priorities"))
@@ -1882,13 +1882,13 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 		ors := make([]string, 0, len(assigneeFilters)+1)
 		for _, filter := range assigneeFilters {
 			ors = append(ors, fmt.Sprintf(
-				"(i.assignee_type = %s::text AND i.assignee_id = %s::uuid)",
+				sqlAssigneeMatch,
 				addArg(filter.actorType),
 				addArg(filter.actorID),
 			))
 		}
 		if includeNoAssignee {
-			ors = append(ors, "(i.assignee_type IS NULL AND i.assignee_id IS NULL)")
+			ors = append(ors, sqlAssigneeNull)
 		}
 		where = append(where, "("+strings.Join(ors, " OR ")+")")
 	}
@@ -1944,7 +1944,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 
 	if groupAssigneeType := r.URL.Query().Get("group_assignee_type"); groupAssigneeType != "" {
 		if groupAssigneeType == "none" {
-			where = append(where, "(i.assignee_type IS NULL AND i.assignee_id IS NULL)")
+			where = append(where, sqlAssigneeNull)
 		} else {
 			if !isIssueActorType(groupAssigneeType) {
 				writeError(w, http.StatusBadRequest, "invalid group_assignee_type")
@@ -1960,7 +1960,7 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			where = append(where, fmt.Sprintf(
-				"(i.assignee_type = %s::text AND i.assignee_id = %s::uuid)",
+				sqlAssigneeMatch,
 				addArg(groupAssigneeType),
 				addArg(assigneeID),
 			))
@@ -1988,11 +1988,11 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 			// position order instead of erroring stale clients.
 			expr, handled, sortErr := h.propertySortExpr(r, workspaceID, s)
 			if !handled {
-				writeError(w, http.StatusBadRequest, "invalid sort value")
+				writeError(w, http.StatusBadRequest, errMsgInvalidSortValue)
 				return
 			}
 			if sortErr != nil {
-				if sortErr.Error() == "invalid sort value" || sortErr.Error() == "invalid workspace id" {
+				if sortErr.Error() == errMsgInvalidSortValue || sortErr.Error() == "invalid workspace id" {
 					writeError(w, http.StatusBadRequest, sortErr.Error())
 					return
 				}
@@ -2079,7 +2079,7 @@ ORDER BY
 	rows, err := h.DB.Query(ctx, query, args...)
 	if err != nil {
 		slog.Warn("ListGroupedIssues query failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list grouped issues")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToListGroupedIssues)
 		return
 	}
 	defer rows.Close()
@@ -2114,14 +2114,14 @@ ORDER BY
 			&row.GroupTotal,
 		); err != nil {
 			slog.Warn("ListGroupedIssues scan failed", "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to list grouped issues")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToListGroupedIssues)
 			return
 		}
 		groupedRows = append(groupedRows, row)
 	}
 	if err := rows.Err(); err != nil {
 		slog.Warn("ListGroupedIssues rows failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to list grouped issues")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToListGroupedIssues)
 		return
 	}
 
@@ -2403,7 +2403,7 @@ type QuickCreateIssueResponse struct {
 func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 	var req QuickCreateIssueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	prompt := strings.TrimSpace(req.Prompt)
@@ -2420,7 +2420,7 @@ func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 	if dueDate != "" {
 		parsed, err := util.ParseCalendarDate(dueDate)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid due_date format, expected YYYY-MM-DD")
+			writeError(w, http.StatusBadRequest, errMsgInvalidDueDateFormat)
 			return
 		}
 		dueDate = parsed.Time.Format("2006-01-02")
@@ -2584,7 +2584,7 @@ func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 			WorkspaceID: wsUUID,
 		})
 		if err != nil || !parent.ID.Valid {
-			writeError(w, http.StatusBadRequest, "parent issue not found in this workspace")
+			writeError(w, http.StatusBadRequest, errMsgParentIssueNotFoundInWorkspace)
 			return
 		}
 		parentIssueUUID = pid
@@ -2736,7 +2736,7 @@ func duplicateIssueMessage(issue IssueResponse) string {
 func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	var req CreateIssueRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -2840,7 +2840,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if req.DueDate != nil && *req.DueDate != "" {
 		d, err := util.ParseCalendarDate(*req.DueDate)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid due_date format, expected YYYY-MM-DD")
+			writeError(w, http.StatusBadRequest, errMsgInvalidDueDateFormat)
 			return
 		}
 		dueDate = d
@@ -2987,11 +2987,11 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if errors.Is(err, service.ErrParentIssueNotFound) {
-		writeError(w, http.StatusBadRequest, "parent issue not found in this workspace")
+		writeError(w, http.StatusBadRequest, errMsgParentIssueNotFoundInWorkspace)
 		return
 	}
 	if errors.Is(err, service.ErrProjectNotFound) {
-		writeError(w, http.StatusBadRequest, "project not found in this workspace")
+		writeError(w, http.StatusBadRequest, errMsgProjectNotFoundInWorkspace)
 		return
 	}
 	if errors.Is(err, service.ErrIssueLabelNotFound) {
@@ -3270,7 +3270,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateIssueRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -3364,7 +3364,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		if req.DueDate != nil && *req.DueDate != "" {
 			d, err := util.ParseCalendarDate(*req.DueDate)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid due_date format, expected YYYY-MM-DD")
+				writeError(w, http.StatusBadRequest, errMsgInvalidDueDateFormat)
 				return
 			}
 			params.DueDate = d
@@ -3390,7 +3390,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 				ID:          newParentID,
 				WorkspaceID: prevIssue.WorkspaceID,
 			}); err != nil {
-				writeError(w, http.StatusBadRequest, "parent issue not found in this workspace")
+				writeError(w, http.StatusBadRequest, errMsgParentIssueNotFoundInWorkspace)
 				return
 			}
 			// Cycle detection: walk up from the new parent to ensure we don't reach this issue.
@@ -3427,7 +3427,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 					writeError(w, http.StatusInternalServerError, "failed to validate project")
 					return
 				}
-				writeError(w, http.StatusBadRequest, "project not found in this workspace")
+				writeError(w, http.StatusBadRequest, errMsgProjectNotFoundInWorkspace)
 				return
 			}
 			params.ProjectID = projectUUID
@@ -3885,7 +3885,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 
 	var req BatchUpdateIssuesRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -3973,7 +3973,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "failed to validate project")
 				return
 			}
-			writeError(w, http.StatusBadRequest, "project not found in this workspace")
+			writeError(w, http.StatusBadRequest, errMsgProjectNotFoundInWorkspace)
 			return
 		}
 		batchProjectID = projectUUID
@@ -4247,7 +4247,7 @@ type BatchDeleteIssuesRequest struct {
 func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 	var req BatchDeleteIssuesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 

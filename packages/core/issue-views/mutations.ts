@@ -27,7 +27,7 @@ export function useCreateIssueView(wsId: string) {
               : old,
         );
       }
-      void queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
+      queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
     },
   });
 }
@@ -50,7 +50,7 @@ export function useUpdateIssueView(wsId: string) {
     mutationFn: ({ id, ...data }: UpdateIssueViewInput) =>
       api.updateIssueView(id, data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
+      queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
     },
   });
 }
@@ -60,7 +60,7 @@ export function useDeleteIssueView(wsId: string) {
   return useMutation({
     mutationFn: (id: string) => api.deleteIssueView(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
+      queryClient.invalidateQueries({ queryKey: issueViewKeys.all(wsId) });
     },
   });
 }

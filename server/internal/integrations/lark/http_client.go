@@ -272,7 +272,7 @@ func (c *httpAPIClient) invalidateToken(appID string) {
 // because reply_in_thread is a bool.
 func outboundMessageRequest(chatID ChatID, msgType, content string, target ReplyTarget) (string, map[string]any) {
 	if target.IsSet() {
-		return "/open-apis/im/v1/messages/" + url.PathEscape(target.MessageID) + "/reply", map[string]any{
+		return apiMessagesPath + url.PathEscape(target.MessageID) + "/reply", map[string]any{
 			"msg_type":        msgType,
 			"content":         content,
 			"reply_in_thread": target.InThread,
@@ -280,7 +280,7 @@ func outboundMessageRequest(chatID ChatID, msgType, content string, target Reply
 	}
 	q := url.Values{}
 	q.Set("receive_id_type", "chat_id")
-	return "/open-apis/im/v1/messages?" + q.Encode(), map[string]any{
+	return apiMessagesQueryPrefix + q.Encode(), map[string]any{
 		"receive_id": string(chatID),
 		"msg_type":   msgType,
 		"content":    content,
@@ -292,7 +292,7 @@ func outboundMessageRequest(chatID ChatID, msgType, content string, target Reply
 // patches at the same card.
 func (c *httpAPIClient) SendInteractiveCard(ctx context.Context, p SendCardParams) (string, error) {
 	if p.ChatID == "" {
-		return "", errors.New("lark http client: missing chat_id")
+		return "", errors.New(errMsgMissingChatID)
 	}
 	if p.CardJSON == "" {
 		return "", errors.New("lark http client: missing card json")
@@ -329,7 +329,7 @@ func (c *httpAPIClient) SendInteractiveCard(ctx context.Context, p SendCardParam
 // blob; we encode it here so callers pass raw text.
 func (c *httpAPIClient) SendTextMessage(ctx context.Context, p SendTextParams) (string, error) {
 	if p.ChatID == "" {
-		return "", errors.New("lark http client: missing chat_id")
+		return "", errors.New(errMsgMissingChatID)
 	}
 	if p.Text == "" {
 		return "", errors.New("lark http client: missing text")
@@ -382,7 +382,7 @@ func (c *httpAPIClient) SendTextMessage(ctx context.Context, p SendTextParams) (
 // `markdown` tag is closer to GFM.
 func (c *httpAPIClient) SendMarkdownCard(ctx context.Context, p SendMarkdownCardParams) (string, error) {
 	if p.ChatID == "" {
-		return "", errors.New("lark http client: missing chat_id")
+		return "", errors.New(errMsgMissingChatID)
 	}
 	if p.Markdown == "" {
 		return "", errors.New("lark http client: missing markdown body")
@@ -447,7 +447,7 @@ func (c *httpAPIClient) PatchInteractiveCard(ctx context.Context, p PatchCardPar
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 	}
-	path := "/open-apis/im/v1/messages/" + url.PathEscape(p.LarkCardMessageID)
+	path := apiMessagesPath + url.PathEscape(p.LarkCardMessageID)
 	if err := c.doJSON(ctx, c.resolveBaseURL(p.InstallationID), http.MethodPatch, path, token, body, &resp); err != nil {
 		return fmt.Errorf("lark http client: patch interactive card: %w", err)
 	}
@@ -490,7 +490,7 @@ func (c *httpAPIClient) SendBindingPromptCard(ctx context.Context, p BindingProm
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
 	}
-	path := "/open-apis/im/v1/messages?" + q.Encode()
+	path := apiMessagesQueryPrefix + q.Encode()
 	if err := c.doJSON(ctx, c.resolveBaseURL(p.InstallationID), http.MethodPost, path, token, body, &resp); err != nil {
 		return fmt.Errorf("lark http client: send binding prompt: %w", err)
 	}
@@ -590,7 +590,7 @@ func (c *httpAPIClient) GetBotInfo(ctx context.Context, creds InstallationCreden
 // inbound pipeline.
 func (c *httpAPIClient) GetMessage(ctx context.Context, creds InstallationCredentials, messageID string) ([]LarkMessage, error) {
 	if messageID == "" {
-		return nil, errors.New("lark http client: missing message_id")
+		return nil, errors.New(errMsgMissingMessageID)
 	}
 	token, err := c.tenantAccessToken(ctx, creds)
 	if err != nil {
@@ -598,7 +598,7 @@ func (c *httpAPIClient) GetMessage(ctx context.Context, creds InstallationCreden
 	}
 	q := url.Values{}
 	q.Set("user_id_type", "open_id")
-	path := "/open-apis/im/v1/messages/" + url.PathEscape(messageID) + "?" + q.Encode()
+	path := apiMessagesPath + url.PathEscape(messageID) + "?" + q.Encode()
 
 	var resp struct {
 		Code int    `json:"code"`
@@ -643,7 +643,7 @@ const larkListMessagesMaxPageSize = 50
 // flattener to interpret.
 func (c *httpAPIClient) ListChatMessages(ctx context.Context, creds InstallationCredentials, p ListMessagesParams) ([]LarkMessage, error) {
 	if p.ChatID == "" {
-		return nil, errors.New("lark http client: missing chat_id")
+		return nil, errors.New(errMsgMissingChatID)
 	}
 	size := p.PageSize
 	if size <= 0 {
@@ -674,7 +674,7 @@ func (c *httpAPIClient) ListChatMessages(ctx context.Context, creds Installation
 	q.Set("sort_type", "ByCreateTimeDesc")
 	q.Set("page_size", strconv.Itoa(size))
 	q.Set("user_id_type", "open_id")
-	path := "/open-apis/im/v1/messages?" + q.Encode()
+	path := apiMessagesQueryPrefix + q.Encode()
 
 	var resp struct {
 		Code int    `json:"code"`
@@ -728,7 +728,7 @@ func (c *httpAPIClient) DownloadMessageResource(ctx context.Context, creds Insta
 
 func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds InstallationCredentials, p DownloadResourceParams) (DownloadedResourceStream, error) {
 	if p.MessageID == "" {
-		return DownloadedResourceStream{}, errors.New("lark http client: missing message_id")
+		return DownloadedResourceStream{}, errors.New(errMsgMissingMessageID)
 	}
 	if p.FileKey == "" {
 		return DownloadedResourceStream{}, errors.New("lark http client: missing file_key")
@@ -741,7 +741,7 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 	if p.Type != "" {
 		q.Set("type", p.Type)
 	}
-	path := "/open-apis/im/v1/messages/" + url.PathEscape(p.MessageID) + "/resources/" + url.PathEscape(p.FileKey)
+	path := apiMessagesPath + url.PathEscape(p.MessageID) + "/resources/" + url.PathEscape(p.FileKey)
 	if encoded := q.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
@@ -774,7 +774,7 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 	}
 	if resp.ContentLength > maxMessageResourceBytes {
 		closeWithCancel()
-		return DownloadedResourceStream{}, fmt.Errorf("lark http client: download resource: resource exceeds %d bytes", maxMessageResourceBytes)
+		return DownloadedResourceStream{}, fmt.Errorf(errFmtResourceExceeds, maxMessageResourceBytes)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		rawBody, readErr := readMessageResourceErrorBody(resp.Body)
@@ -829,7 +829,7 @@ func readMessageResourceErrorBody(body io.Reader) ([]byte, error) {
 		return nil, fmt.Errorf("lark http client: download resource: read body: %w", err)
 	}
 	if len(rawBody) > maxMessageResourceBytes {
-		return nil, fmt.Errorf("lark http client: download resource: resource exceeds %d bytes", maxMessageResourceBytes)
+		return nil, fmt.Errorf(errFmtResourceExceeds, maxMessageResourceBytes)
 	}
 	return rawBody, nil
 }
@@ -851,7 +851,7 @@ func (r *maxBytesReadCloser) Read(p []byte) (int, error) {
 	var one [1]byte
 	n, err := r.r.Read(one[:])
 	if n > 0 {
-		return 0, fmt.Errorf("lark http client: download resource: resource exceeds %d bytes", maxMessageResourceBytes)
+		return 0, fmt.Errorf(errFmtResourceExceeds, maxMessageResourceBytes)
 	}
 	return 0, err
 }
@@ -899,7 +899,7 @@ const larkBatchGetUsersMaxIDs = 50
 // Returns the reaction_id so it can be deleted later.
 func (c *httpAPIClient) AddMessageReaction(ctx context.Context, p AddReactionParams) (string, error) {
 	if p.MessageID == "" {
-		return "", errors.New("lark http client: missing message_id")
+		return "", errors.New(errMsgMissingMessageID)
 	}
 	if p.EmojiType == "" {
 		return "", errors.New("lark http client: missing emoji_type")
@@ -911,7 +911,7 @@ func (c *httpAPIClient) AddMessageReaction(ctx context.Context, p AddReactionPar
 	body := map[string]any{
 		"reaction_type": map[string]string{"emoji_type": p.EmojiType},
 	}
-	path := "/open-apis/im/v1/messages/" + url.PathEscape(p.MessageID) + "/reactions"
+	path := apiMessagesPath + url.PathEscape(p.MessageID) + "/reactions"
 	var resp struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`
@@ -935,7 +935,7 @@ func (c *httpAPIClient) AddMessageReaction(ctx context.Context, p AddReactionPar
 // DELETE /open-apis/im/v1/messages/{message_id}/reactions/{reaction_id}.
 func (c *httpAPIClient) DeleteMessageReaction(ctx context.Context, p DeleteReactionParams) error {
 	if p.MessageID == "" {
-		return errors.New("lark http client: missing message_id")
+		return errors.New(errMsgMissingMessageID)
 	}
 	if p.ReactionID == "" {
 		return errors.New("lark http client: missing reaction_id")
@@ -944,7 +944,7 @@ func (c *httpAPIClient) DeleteMessageReaction(ctx context.Context, p DeleteReact
 	if err != nil {
 		return err
 	}
-	path := "/open-apis/im/v1/messages/" + url.PathEscape(p.MessageID) + "/reactions/" + url.PathEscape(p.ReactionID)
+	path := apiMessagesPath + url.PathEscape(p.MessageID) + "/reactions/" + url.PathEscape(p.ReactionID)
 	var resp struct {
 		Code int    `json:"code"`
 		Msg  string `json:"msg"`

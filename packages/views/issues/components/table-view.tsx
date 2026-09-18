@@ -1737,7 +1737,7 @@ export function TableView({
     (branchKey: string) => {
       const branch = activeServerBranches.get(branchKey);
       if (!branch) return;
-      void queryClient.refetchQueries({
+      queryClient.refetchQueries({
         queryKey: issueKeys.tableRows(
           wsId,
           serverQuery,
@@ -1921,7 +1921,7 @@ export function TableView({
         key: "retry:groups",
         state: "error",
         total: 0,
-        onLoad: () => void refetchServerGroups(),
+        onLoad: () => refetchServerGroups(),
       });
     } else if (usesServerGrouping && hasNextServerGroupPage) {
       result.push({
@@ -1929,7 +1929,7 @@ export function TableView({
         key: "more:groups",
         state: fetchingNextServerGroupPage ? "loading" : "has_more",
         total: 0,
-        onLoad: () => void fetchNextServerGroupPage(),
+        onLoad: () => fetchNextServerGroupPage(),
       });
     }
 

@@ -50,19 +50,19 @@ export function ClientUsageReporter({
       inFlight.current = false;
       if (rerun.current) {
         rerun.current = false;
-        void reportIfNeeded();
+        reportIfNeeded();
       }
     }
   }, [identity?.platform, storage]);
 
   useEffect(() => {
-    void reportIfNeeded();
+    reportIfNeeded();
   }, [reportIfNeeded, userID]);
 
   useEffect(() => {
-    const onFocus = () => void reportIfNeeded();
+    const onFocus = () => reportIfNeeded();
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void reportIfNeeded();
+      if (document.visibilityState === "visible") reportIfNeeded();
     };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);

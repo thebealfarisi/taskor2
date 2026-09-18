@@ -137,7 +137,7 @@ func (d *Daemon) clearActiveRepoCheckoutTask(token string) {
 }
 
 func (d *Daemon) activeRepoCheckoutTask(r *http.Request) (activeRepoCheckoutTask, bool) {
-	const bearer = "Bearer "
+	const bearer = authBearerPrefix
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
 	if !strings.HasPrefix(header, bearer) {
 		return activeRepoCheckoutTask{}, false
@@ -239,7 +239,7 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			resp.RepoCheckoutWaiters = activity.ForegroundWaiters
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, contentTypeJSON)
 		json.NewEncoder(w).Encode(resp)
 	}
 }
@@ -256,7 +256,7 @@ func (d *Daemon) shutdownHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, contentTypeJSON)
 		json.NewEncoder(w).Encode(map[string]string{"status": "shutting down"})
 		if d.cancelFunc != nil {
 			// Cancel asynchronously so the response flushes first; otherwise
@@ -400,7 +400,7 @@ func (d *Daemon) repoCheckoutHandler() http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(headerContentType, contentTypeJSON)
 		json.NewEncoder(w).Encode(result)
 	}
 }

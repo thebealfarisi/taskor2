@@ -307,9 +307,9 @@ export interface AgentTask {
   // `agent_error.*` reasons since MUL-1949, `local_directory_error`, …) and
   // keeps growing — an installed client will meet reasons its build
   // predates. TaskFailureReason stays in the union for autocomplete on the
-  // coarse values; `string & {}` admits the rest without collapsing the
+  // coarse values; `string & Record<never, never>` admits the rest without collapsing the
   // hints.
-  failure_reason?: TaskFailureReason | (string & {}) | "";
+  failure_reason?: TaskFailureReason | (string & Record<never, never>) | "";
   created_at: string;
   /** Non-empty when the task was spawned from a chat session. */
   chat_session_id?: string;

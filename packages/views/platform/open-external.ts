@@ -24,7 +24,7 @@ export function openExternal(
     }
   ).desktopAPI;
   if (desktopAPI?.openExternal) {
-    void desktopAPI.openExternal(url);
+    desktopAPI.openExternal(url);
     return;
   }
   // Async-created Stripe URLs are commonly returned after the original click

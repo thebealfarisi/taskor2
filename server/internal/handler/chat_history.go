@@ -262,7 +262,7 @@ func (h *Handler) respondChatHistory(w http.ResponseWriter, r *http.Request, ses
 			// channel.
 			channelType, bindingErr := h.sessionChannelType(r.Context(), sessionID)
 			if bindingErr != nil {
-				slog.Error("chat session channel binding read failed", append(logger.RequestAttrs(r),
+				slog.Error(errMsgChatBindingReadFailed, append(logger.RequestAttrs(r),
 					"error", bindingErr, "chat_session_id", uuidToString(sessionID))...)
 				writeError(w, http.StatusInternalServerError, "failed to read chat session channel binding")
 				return
@@ -275,7 +275,7 @@ func (h *Handler) respondChatHistory(w http.ResponseWriter, r *http.Request, ses
 			return
 		}
 		if errors.Is(err, errChannelBindingRead) {
-			slog.Error("chat session channel binding read failed", append(logger.RequestAttrs(r),
+			slog.Error(errMsgChatBindingReadFailed, append(logger.RequestAttrs(r),
 				"error", err, "chat_session_id", uuidToString(sessionID))...)
 			writeError(w, http.StatusInternalServerError, "failed to read chat session channel binding")
 			return
@@ -347,7 +347,7 @@ func noHistoryNote(channelType string) string {
 // respondChatHistory answers it like the empty-read path answers the same
 // failure — one status code for one cause, whether or not the session happened
 // to have messages.
-var errChannelBindingRead = errors.New("chat session channel binding read failed")
+var errChannelBindingRead = errors.New(errMsgChatBindingReadFailed)
 
 // sessionChannelType names the platform behind a session, or "" when there is
 // none. Channel-agnostic on purpose: a per-platform lookup here would go blind

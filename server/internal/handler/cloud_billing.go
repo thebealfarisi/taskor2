@@ -170,7 +170,7 @@ func (h *Handler) GetCloudWorkspaceSubscriptionSummary(w http.ResponseWriter, r 
 	if !ok {
 		return
 	}
-	h.proxyCloudSubscription(w, r, http.MethodGet, "/api/v1/subscriptions/"+workspaceID+"/summary", userID, nil, nil)
+	h.proxyCloudSubscription(w, r, http.MethodGet, pathAPIV1Subscriptions+workspaceID+"/summary", userID, nil, nil)
 }
 
 // GetCloudWorkspaceSubscriptionPrices forwards cloud's validated per-seat price
@@ -186,7 +186,7 @@ func (h *Handler) GetCloudWorkspaceSubscriptionPrices(w http.ResponseWriter, r *
 	if !ok {
 		return
 	}
-	h.proxyCloudSubscription(w, r, http.MethodGet, "/api/v1/subscriptions/"+workspaceID+"/prices", userID, nil, nil)
+	h.proxyCloudSubscription(w, r, http.MethodGet, pathAPIV1Subscriptions+workspaceID+"/prices", userID, nil, nil)
 }
 
 // CreateCloudWorkspaceSubscriptionCheckout injects the middleware-resolved
@@ -235,7 +235,7 @@ func (h *Handler) ReconcileCloudWorkspaceSubscriptionSeats(w http.ResponseWriter
 	if !ok {
 		return
 	}
-	h.proxyCloudSubscription(w, r, http.MethodPost, "/api/v1/subscriptions/"+workspaceID+"/seats/reconcile", userID, nil, nil)
+	h.proxyCloudSubscription(w, r, http.MethodPost, pathAPIV1Subscriptions+workspaceID+"/seats/reconcile", userID, nil, nil)
 }
 
 func (h *Handler) CreateCloudWorkspaceSubscriptionPortal(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +246,7 @@ func (h *Handler) CreateCloudWorkspaceSubscriptionPortal(w http.ResponseWriter, 
 	if _, ok := requireCloudSubscriptionIdempotencyKey(w, r, ""); !ok {
 		return
 	}
-	h.proxyCloudSubscription(w, r, http.MethodPost, "/api/v1/subscriptions/"+workspaceID+"/portal-sessions", userID, nil, cloudSubscriptionIdempotencyHeaders(r))
+	h.proxyCloudSubscription(w, r, http.MethodPost, pathAPIV1Subscriptions+workspaceID+"/portal-sessions", userID, nil, cloudSubscriptionIdempotencyHeaders(r))
 }
 
 // GetCloudBillingBalance forwards GET /api/v1/billing/balance.

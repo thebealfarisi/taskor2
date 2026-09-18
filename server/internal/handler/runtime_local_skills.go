@@ -631,11 +631,11 @@ func (h *Handler) GetLocalSkillListRequest(w http.ResponseWriter, r *http.Reques
 	requestID := chi.URLParam(r, "requestId")
 	req, err := h.LocalSkillListStore.Get(r.Context(), requestID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load request: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadRequest+err.Error())
 		return
 	}
 	if req == nil || req.RuntimeID != rt.runtimeID {
-		writeError(w, http.StatusNotFound, "request not found")
+		writeError(w, http.StatusNotFound, errMsgRequestNotFound)
 		return
 	}
 
@@ -660,7 +660,7 @@ func (h *Handler) InitiateImportLocalSkill(w http.ResponseWriter, r *http.Reques
 
 	var req CreateRuntimeLocalSkillImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if strings.TrimSpace(req.SkillKey) == "" {
@@ -715,11 +715,11 @@ func (h *Handler) GetLocalSkillImportRequest(w http.ResponseWriter, r *http.Requ
 	requestID := chi.URLParam(r, "requestId")
 	req, err := h.LocalSkillImportStore.Get(r.Context(), requestID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load request: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadRequest+err.Error())
 		return
 	}
 	if req == nil || req.RuntimeID != rt.runtimeID {
-		writeError(w, http.StatusNotFound, "request not found")
+		writeError(w, http.StatusNotFound, errMsgRequestNotFound)
 		return
 	}
 
@@ -735,11 +735,11 @@ func (h *Handler) ReportLocalSkillListResult(w http.ResponseWriter, r *http.Requ
 	requestID := chi.URLParam(r, "requestId")
 	req, err := h.LocalSkillListStore.Get(r.Context(), requestID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load request: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadRequest+err.Error())
 		return
 	}
 	if req == nil || req.RuntimeID != runtimeID {
-		writeError(w, http.StatusNotFound, "request not found")
+		writeError(w, http.StatusNotFound, errMsgRequestNotFound)
 		return
 	}
 	if runtimeLocalSkillRequestTerminal(req.Status) {
@@ -757,7 +757,7 @@ func (h *Handler) ReportLocalSkillListResult(w http.ResponseWriter, r *http.Requ
 		Error        string                         `json:"error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -801,11 +801,11 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 	requestID := chi.URLParam(r, "requestId")
 	req, err := h.LocalSkillImportStore.Get(r.Context(), requestID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to load request: "+err.Error())
+		writeError(w, http.StatusInternalServerError, errMsgFailedToLoadRequest+err.Error())
 		return
 	}
 	if req == nil || req.RuntimeID != runtimeID {
-		writeError(w, http.StatusNotFound, "request not found")
+		writeError(w, http.StatusNotFound, errMsgRequestNotFound)
 		return
 	}
 	if runtimeLocalSkillRequestTerminal(req.Status) {
@@ -820,7 +820,7 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 		Error  string                     `json:"error"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -836,7 +836,7 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		failMsg := "stored local skill import creator_id is invalid"
 		if ferr := h.LocalSkillImportStore.Fail(r.Context(), requestID, failMsg); ferr != nil {
-			slog.Error("local skill import Fail failed", "error", ferr, "request_id", requestID)
+			slog.Error(errMsgLocalSkillImportFail, "error", ferr, "request_id", requestID)
 		}
 		writeError(w, http.StatusInternalServerError, failMsg)
 		return
@@ -877,7 +877,7 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 		if perr != nil {
 			failMsg := "stored target_skill_id is invalid"
 			if ferr := h.LocalSkillImportStore.Fail(r.Context(), requestID, failMsg); ferr != nil {
-				slog.Error("local skill import Fail failed", "error", ferr, "request_id", requestID)
+				slog.Error(errMsgLocalSkillImportFail, "error", ferr, "request_id", requestID)
 			}
 			writeError(w, http.StatusInternalServerError, failMsg)
 			return
@@ -986,7 +986,7 @@ func (h *Handler) ReportLocalSkillImportResult(w http.ResponseWriter, r *http.Re
 // daemon retries.
 func (h *Handler) failLocalSkillImport(w http.ResponseWriter, r *http.Request, requestID, failMsg string) {
 	if err := h.LocalSkillImportStore.Fail(r.Context(), requestID, failMsg); err != nil {
-		slog.Error("local skill import Fail failed", "error", err, "request_id", requestID)
+		slog.Error(errMsgLocalSkillImportFail, "error", err, "request_id", requestID)
 		writeError(w, http.StatusInternalServerError, "failed to persist failure")
 		return
 	}

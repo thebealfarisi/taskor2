@@ -82,7 +82,7 @@ export function ComposioTab() {
     consumedCallbackKey.current = callbackKey;
     if (connectedParam) {
       toast.success(t(($) => $.composio.toast_connected));
-      void qc.invalidateQueries({ queryKey: composioKeys.connections() });
+      qc.invalidateQueries({ queryKey: composioKeys.connections() });
     } else {
       toast.error(t(($) => $.composio.toast_connect_failed));
     }

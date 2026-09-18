@@ -32,7 +32,7 @@ var grokBlockedArgs = map[string]blockedArgMode{
 	"--print":                  blockedStandalone,
 	"--single":                 blockedWithValue,
 	"--output-format":          blockedWithValue,
-	"--permission-mode":        blockedWithValue,
+	flagPermissionMode:        blockedWithValue,
 	"-m":                       blockedWithValue,
 	"--model":                  blockedWithValue,
 	"--reasoning-effort":       blockedWithValue,
@@ -410,7 +410,7 @@ func (b *grokBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		}
 
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": userText},

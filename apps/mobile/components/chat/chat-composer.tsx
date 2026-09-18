@@ -90,7 +90,7 @@ export function ChatComposer({
 
   const handleStop = useCallback(() => {
     if (IS_IOS) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     onStop();
   }, [onStop]);

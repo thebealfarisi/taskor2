@@ -86,7 +86,7 @@ export function useBuilderDraftSync(options: {
     (next: StoredAgentDraft) => {
       savedRef.current = next;
       pendingRef.current = null;
-      void api.saveAgentBuilderDraft(sessionId, next).catch(() => {
+      api.saveAgentBuilderDraft(sessionId, next).catch(() => {
         // Best-effort: the next edit retries, and one lost write costs the user
         // nothing they can see. An error banner here would interrupt typing for
         // something that self-heals.

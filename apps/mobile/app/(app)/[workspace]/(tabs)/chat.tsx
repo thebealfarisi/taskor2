@@ -415,7 +415,7 @@ export default function ChatTab() {
     qc.setQueryData<ChatPendingTask>(chatKeys.pendingTask(sessionId), (old) =>
       removePendingChatTask(old, taskId),
     );
-    void api.cancelTaskById(taskId)
+    api.cancelTaskById(taskId)
       .catch(() => {
         // Silent — task may have already terminated server-side.
       })

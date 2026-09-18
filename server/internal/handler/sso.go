@@ -52,14 +52,14 @@ func (h *Handler) KeycloakLogin(w http.ResponseWriter, r *http.Request) {
 	codeVerifier, err := sso.GenerateCodeVerifier()
 	if err != nil {
 		slog.Error("sso: generate code verifier", "error", err)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
 	state, err := sso.GenerateState()
 	if err != nil {
 		slog.Error("sso: generate state", "error", err)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -71,7 +71,7 @@ func (h *Handler) KeycloakLogin(w http.ResponseWriter, r *http.Request) {
 		Next:         next,
 	}, auth.JWTSecret()); err != nil {
 		slog.Error("sso: set state cookie", "error", err)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil || sp.State != r.URL.Query().Get("state") {
 		slog.Warn("sso: state mismatch", "error", err)
 		sso.ClearStateCookie(w)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		sso.ClearStateCookie(w)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -109,7 +109,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("sso: token exchange", "error", err)
 		sso.ClearStateCookie(w)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -124,7 +124,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("sso: find or create user", "error", err, "email", email)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 
@@ -133,7 +133,7 @@ func (h *Handler) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Warn("sso: issue jwt", append(logger.RequestAttrs(r), "error", err, "email", email)...)
 		sso.ClearStateCookie(w)
-		http.Redirect(w, r, "/login?error=sso_failed", http.StatusFound)
+		http.Redirect(w, r, urlSSOFailed, http.StatusFound)
 		return
 	}
 

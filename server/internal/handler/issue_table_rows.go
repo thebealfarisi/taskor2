@@ -54,12 +54,12 @@ func (sort resolvedIssueTableSort) cursorPredicate(w http.ResponseWriter, cursor
 		return "TRUE", true
 	}
 	if cursor.RowID == "" {
-		writeError(w, http.StatusBadRequest, "invalid cursor")
+		writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 		return "", false
 	}
 	rowID, err := util.ParseUUID(cursor.RowID)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid cursor")
+		writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 		return "", false
 	}
 	idRef := addArg(rowID)
@@ -67,7 +67,7 @@ func (sort resolvedIssueTableSort) cursorPredicate(w http.ResponseWriter, cursor
 	if !sort.idOnlyTie {
 		createdAt, err := time.Parse(time.RFC3339Nano, cursor.RowCreatedAt)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid cursor")
+			writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 			return "", false
 		}
 		createdRef := addArg(createdAt)
@@ -75,36 +75,36 @@ func (sort resolvedIssueTableSort) cursorPredicate(w http.ResponseWriter, cursor
 	}
 	if cursor.SortIsNull {
 		if !sort.nullsLast || cursor.SortValue != nil {
-			writeError(w, http.StatusBadRequest, "invalid cursor")
+			writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 			return "", false
 		}
 		return fmt.Sprintf("(%s IS NULL AND %s)", sort.expression, tie), true
 	}
 	if cursor.SortValue == nil {
-		writeError(w, http.StatusBadRequest, "invalid cursor")
+		writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 		return "", false
 	}
 	switch sort.castType {
 	case "integer":
 		if _, err := strconv.ParseInt(*cursor.SortValue, 10, 64); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid cursor")
+			writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 			return "", false
 		}
 	case "double precision", "numeric":
 		if _, err := strconv.ParseFloat(*cursor.SortValue, 64); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid cursor")
+			writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 			return "", false
 		}
 	case "timestamptz":
 		if _, err := time.Parse(time.RFC3339Nano, *cursor.SortValue); err != nil {
 			if _, postgresErr := time.Parse("2006-01-02 15:04:05.999999999Z07", *cursor.SortValue); postgresErr != nil {
-				writeError(w, http.StatusBadRequest, "invalid cursor")
+				writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 				return "", false
 			}
 		}
 	case "date":
 		if _, err := time.Parse("2006-01-02", *cursor.SortValue); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid cursor")
+			writeError(w, http.StatusBadRequest, errMsgInvalidCursor)
 			return "", false
 		}
 	}
@@ -115,7 +115,7 @@ func (sort resolvedIssueTableSort) cursorPredicate(w http.ResponseWriter, cursor
 		comparison = "<"
 	}
 	predicate := fmt.Sprintf("(%s %s %s OR (%s = %s AND %s))", sort.expression, comparison, valueExpr, sort.expression, valueExpr, tie)
-	if sort.expression == "i.position" {
+	if sort.expression == sqlPositionCol {
 		// The exact mixed-direction keyset predicate is not itself indexable.
 		// This redundant lower bound lets PostgreSQL start the default position
 		// index at the cursor instead of filtering every preceding index entry.
@@ -133,7 +133,7 @@ func (h *Handler) issueTableOrderBy(w http.ResponseWriter, r *http.Request, work
 		sortField = "position"
 	}
 	resolved := resolvedIssueTableSort{
-		expression: "i.position",
+		expression: sqlPositionCol,
 		direction:  "asc",
 		castType:   "double precision",
 	}
@@ -196,7 +196,7 @@ func (h *Handler) issueTableOrderBy(w http.ResponseWriter, r *http.Request, work
 		writeError(w, http.StatusBadRequest, "invalid query.sort.direction")
 		return resolvedIssueTableSort{}, false
 	}
-	if sortField != "position" && resolved.expression != "i.position" {
+	if sortField != "position" && resolved.expression != sqlPositionCol {
 		resolved.direction = direction
 	}
 	return resolved, true
@@ -377,7 +377,7 @@ SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 	rows, err := h.DB.Query(r.Context(), query, args...)
 	if err != nil {
 		slog.Warn("ListIssueTableRows query failed", append(logger.RequestAttrs(r), "error", err)...)
-		writeIssueTableQueryFailure(w, r, "failed to list table rows")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableRows)
 		return
 	}
 	defer rows.Close()
@@ -417,13 +417,13 @@ SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
 			&row.childCount,
 			&row.sortKey,
 		); err != nil {
-			writeIssueTableQueryFailure(w, r, "failed to list table rows")
+			writeIssueTableQueryFailure(w, r, errMsgFailedToListTableRows)
 			return
 		}
 		scanned = append(scanned, row)
 	}
 	if err := rows.Err(); err != nil {
-		writeIssueTableQueryFailure(w, r, "failed to list table rows")
+		writeIssueTableQueryFailure(w, r, errMsgFailedToListTableRows)
 		return
 	}
 	rows.Close()

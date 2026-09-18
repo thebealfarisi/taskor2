@@ -108,7 +108,7 @@ export function useCreateAgentSubmit(options: {
       // The create response is authoritative enough to open immediately.
       // Reconcile other list projections in the background instead of making
       // navigation wait on a second network request.
-      void qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
+      qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
       toast.success(
         t(($) => $.creation_studio.created, {
           name: agent.name || draft.name.trim(),

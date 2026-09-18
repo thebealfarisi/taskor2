@@ -482,7 +482,7 @@ func isGPT56Family(model string) bool {
 // has a deadline, otherwise a child context bounded by defaultRequestTimeout.
 func withDefaultTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, ok := ctx.Deadline(); ok {
-		return ctx, func() {}
+		return ctx, func() { /* no-op: context already has deadline */ }
 	}
 	return context.WithTimeout(ctx, defaultRequestTimeout)
 }

@@ -103,15 +103,15 @@ func init() {
 	issueMetadataCmd.AddCommand(issueMetadataSetCmd)
 	issueMetadataCmd.AddCommand(issueMetadataDeleteCmd)
 
-	issueMetadataListCmd.Flags().String("output", "table", "Output format: table or json")
-	issueMetadataGetCmd.Flags().String("output", "json", "Output format: table or json")
-	issueMetadataGetCmd.Flags().String("key", "", "Metadata key (required)")
-	issueMetadataSetCmd.Flags().String("output", "table", "Output format: table or json")
-	issueMetadataSetCmd.Flags().String("key", "", "Metadata key (required)")
+	issueMetadataListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueMetadataGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	issueMetadataGetCmd.Flags().String("key", "", descMetadataKey)
+	issueMetadataSetCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueMetadataSetCmd.Flags().String("key", "", descMetadataKey)
 	issueMetadataSetCmd.Flags().String("value", "", "Metadata value (required)")
 	issueMetadataSetCmd.Flags().String("type", "", "Force value type: string, number, or bool (default: auto-infer via JSON parsing)")
-	issueMetadataDeleteCmd.Flags().String("output", "table", "Output format: table or json")
-	issueMetadataDeleteCmd.Flags().String("key", "", "Metadata key (required)")
+	issueMetadataDeleteCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	issueMetadataDeleteCmd.Flags().String("key", "", descMetadataKey)
 
 	issueCmd.AddCommand(issueMetadataCmd)
 }
@@ -174,11 +174,11 @@ func runIssueMetadataList(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 
 	var result map[string]any
-	if err := client.GetJSON(ctx, "/api/issues/"+issueRef.ID+"/metadata", &result); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueRef.ID+pathMetadata, &result); err != nil {
 		// Best-effort degradation: when the server does not expose the
 		// per-issue metadata endpoint (self-hosted backends running an
 		// older build, missing migration, or routing issues that surface
@@ -213,7 +213,7 @@ func runIssueMetadataList(cmd *cobra.Command, args []string) error {
 func runIssueMetadataGet(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	if key == "" {
-		return fmt.Errorf("--key is required")
+		return fmt.Errorf(errKeyRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -225,11 +225,11 @@ func runIssueMetadataGet(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 
 	var result map[string]any
-	if err := client.GetJSON(ctx, "/api/issues/"+issueRef.ID+"/metadata", &result); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueRef.ID+pathMetadata, &result); err != nil {
 		return fmt.Errorf("get metadata: %w", err)
 	}
 	metadata, _ := result["metadata"].(map[string]any)
@@ -251,7 +251,7 @@ func runIssueMetadataGet(cmd *cobra.Command, args []string) error {
 func runIssueMetadataSet(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	if key == "" {
-		return fmt.Errorf("--key is required")
+		return fmt.Errorf(errKeyRequired)
 	}
 	if !cmd.Flags().Changed("value") {
 		return fmt.Errorf("--value is required")
@@ -272,12 +272,12 @@ func runIssueMetadataSet(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 
 	body := map[string]any{"value": value}
 	var result map[string]any
-	path := "/api/issues/" + issueRef.ID + "/metadata/" + key
+	path := apiIssuesPrefix + issueRef.ID + "/metadata/" + key
 	if err := client.PutJSON(ctx, path, body, &result); err != nil {
 		return fmt.Errorf("set metadata: %w", err)
 	}
@@ -294,7 +294,7 @@ func runIssueMetadataSet(cmd *cobra.Command, args []string) error {
 func runIssueMetadataDelete(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
 	if key == "" {
-		return fmt.Errorf("--key is required")
+		return fmt.Errorf(errKeyRequired)
 	}
 
 	client, err := newAPIClient(cmd)
@@ -306,10 +306,10 @@ func runIssueMetadataDelete(cmd *cobra.Command, args []string) error {
 
 	issueRef, err := resolveIssueRef(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve issue: %w", err)
+		return fmt.Errorf(errResolveIssue, err)
 	}
 
-	path := "/api/issues/" + issueRef.ID + "/metadata/" + key
+	path := apiIssuesPrefix + issueRef.ID + "/metadata/" + key
 	if err := client.DeleteJSON(ctx, path); err != nil {
 		return fmt.Errorf("delete metadata: %w", err)
 	}
@@ -317,7 +317,7 @@ func runIssueMetadataDelete(cmd *cobra.Command, args []string) error {
 	// Refresh the metadata so the user sees the result.
 	var result map[string]any
 	output, _ := cmd.Flags().GetString("output")
-	if err := client.GetJSON(ctx, "/api/issues/"+issueRef.ID+"/metadata", &result); err != nil {
+	if err := client.GetJSON(ctx, apiIssuesPrefix+issueRef.ID+pathMetadata, &result); err != nil {
 		if output == "json" {
 			return cli.PrintJSON(os.Stdout, map[string]any{"deleted": true})
 		}

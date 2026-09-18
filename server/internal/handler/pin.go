@@ -109,7 +109,7 @@ func (h *Handler) CreatePin(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -183,7 +183,7 @@ func (h *Handler) DeletePin(w http.ResponseWriter, r *http.Request) {
 	itemType := chi.URLParam(r, "itemType")
 	itemID := chi.URLParam(r, "itemId")
 
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -223,7 +223,7 @@ func (h *Handler) ReorderPins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}

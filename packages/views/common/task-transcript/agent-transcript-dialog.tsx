@@ -625,7 +625,7 @@ export function AgentTranscriptDialog({
 
   const handleCopyWorkdir = useCallback(() => {
     if (!workdirCopyTarget) return;
-    void copyText(workdirCopyTarget.path).then((ok) => {
+    copyText(workdirCopyTarget.path).then((ok) => {
       if (!ok) return;
       showCopiedWorkdir();
     });
@@ -635,7 +635,7 @@ export function AgentTranscriptDialog({
   // so copying the name is the fastest path to `git diff <branch>`.
   const handleCopyBranch = useCallback(() => {
     if (!task.branch_name) return;
-    void copyText(task.branch_name).then((ok) => {
+    copyText(task.branch_name).then((ok) => {
       if (!ok) return;
       showCopiedBranch();
     });
@@ -662,7 +662,7 @@ export function AgentTranscriptDialog({
       events.push(row.item);
     }
     const text = events.map((event) => redactSecrets(traceEventCopyText(event))).join("\n\n");
-    void copyText(text).then((ok) => {
+    copyText(text).then((ok) => {
       if (!ok) return;
       showCopied();
     });
@@ -1613,7 +1613,7 @@ function StepInspector({
     } else if (message) {
       parts.push(traceEventCopyText(message.item));
     }
-    void copyText(redactSecrets(parts.join("\n\n"))).then((ok) => {
+    copyText(redactSecrets(parts.join("\n\n"))).then((ok) => {
       if (!ok) return;
       showCopied();
     });

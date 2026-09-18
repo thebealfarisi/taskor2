@@ -238,7 +238,7 @@ func (e *inboundEnricher) Enrich(ctx context.Context, msg InboundMessage, creds 
 		// knows WHO @-mentioned it — not just what they said. Only when the
 		// name resolved (group path); otherwise the body passes through.
 		if name := names[string(msg.SenderOpenID)]; name != "" {
-			core = fmt.Sprintf("[%s]: %s", name, msg.Body)
+			core = fmt.Sprintf(formatSenderPrefix, name, msg.Body)
 		}
 	}
 	if b.Len() > 0 && core != "" {
@@ -440,10 +440,10 @@ func (e *inboundEnricher) renderRecentContextBlock(kept []LarkMessage, names map
 		default:
 			text = e.flattenMessage(m)
 			if text == "" {
-				text = "[empty message]"
+				text = textEmptyMessage
 			}
 		}
-		lines = append(lines, fmt.Sprintf("[%s]: %s", label, text))
+		lines = append(lines, fmt.Sprintf(formatSenderPrefix, label, text))
 	}
 	return fmt.Sprintf("<recent_context count=\"%d\">\n%s\n</recent_context>",
 		len(kept), strings.Join(lines, "\n"))
@@ -562,7 +562,7 @@ func (e *inboundEnricher) renderQuotedBlock(parentID string, items []LarkMessage
 	}
 	text := e.flattenMessage(parent)
 	if text == "" {
-		text = "[empty message]"
+		text = textEmptyMessage
 	}
 	return wrapQuoted(parentID, sender, parent.MessageType, text)
 }
@@ -614,10 +614,10 @@ func (e *inboundEnricher) renderForwardedItems(items []LarkMessage, forwardID st
 		default:
 			text = e.flattenMessage(c)
 			if text == "" {
-				text = "[empty message]"
+				text = textEmptyMessage
 			}
 		}
-		lines = append(lines, fmt.Sprintf("[%s]: %s", label, text))
+		lines = append(lines, fmt.Sprintf(formatSenderPrefix, label, text))
 	}
 	body := strings.Join(lines, "\n")
 	if truncated > 0 {

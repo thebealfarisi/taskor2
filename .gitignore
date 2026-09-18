@@ -81,3 +81,7 @@ __pycache__/
 *.pyc
 
 patching/
+
+# Temporary Office lock files
+~$*
+

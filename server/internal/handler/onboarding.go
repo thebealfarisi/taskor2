@@ -76,7 +76,7 @@ func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 	var req completeOnboardingRequest
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-			writeError(w, http.StatusBadRequest, "invalid request body")
+			writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 			return
 		}
 	}
@@ -234,7 +234,7 @@ func (h *Handler) PatchOnboarding(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, patchOnboardingBodyLimit)
 	var req patchOnboardingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -325,7 +325,7 @@ func (h *Handler) JoinCloudWaitlist(w http.ResponseWriter, r *http.Request) {
 	}
 	var req joinCloudWaitlistRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 

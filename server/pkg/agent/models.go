@@ -449,9 +449,9 @@ func isRuntimeSpecificModelID(model string) bool {
 }
 
 func modelHasKnownPrefix(model string) bool {
-	return strings.HasPrefix(model, "claude-") ||
+	return strings.HasPrefix(model, prefixClaudeModel) ||
 		strings.HasPrefix(model, "gpt-") ||
-		strings.HasPrefix(model, "gemini-") ||
+		strings.HasPrefix(model, prefixGeminiModel) ||
 		strings.HasPrefix(model, "auto-gemini-") ||
 		isOpenAIReasoningSeriesID(model)
 }
@@ -522,11 +522,11 @@ func discoveryCacheKey(providerType string, runtimeCmd Command) string {
 func claudeStaticModels() []Model {
 	return []Model{
 		{ID: "claude-sonnet-5", Label: "Claude Sonnet 5", Provider: "anthropic"},
-		{ID: "claude-sonnet-4-6", Label: "Claude Sonnet 4.6", Provider: "anthropic", Default: true},
+		{ID: "claude-sonnet-4-6", Label: modelClaudeSonnet46, Provider: "anthropic", Default: true},
 		{ID: "claude-fable-5", Label: "Claude Fable 5", Provider: "anthropic"},
 		{ID: "claude-opus-5", Label: "Claude Opus 5", Provider: "anthropic"},
 		{ID: "claude-opus-4-8", Label: "Claude Opus 4.8", Provider: "anthropic"},
-		{ID: "claude-opus-4-7", Label: "Claude Opus 4.7", Provider: "anthropic"},
+		{ID: "claude-opus-4-7", Label: modelClaudeOpus47, Provider: "anthropic"},
 		{ID: "claude-haiku-4-5-20251001", Label: "Claude Haiku 4.5", Provider: "anthropic"},
 		{ID: "claude-opus-4-6", Label: "Claude Opus 4.6", Provider: "anthropic"},
 		{ID: "claude-sonnet-4-5", Label: "Claude Sonnet 4.5", Provider: "anthropic"},
@@ -557,7 +557,7 @@ func codexStaticModels() []Model {
 			{Value: "low", Label: "Low", Description: "Fast responses with lighter reasoning"},
 			{Value: "medium", Label: "Medium", Description: "Balances speed and reasoning depth for everyday tasks"},
 			{Value: "high", Label: "High", Description: "Greater reasoning depth for complex problems"},
-			{Value: "xhigh", Label: "Extra high", Description: "Extra high reasoning depth for complex problems"},
+			{Value: "xhigh", Label: thinkingExtraHigh, Description: "Extra high reasoning depth for complex problems"},
 		}
 		if includeMax {
 			levels = append(levels, ThinkingLevel{Value: "max", Label: "Max", Description: "Maximum reasoning depth for the hardest problems"})
@@ -574,7 +574,7 @@ func codexStaticModels() []Model {
 				{Value: "low", Label: "Low", Description: "Balances speed with some reasoning; useful for straightforward queries and short explanations"},
 				{Value: "medium", Label: "Medium", Description: "Provides a solid balance of reasoning depth and latency for general-purpose tasks"},
 				{Value: "high", Label: "High", Description: "Maximizes reasoning depth for complex or ambiguous problems"},
-				{Value: "xhigh", Label: "Extra high", Description: "Extra high reasoning for complex problems"},
+				{Value: "xhigh", Label: thinkingExtraHigh, Description: "Extra high reasoning for complex problems"},
 			},
 		}
 	}
@@ -582,7 +582,7 @@ func codexStaticModels() []Model {
 		{ID: "gpt-5.6-sol", Label: "GPT-5.6 Sol", Provider: "openai", Default: true, Thinking: standardThinking("low", true, true)},
 		{ID: "gpt-5.6-terra", Label: "GPT-5.6 Terra", Provider: "openai", Thinking: standardThinking("medium", true, true)},
 		{ID: "gpt-5.6-luna", Label: "GPT-5.6 Luna", Provider: "openai", Thinking: standardThinking("medium", true, false)},
-		{ID: "gpt-5.5", Label: "GPT-5.5", Provider: "openai", Thinking: standardThinking("medium", false, false)},
+		{ID: modelGPT55, Label: "GPT-5.5", Provider: "openai", Thinking: standardThinking("medium", false, false)},
 		{ID: "gpt-5.4", Label: "GPT-5.4", Provider: "openai", Thinking: standardThinking("medium", false, false)},
 		{ID: "gpt-5.4-mini", Label: "GPT-5.4-Mini", Provider: "openai", Thinking: standardThinking("medium", false, false)},
 		{ID: "gpt-5.3-codex", Label: "GPT-5.3-Codex", Provider: "openai", Thinking: standardThinking("medium", false, false)},
@@ -597,7 +597,7 @@ func codexStaticModels() []Model {
 func discoverTraecliModels(ctx context.Context, runtimeCmd Command) ([]Model, error) {
 	return discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "traecli",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-traecli-discovery-",
 		acpArgs:      []string{"acp", "serve", "--yolo"},
 	})
@@ -628,7 +628,7 @@ func cursorStaticModels() []Model {
 func copilotStaticModels() []Model {
 	return []Model{
 		// OpenAI
-		{ID: "gpt-5.5", Label: "GPT-5.5", Provider: "openai"},
+		{ID: modelGPT55, Label: "GPT-5.5", Provider: "openai"},
 		{ID: "gpt-5.4", Label: "GPT-5.4", Provider: "openai"},
 		{ID: "gpt-5.4-mini", Label: "GPT-5.4 mini", Provider: "openai"},
 		{ID: "gpt-5.3-codex", Label: "GPT-5.3-Codex", Provider: "openai"},
@@ -637,8 +637,8 @@ func copilotStaticModels() []Model {
 		{ID: "gpt-5-mini", Label: "GPT-5 mini", Provider: "openai"},
 		{ID: "gpt-4.1", Label: "GPT-4.1", Provider: "openai"},
 		// Anthropic
-		{ID: "claude-opus-4.7", Label: "Claude Opus 4.7", Provider: "anthropic"},
-		{ID: "claude-sonnet-4.6", Label: "Claude Sonnet 4.6", Provider: "anthropic"},
+		{ID: "claude-opus-4.7", Label: modelClaudeOpus47, Provider: "anthropic"},
+		{ID: "claude-sonnet-4.6", Label: modelClaudeSonnet46, Provider: "anthropic"},
 		{ID: "claude-sonnet-4.5", Label: "Claude Sonnet 4.5", Provider: "anthropic"},
 		{ID: "claude-haiku-4.5", Label: "Claude Haiku 4.5", Provider: "anthropic"},
 	}
@@ -658,9 +658,9 @@ func inferCopilotProvider(modelID string) string {
 	switch {
 	case strings.HasPrefix(modelID, "gpt-") || isOpenAIReasoningSeriesID(modelID):
 		return "openai"
-	case strings.HasPrefix(modelID, "claude-"):
+	case strings.HasPrefix(modelID, prefixClaudeModel):
 		return "anthropic"
-	case strings.HasPrefix(modelID, "gemini-"):
+	case strings.HasPrefix(modelID, prefixGeminiModel):
 		return "google"
 	case strings.HasPrefix(modelID, "grok-"):
 		return "xai"
@@ -832,7 +832,7 @@ var opencodeVariantLabel = map[string]string{
 	"low":     "Low",
 	"medium":  "Medium",
 	"high":    "High",
-	"xhigh":   "Extra high",
+	"xhigh":   thinkingExtraHigh,
 	"max":     "Max",
 }
 
@@ -912,7 +912,7 @@ var piThinkingLevelLabels = map[string]string{
 	"low":     "Low",
 	"medium":  "Medium",
 	"high":    "High",
-	"xhigh":   "Extra high",
+	"xhigh":   thinkingExtraHigh,
 	"max":     "Max",
 }
 
@@ -1292,7 +1292,7 @@ func discoverOmpModels(ctx context.Context, runtimeCmd Command) ([]Model, error)
 	}
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := runtimeCmd.exec(runCtx, "models", "--json")
+	cmd := runtimeCmd.exec(runCtx, "models", flagJSON)
 	hideAgentWindow(cmd)
 	stdout, err := cmd.Output()
 	if err != nil || len(stdout) == 0 {
@@ -1369,7 +1369,7 @@ func parseOmpModels(data []byte) ([]Model, error) {
 func discoverHermesModels(ctx context.Context, runtimeCmd Command) ([]Model, error) {
 	return discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "hermes",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		extraEnv:     []string{"HERMES_YOLO_MODE=1"},
 		tmpdirPrefix: "multica-hermes-discovery-",
 		// The same handshake carries an effort selector on jcode and carries
@@ -1422,7 +1422,7 @@ func discoverKimiModels(ctx context.Context, runtimeCmd Command) ([]Model, error
 	var acpVersion string
 	models, err := discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "kimi",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-kimi-discovery-",
 		inspectInit: func(initResult json.RawMessage) {
 			acpVersion = acpAgentInfoVersion(initResult)
@@ -1514,7 +1514,7 @@ func discoverKimiProviderThinking(ctx context.Context, runtimeCmd Command) (map[
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	cmd := runtimeCmd.exec(runCtx, "provider", "list", "--json")
+	cmd := runtimeCmd.exec(runCtx, "provider", "list", flagJSON)
 	hideAgentWindow(cmd)
 	cmd.Stderr = io.Discard
 	raw, err := cmd.Output()
@@ -1655,7 +1655,7 @@ func acpConfigOptionCurrentValue(raw json.RawMessage, configID string) (string, 
 func discoverReasonixModels(ctx context.Context, runtimeCmd Command) ([]Model, error) {
 	return discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:       "reasonix",
-		clientName:       "multica-model-discovery",
+		clientName:       modelDiscoverySource,
 		acpArgs:          reasonixACPLaunchArgs(),
 		tmpdirPrefix:     "multica-reasonix-discovery-",
 		isolatedStateEnv: "REASONIX_STATE_HOME",
@@ -1668,7 +1668,7 @@ func discoverReasonixModels(ctx context.Context, runtimeCmd Command) ([]Model, e
 func discoverKiroModels(ctx context.Context, runtimeCmd Command) ([]Model, error) {
 	return discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "kiro-cli",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-kiro-discovery-",
 	})
 }
@@ -1695,7 +1695,7 @@ func discoverKiroModels(ctx context.Context, runtimeCmd Command) ([]Model, error
 func discoverCopilotModels(ctx context.Context, runtimeCmd Command) (Catalog, error) {
 	models, err := discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "copilot",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-copilot-discovery-",
 		acpArgs:      []string{"--acp"},
 	})
@@ -1715,7 +1715,7 @@ func discoverCopilotModels(ctx context.Context, runtimeCmd Command) (Catalog, er
 func discoverQoderModels(ctx context.Context, runtimeCmd Command, defaultBin string) ([]Model, error) {
 	return discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   defaultBin,
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		acpArgs:      []string{"--yolo", "--acp"},
 		tmpdirPrefix: "multica-qoder-discovery-",
 	})
@@ -2232,7 +2232,7 @@ func discoverGrokModels(ctx context.Context, runtimeCmd Command) (Catalog, error
 	// after initialize returns the methods this installed CLI actually offers.
 	models, err := discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "grok",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-grok-discovery-",
 		acpArgs:      []string{"--no-auto-update", "agent", "--always-approve", "stdio"},
 		selectAuthMethod: func(initResult json.RawMessage, childEnv []string) (string, error) {
@@ -2394,7 +2394,7 @@ func discoverOpenclawAgents(ctx context.Context, runtimeCmd Command) ([]Model, e
 	// Try JSON modes first. Different openclaw builds expose the
 	// flag under different names; trying a couple is cheap.
 	for _, jsonArgs := range [][]string{
-		{"agents", "list", "--json"},
+		{"agents", "list", flagJSON},
 		{"agents", "list", "--output", "json"},
 		{"agents", "list", "-o", "json"},
 	} {
@@ -2579,7 +2579,7 @@ func isOpenclawIdentifier(s string) bool {
 func discoverCodebuddyModels(ctx context.Context, runtimeCmd Command) (Catalog, error) {
 	models, err := discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "codebuddy",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-codebuddy-discovery-",
 		acpArgs:      []string{"--acp"},
 		strictErrors: true,
@@ -2610,9 +2610,9 @@ func discoverCodebuddyModels(ctx context.Context, runtimeCmd Command) (Catalog, 
 // is the only signal available for grouping the picker.
 func codebuddyModelProvider(id string) string {
 	switch {
-	case strings.HasPrefix(id, "claude-"):
+	case strings.HasPrefix(id, prefixClaudeModel):
 		return "anthropic"
-	case strings.HasPrefix(id, "gemini-"):
+	case strings.HasPrefix(id, prefixGeminiModel):
 		return "google"
 	case strings.HasPrefix(id, "gpt-"):
 		return "openai"
@@ -2650,10 +2650,10 @@ func codebuddyFallbackCatalog() Catalog {
 // (MUL-5549).
 func codebuddyStaticModels() []Model {
 	return []Model{
-		{ID: "claude-sonnet-4.6", Label: "Claude Sonnet 4.6", Provider: "anthropic", Default: true},
-		{ID: "claude-opus-4.7", Label: "Claude Opus 4.7", Provider: "anthropic"},
+		{ID: "claude-sonnet-4.6", Label: modelClaudeSonnet46, Provider: "anthropic", Default: true},
+		{ID: "claude-opus-4.7", Label: modelClaudeOpus47, Provider: "anthropic"},
 		{ID: "gemini-3.1-pro", Label: "Gemini 3.1 Pro", Provider: "google"},
-		{ID: "gpt-5.5", Label: "GPT 5.5", Provider: "openai"},
+		{ID: modelGPT55, Label: "GPT 5.5", Provider: "openai"},
 		{ID: "deepseek-v3-2-volc-ioa", Label: "Deepseek V3 2 Volc IOA", Provider: "deepseek"},
 	}
 }
@@ -2665,7 +2665,7 @@ func codebuddyStaticModels() []Model {
 func discoverDimModels(ctx context.Context, runtimeCmd Command) (Catalog, error) {
 	models, err := discoverACPModels(ctx, runtimeCmd, acpDiscoveryProvider{
 		defaultBin:   "dim",
-		clientName:   "multica-model-discovery",
+		clientName:   modelDiscoverySource,
 		tmpdirPrefix: "multica-dim-discovery-",
 		acpArgs:      []string{"acp"},
 	})

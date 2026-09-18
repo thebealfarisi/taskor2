@@ -423,7 +423,7 @@ export function MessageComposer({
             : it,
         ),
       );
-      void startUpload(localId, {
+      startUpload(localId, {
         uri: item.localUri,
         name: item.filename,
         type: item.mimeType,

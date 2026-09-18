@@ -60,19 +60,19 @@ func init() {
 	labelCmd.AddCommand(labelUpdateCmd)
 	labelCmd.AddCommand(labelDeleteCmd)
 
-	labelListCmd.Flags().String("output", "table", "Output format: table or json")
+	labelListCmd.Flags().String("output", "table", flagOutputFormatDesc)
 	labelListCmd.Flags().Bool("full-id", false, "Show full UUIDs in table output")
-	labelGetCmd.Flags().String("output", "json", "Output format: table or json")
+	labelGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	labelCreateCmd.Flags().String("name", "", "Label name (required)")
 	labelCreateCmd.Flags().String("color", "", "Hex color like #3b82f6 (required)")
-	labelCreateCmd.Flags().String("output", "json", "Output format: table or json")
+	labelCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
 	labelUpdateCmd.Flags().String("name", "", "New name")
 	labelUpdateCmd.Flags().String("color", "", "New hex color")
-	labelUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	labelUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
 
-	labelDeleteCmd.Flags().String("output", "json", "Output format: table or json")
+	labelDeleteCmd.Flags().String("output", "json", flagOutputFormatDesc)
 }
 
 func runLabelList(cmd *cobra.Command, _ []string) error {
@@ -136,11 +136,11 @@ func runLabelGet(cmd *cobra.Command, args []string) error {
 
 	labelRef, err := resolveLabelID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve label: %w", err)
+		return fmt.Errorf(errResolveLabel, err)
 	}
 
 	var label map[string]any
-	if err := client.GetJSON(ctx, "/api/labels/"+labelRef.ID, &label); err != nil {
+	if err := client.GetJSON(ctx, apiLabelsPrefix+labelRef.ID, &label); err != nil {
 		return fmt.Errorf("get label: %w", err)
 	}
 
@@ -210,7 +210,7 @@ func runLabelUpdate(cmd *cobra.Command, args []string) error {
 
 	labelRef, err := resolveLabelID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve label: %w", err)
+		return fmt.Errorf(errResolveLabel, err)
 	}
 
 	body := map[string]any{}
@@ -225,7 +225,7 @@ func runLabelUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/labels/"+labelRef.ID, body, &result); err != nil {
+	if err := client.PutJSON(ctx, apiLabelsPrefix+labelRef.ID, body, &result); err != nil {
 		return fmt.Errorf("update label: %w", err)
 	}
 
@@ -253,10 +253,10 @@ func runLabelDelete(cmd *cobra.Command, args []string) error {
 
 	labelRef, err := resolveLabelID(ctx, client, args[0])
 	if err != nil {
-		return fmt.Errorf("resolve label: %w", err)
+		return fmt.Errorf(errResolveLabel, err)
 	}
 
-	if err := client.DeleteJSON(ctx, "/api/labels/"+labelRef.ID); err != nil {
+	if err := client.DeleteJSON(ctx, apiLabelsPrefix+labelRef.ID); err != nil {
 		return fmt.Errorf("delete label: %w", err)
 	}
 	// JSON consumers get machine-readable output; humans get natural language.

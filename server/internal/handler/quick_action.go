@@ -486,7 +486,7 @@ func (h *Handler) requirePublicQuickActionRole(w http.ResponseWriter, r *http.Re
 // everyone. Whether the caller may RUN one is answered by RunQuickAction.
 func (h *Handler) ListQuickActions(w http.ResponseWriter, r *http.Request) {
 	workspaceID := h.resolveWorkspaceID(r)
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -524,7 +524,7 @@ func (h *Handler) CreateQuickAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -598,11 +598,11 @@ func (h *Handler) UpdateQuickAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "quick action id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramQuickActionID)
 	if !ok {
 		return
 	}
@@ -719,11 +719,11 @@ func (h *Handler) DeleteQuickAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "quick action id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramQuickActionID)
 	if !ok {
 		return
 	}
@@ -798,7 +798,7 @@ func (h *Handler) RenderQuickAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := uuidToString(issue.WorkspaceID)
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "quickActionId"), "quick action id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "quickActionId"), paramQuickActionID)
 	if !ok {
 		return
 	}
@@ -856,7 +856,7 @@ func (h *Handler) RunQuickAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := uuidToString(issue.WorkspaceID)
-	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "quickActionId"), "quick action id")
+	idUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "quickActionId"), paramQuickActionID)
 	if !ok {
 		return
 	}

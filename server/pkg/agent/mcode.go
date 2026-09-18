@@ -288,14 +288,14 @@ func (b *mcodeBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			b.cfg.Logger.Debug("mcode ignoring ExecOptions.SystemPrompt; using cwd-scoped AGENTS.md", "cwd", opts.Cwd)
 		}
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"prompt": []map[string]any{
 				{"type": "text", "text": prompt},
 			},
 		})
 		if err != nil {
-			finalStatus, finalError = mcodeRequestFailure(runCtx, opts.Timeout, "session/prompt", err)
+			finalStatus, finalError = mcodeRequestFailure(runCtx, opts.Timeout, methodSessionPrompt, err)
 			if opts.ResumeSessionID != "" && isACPSessionNotFound(err) {
 				resumeRejected = true
 				sessionID = ""

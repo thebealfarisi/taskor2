@@ -85,7 +85,7 @@ export function useAutoSave<T>({
       const queued = queuedRef.current;
       queuedRef.current = null;
       if (queued && !isEqualRef.current(queued, persistedRef.current)) {
-        void runSave(queued);
+        runSave(queued);
       } else if (succeeded && mountedRef.current) {
         setStatus("saved");
         onSuccessRef.current?.(next);
@@ -99,7 +99,7 @@ export function useAutoSave<T>({
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      void runSave(next);
+      runSave(next);
     },
     [runSave],
   );
@@ -120,7 +120,7 @@ export function useAutoSave<T>({
     setStatus("saving");
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void runSave(latestValueRef.current);
+      runSave(latestValueRef.current);
     }, delay);
 
     return () => {

@@ -46,7 +46,9 @@ func hideAgentWindow(cmd *exec.Cmd) {
 // and job membership cannot be requested before the process exists. Ownership
 // is taken by startOwnedProcessTree instead, which a backend opts into by
 // calling it in place of cmd.Start.
-func configureProcessGroup(cmd *exec.Cmd) {}
+func configureProcessGroup(cmd *exec.Cmd) {
+	// no-op on Windows: process tree job membership is established by startOwnedProcessTree after start.
+}
 
 // ownedProcessTree is the Windows equivalent of a Unix process group: a Job
 // Object the agent belongs to, which every process it goes on to create

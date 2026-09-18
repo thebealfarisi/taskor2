@@ -86,7 +86,7 @@ func (h *Handler) ListLarkInstallations(w http.ResponseWriter, r *http.Request) 
 		})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -129,7 +129,7 @@ func (h *Handler) RevokeLarkInstallation(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -284,7 +284,7 @@ func (h *Handler) BeginLarkInstall(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -392,7 +392,7 @@ func (h *Handler) GetLarkInstallStatus(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}

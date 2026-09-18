@@ -363,7 +363,7 @@ func (b *kiroBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		// shape can drive the turn.
 		// TODO: drop one field once Kiro lands on a single canonical payload.
 		streamingCurrentTurn.Store(true)
-		_, err = c.request(runCtx, "session/prompt", map[string]any{
+		_, err = c.request(runCtx, methodSessionPrompt, map[string]any{
 			"sessionId": sessionID,
 			"content":   promptBlocks,
 			"prompt":    promptBlocks,
@@ -491,7 +491,7 @@ func isKiroGoalCompleteCloseError(err error) bool {
 	if !errors.As(err, &rpcErr) {
 		return false
 	}
-	if rpcErr.Method != "session/prompt" || rpcErr.Code != -32603 {
+	if rpcErr.Method != methodSessionPrompt || rpcErr.Code != -32603 {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(rpcErr.Message), "Internal error") {
@@ -522,7 +522,7 @@ func isKiroOversizedHistoryImage(err error) bool {
 	if !errors.As(err, &rpcErr) {
 		return false
 	}
-	if rpcErr.Method != "session/prompt" || rpcErr.Code != -32603 {
+	if rpcErr.Method != methodSessionPrompt || rpcErr.Code != -32603 {
 		return false
 	}
 	data := strings.ToLower(rpcErr.Data)

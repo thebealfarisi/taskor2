@@ -31,7 +31,7 @@ func Init() {
 	level := parseLevel(os.Getenv("LOG_LEVEL"))
 	handler := tint.NewHandler(os.Stderr, &tint.Options{
 		Level:      level,
-		TimeFormat: "15:04:05.000",
+		TimeFormat: timeFormatMillis,
 		NoColor:    !isTerminal(os.Stderr),
 	})
 	slog.SetDefault(slog.New(handler))
@@ -44,7 +44,7 @@ func NewLogger(component string) *slog.Logger {
 	level := parseLevel(os.Getenv("LOG_LEVEL"))
 	handler := tint.NewHandler(os.Stderr, &tint.Options{
 		Level:      level,
-		TimeFormat: "15:04:05.000",
+		TimeFormat: timeFormatMillis,
 		NoColor:    !isTerminal(os.Stderr),
 	})
 	return slog.New(handler).With("component", component)
@@ -70,7 +70,7 @@ func NewWriterLoggerDefault(component string, w io.Writer) *slog.Logger {
 	level := parseLevel(os.Getenv("LOG_LEVEL"))
 	handler := tint.NewHandler(w, &tint.Options{
 		Level:      level,
-		TimeFormat: "15:04:05.000",
+		TimeFormat: timeFormatMillis,
 		NoColor:    true,
 	})
 	base := slog.New(handler)

@@ -62,7 +62,7 @@ func (h *Handler) ListSlackInstallations(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -104,7 +104,7 @@ func (h *Handler) RegisterSlackBYO(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -188,7 +188,7 @@ func (h *Handler) RevokeSlackInstallation(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), paramWorkspaceID)
 	if !ok {
 		return
 	}

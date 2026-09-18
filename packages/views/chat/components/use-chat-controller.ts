@@ -657,7 +657,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
       });
       return;
     }
-    void cancelChatTask(pendingTaskId, activeSessionId, {
+    cancelChatTask(pendingTaskId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });

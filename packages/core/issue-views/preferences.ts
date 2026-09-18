@@ -53,7 +53,7 @@ export function useUpdateIssueViewPreference(wsId: string, scope: IssueViewScope
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey });
     },
   });
 }

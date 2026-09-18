@@ -404,7 +404,7 @@ export function useIssueGroupBranches({
   );
   const retry = useCallback(
     (key: string) => {
-      void queryClient.refetchQueries({
+      queryClient.refetchQueries({
         queryKey: issueKeys.tableRows(
           wsId,
           query,
@@ -471,7 +471,7 @@ export function useIssueGroupBranches({
   const isFetchingNextGroupPage = groupsQuery.isFetchingNextPage;
   const loadMoreGroups = useCallback(() => {
     if (hasNextGroupPage && !isFetchingNextGroupPage) {
-      void fetchNextGroupPage();
+      fetchNextGroupPage();
     }
   }, [
     fetchNextGroupPage,
@@ -479,7 +479,7 @@ export function useIssueGroupBranches({
     isFetchingNextGroupPage,
   ]);
   const retryGroups = useCallback(() => {
-    void refetchGroups();
+    refetchGroups();
   }, [refetchGroups]);
 
   return {

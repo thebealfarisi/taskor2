@@ -58,7 +58,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			// plus a forged `X-Actor-Source: member` (or anything else)
 			// to convince a downstream handler that its request came
 			// from a non-task-token path.
-			r.Header.Del("X-Actor-Source")
+			r.Header.Del(headerXActorSource)
 
 			tokenString, fromCookie := extractToken(r)
 			if tokenString == "" {
@@ -86,30 +86,30 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			// `actorSourceFromRequest`. MUL-2600.
 			if strings.HasPrefix(tokenString, "mat_") {
 				if queries == nil {
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 					return
 				}
 				hash := auth.HashToken(tokenString)
 				tt, err := queries.GetTaskTokenByHash(r.Context(), hash)
 				if err != nil {
 					slog.Warn("auth: invalid task token", "path", r.URL.Path, "error", err)
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 					return
 				}
 				userID := uuidToString(tt.UserID)
 				if rejectTemporarilyDisabledUser(w, r, userID, "", "task_token") {
 					return
 				}
-				r.Header.Set("X-User-ID", userID)
+				r.Header.Set(headerXUserID, userID)
 				r.Header.Set("X-Agent-ID", uuidToString(tt.AgentID))
 				r.Header.Set("X-Task-ID", uuidToString(tt.TaskID))
-				r.Header.Set("X-Workspace-ID", uuidToString(tt.WorkspaceID))
+				r.Header.Set(headerXWorkspaceID, uuidToString(tt.WorkspaceID))
 				// X-Actor-Source flags the auth path so resolveActor and
 				// any owner-only handler can deny without re-querying the
 				// token table. The value "task_token" is the only signal
 				// this header is allowed to carry — strip anything else a
 				// client tried to send.
-				r.Header.Set("X-Actor-Source", "task_token")
+				r.Header.Set(headerXActorSource, "task_token")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -137,14 +137,14 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			if strings.HasPrefix(tokenString, auth.CloudPATPrefix) {
 				if cloudPAT == nil {
 					slog.Warn("auth: mcn_ token presented but cloud verifier not configured", "path", r.URL.Path)
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 					return
 				}
 				identity, err := cloudPAT.Verify(r.Context(), tokenString, ownerLookupFor(queries))
 				if err != nil {
 					if errors.Is(err, auth.ErrCloudPATInvalid) {
 						slog.Warn("auth: cloud rejected mcn_ token", "path", r.URL.Path, "error", err)
-						http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+						http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 						return
 					}
 					// Cloud unreachable / 5xx / decode error. We surface
@@ -157,7 +157,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				if rejectTemporarilyDisabledUser(w, r, identity.OwnerID, "", "cloud_pat") {
 					return
 				}
-				r.Header.Set("X-User-ID", identity.OwnerID)
+				r.Header.Set(headerXUserID, identity.OwnerID)
 				// Tag the auth path so account-level guards (e.g.
 				// handler.RequireHumanActor on /api/cloud-billing/*)
 				// can distinguish a cloud-node machine credential
@@ -169,7 +169,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				// (running agent or running cloud node) must not be
 				// treated as the owner having approved an account-
 				// level action.
-				r.Header.Set("X-Actor-Source", "cloud_pat")
+				r.Header.Set(headerXActorSource, "cloud_pat")
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -186,19 +186,19 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 					if rejectTemporarilyDisabledUser(w, r, userID, "", "pat_cache") {
 						return
 					}
-					r.Header.Set("X-User-ID", userID)
+					r.Header.Set(headerXUserID, userID)
 					next.ServeHTTP(w, r)
 					return
 				}
 
 				if queries == nil {
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 					return
 				}
 				pat, err := queries.GetPersonalAccessTokenByHash(r.Context(), hash)
 				if err != nil {
 					slog.Warn("auth: invalid PAT", "path", r.URL.Path, "error", err)
-					http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+					http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 					return
 				}
 
@@ -206,7 +206,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 				if rejectTemporarilyDisabledUser(w, r, userID, "", "pat") {
 					return
 				}
-				r.Header.Set("X-User-ID", userID)
+				r.Header.Set(headerXUserID, userID)
 
 				// Clamp cache TTL to the token's remaining lifetime so a
 				// PAT expiring in <AuthCacheTTL can't continue passing
@@ -235,7 +235,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			})
 			if err != nil || !token.Valid {
 				slog.Warn("auth: invalid token", "path", r.URL.Path, "error", err)
-				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
+				http.Error(w, `{"error":errMsgInvalidToken}`, http.StatusUnauthorized)
 				return
 			}
 
@@ -256,7 +256,7 @@ func Auth(queries *db.Queries, patCache *auth.PATCache, cloudPAT *auth.CloudPATV
 			if rejectTemporarilyDisabledUser(w, r, sub, email, "jwt") {
 				return
 			}
-			r.Header.Set("X-User-ID", sub)
+			r.Header.Set(headerXUserID, sub)
 			if email != "" {
 				r.Header.Set("X-User-Email", email)
 			}

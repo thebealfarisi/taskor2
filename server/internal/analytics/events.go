@@ -188,7 +188,7 @@ func RuntimeRegistered(ownerID, workspaceID, runtimeID, daemonID, provider, runt
 		// daemon registrations across workspaces under a single "anonymous"
 		// person. It's stable within a workspace so repeat heartbeats (which
 		// don't emit anyway) would at least group correctly.
-		distinct = "workspace:" + workspaceID
+		distinct = prefixWorkspace + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeRegistered,
@@ -214,7 +214,7 @@ func RuntimeRegistered(ownerID, workspaceID, runtimeID, daemonID, provider, runt
 func RuntimeReady(ownerID, workspaceID, runtimeID, daemonID, provider string, readyDurationMS int64) Event {
 	distinct := ownerID
 	if distinct == "" {
-		distinct = "workspace:" + workspaceID
+		distinct = prefixWorkspace + workspaceID
 	}
 	props := map[string]any{
 		"runtime_id": runtimeID,
@@ -240,7 +240,7 @@ func RuntimeReady(ownerID, workspaceID, runtimeID, daemonID, provider string, re
 func RuntimeFailed(ownerID, workspaceID, daemonID, provider, failureReason, errorType string, recoverable bool) Event {
 	distinct := ownerID
 	if distinct == "" && workspaceID != "" {
-		distinct = "workspace:" + workspaceID
+		distinct = prefixWorkspace + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeFailed,
@@ -264,7 +264,7 @@ func RuntimeFailed(ownerID, workspaceID, daemonID, provider, failureReason, erro
 func RuntimeOffline(ownerID, workspaceID, runtimeID, daemonID, provider string) Event {
 	distinct := ownerID
 	if distinct == "" {
-		distinct = "workspace:" + workspaceID
+		distinct = prefixWorkspace + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeOffline,

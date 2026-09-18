@@ -170,7 +170,7 @@ function CopyButton({ text, ariaLabel }: { text: string; ariaLabel: string }) {
   }, [copied]);
 
   const handleCopy = () => {
-    void copyText(text).then((ok) => {
+    copyText(text).then((ok) => {
       if (ok) setCopied(true);
     });
   };

@@ -250,7 +250,7 @@ export function DashboardPage() {
     failuresDailyQuery.isFetching ||
     failuresByAgentQuery.isFetching;
   const handleRefresh = () => {
-    void queryClient.invalidateQueries({ queryKey: dashboardKeys.all(wsId) });
+    queryClient.invalidateQueries({ queryKey: dashboardKeys.all(wsId) });
   };
 
   const { tzLabel, updatedLabel } = useDataFreshness(

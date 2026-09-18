@@ -703,7 +703,7 @@ var claudeBlockedArgs = map[string]blockedArgMode{
 	"-p":                blockedStandalone, // non-interactive mode
 	"--output-format":   blockedWithValue,  // stream-json protocol
 	"--input-format":    blockedWithValue,  // stream-json protocol
-	"--permission-mode": blockedWithValue,  // bypassPermissions for autonomous operation
+	flagPermissionMode: blockedWithValue,  // bypassPermissions for autonomous operation
 	"--mcp-config":      blockedWithValue,  // set by daemon from agent.mcp_config
 	// `--effort` is owned by the per-agent thinking_level picker so a
 	// user-supplied custom_arg cannot silently outvote it. The daemon
@@ -720,7 +720,7 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--output-format", "stream-json",
 		"--input-format", "stream-json",
 		"--verbose",
-		"--permission-mode", "bypassPermissions",
+		flagPermissionMode, "bypassPermissions",
 		// AskUserQuestion is Claude Code's built-in interactive question tool.
 		// The daemon runs Claude in non-interactive stream-json mode and has
 		// no UI for the prompt to render in, so a call returns an empty
@@ -893,7 +893,7 @@ func argsRequestBypassPermissions(args []string) bool {
 		if arg == "--dangerously-skip-permissions" {
 			return true
 		}
-		if arg == "--permission-mode" && i+1 < len(args) && args[i+1] == "bypassPermissions" {
+		if arg == flagPermissionMode && i+1 < len(args) && args[i+1] == "bypassPermissions" {
 			return true
 		}
 	}

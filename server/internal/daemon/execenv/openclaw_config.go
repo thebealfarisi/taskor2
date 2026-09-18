@@ -911,7 +911,7 @@ func isOpenclawConfigFileUnsupported(err error) bool {
 func openclawResolvedFullConfig(bin string, timeout time.Duration) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := openclawExec(ctx, bin, "config", "get", "--json")
+	out, err := openclawExec(ctx, bin, "config", "get", flagJSON)
 	if err != nil {
 		return nil, annotateOpenclawJSONError(err, out)
 	}
@@ -946,7 +946,7 @@ func openclawResolvedFullConfig(bin string, timeout time.Duration) (map[string]a
 func openclawResolvedAgentsList(bin string, timeout time.Duration) ([]any, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := openclawExec(ctx, bin, "config", "get", "agents.list", "--json")
+	out, err := openclawExec(ctx, bin, "config", "get", "agents.list", flagJSON)
 	if err != nil {
 		if isOpenclawKeyMissingResult(out, err) {
 			// New schema: the config path is gone; the agents live in the
@@ -988,7 +988,7 @@ func openclawResolvedAgentsList(bin string, timeout time.Duration) ([]any, bool,
 func openclawRegistryAgentsList(bin string, timeout time.Duration) ([]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := openclawExec(ctx, bin, "agents", "list", "--json")
+	out, err := openclawExec(ctx, bin, "agents", "list", flagJSON)
 	if err != nil {
 		// Older OpenClaw builds may lack the subcommand entirely; treat an
 		// unrecognized/missing subcommand the same as "no agents to pin"

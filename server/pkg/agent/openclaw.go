@@ -38,7 +38,7 @@ var openclawVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 // overridden by user-configured custom_args.
 var openclawBlockedArgs = map[string]blockedArgMode{
 	"--local":         blockedStandalone, // local mode for daemon execution
-	"--json":          blockedStandalone, // JSON output for daemon communication
+	flagJSON:          blockedStandalone, // JSON output for daemon communication
 	"--session-id":    blockedWithValue,  // managed by daemon for session resumption
 	"--message":       blockedWithValue,  // prompt is set by daemon
 	"--model":         blockedWithValue,  // openclaw agent does not accept --model; model is bound at registration via `openclaw agents add/update --model`
@@ -244,7 +244,7 @@ func buildOpenclawArgs(prompt, sessionID string, opts ExecOptions, logger *slog.
 	if opts.OpenclawMode != "gateway" {
 		args = append(args, "--local")
 	}
-	args = append(args, "--json", "--session-id", sessionID)
+	args = append(args, flagJSON, "--session-id", sessionID)
 	if opts.Timeout > 0 {
 		args = append(args, "--timeout", fmt.Sprintf("%d", int(opts.Timeout.Seconds())))
 	}

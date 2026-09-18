@@ -38,7 +38,7 @@ func (h *Handler) GetCloudRuntimeReady(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListCloudRuntimeNodes(w http.ResponseWriter, r *http.Request) {
-	h.proxyCloudRuntime(w, r, http.MethodGet, "/api/v1/nodes", cloudRuntimeProxyOptions{
+	h.proxyCloudRuntime(w, r, http.MethodGet, pathAPIV1Nodes, cloudRuntimeProxyOptions{
 		withUserID: true,
 		withQuery:  true,
 	})
@@ -52,14 +52,14 @@ func (h *Handler) CreateCloudRuntimeNode(w http.ResponseWriter, r *http.Request)
 	// long-lived user PAT into a remote machine widened the blast
 	// radius of any node compromise. Hence the handler now mirrors
 	// the other write endpoints: just the body, no PAT plumbing.
-	h.proxyCloudRuntime(w, r, http.MethodPost, "/api/v1/nodes", cloudRuntimeProxyOptions{
+	h.proxyCloudRuntime(w, r, http.MethodPost, pathAPIV1Nodes, cloudRuntimeProxyOptions{
 		withUserID: true,
 		withBody:   true,
 	})
 }
 
 func (h *Handler) DeleteCloudRuntimeNode(w http.ResponseWriter, r *http.Request) {
-	h.proxyCloudRuntime(w, r, http.MethodDelete, "/api/v1/nodes", cloudRuntimeProxyOptions{
+	h.proxyCloudRuntime(w, r, http.MethodDelete, pathAPIV1Nodes, cloudRuntimeProxyOptions{
 		withUserID: true,
 		withBody:   true,
 	})
@@ -169,15 +169,15 @@ func readCloudRuntimeJSONBody(w http.ResponseWriter, r *http.Request) ([]byte, b
 }
 
 func cloudRuntimeRequestID(r *http.Request) string {
-	if id := r.Header.Get("X-Request-ID"); id != "" {
+	if id := r.Header.Get(headerXRequestID); id != "" {
 		return id
 	}
 	return chimw.GetReqID(r.Context())
 }
 
 func writeCloudRuntimeResponse(w http.ResponseWriter, resp *cloudruntime.Response) {
-	if requestID := resp.Header.Get("X-Request-ID"); requestID != "" {
-		w.Header().Set("X-Request-ID", requestID)
+	if requestID := resp.Header.Get(headerXRequestID); requestID != "" {
+		w.Header().Set(headerXRequestID, requestID)
 	}
 	body := bytes.TrimSpace(resp.Body)
 	if len(body) == 0 {

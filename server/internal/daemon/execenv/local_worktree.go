@@ -190,7 +190,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 			"git_root", gitRoot, "output", out, "error", pruneErr)
 	}
 
-	headSHA, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "HEAD")
+	headSHA, err := runGitTrimmed(gitRoot, gitRevParse, gitFlagVerify, "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("execenv: repository %q has no commit to branch from "+
 			"(worktree mode needs at least one commit; make an initial commit or switch the resource back to in_place): %w", gitRoot, err)
@@ -392,7 +392,7 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	// A branch still sitting exactly on its base commit means the task changed
 	// nothing — the read-only case. Delete it so the user's branch list only
 	// ever grows for tasks that actually produced work.
-	tip, err := runGitTrimmed(w.Path, "rev-parse", "--verify", "HEAD")
+	tip, err := runGitTrimmed(w.Path, gitRevParse, gitFlagVerify, "HEAD")
 	producedWork := err != nil || tip != w.BaseCommit
 
 	if removeErr := removeLocalWorktreeDir(w.GitRoot, w.Path, logger); removeErr != nil {
@@ -458,7 +458,7 @@ func commitBaseline(worktreePath string) (string, error) {
 	if _, err := commitEverything(worktreePath, "chore(agent): baseline — uncommitted work from the local directory"); err != nil {
 		return "", err
 	}
-	tip, err := runGitTrimmed(worktreePath, "rev-parse", "--verify", "HEAD")
+	tip, err := runGitTrimmed(worktreePath, gitRevParse, gitFlagVerify, "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("resolve baseline commit: %w", err)
 	}
@@ -571,7 +571,7 @@ func deleteBranch(gitRoot, branch string, logger *slog.Logger) {
 // than silently degrading to the in-place lock, which would leave the user
 // wondering why their tasks still queue.
 func resolveGitRoot(dir string) (string, error) {
-	root, err := runGitTrimmed(dir, "rev-parse", "--show-toplevel")
+	root, err := runGitTrimmed(dir, gitRevParse, "--show-toplevel")
 	if err != nil || root == "" {
 		return "", fmt.Errorf("execenv: local_directory %q is not a git repository, "+
 			"but its project resource is set to execution_mode=worktree; "+

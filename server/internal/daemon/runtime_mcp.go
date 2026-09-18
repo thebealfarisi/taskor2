@@ -100,8 +100,8 @@ func codebuddyUserMcpConfigPath(home string) string {
 		configDir = filepath.Join(home, ".codebuddy")
 	}
 	candidates := []string{
-		filepath.Join(configDir, ".mcp.json"),
-		filepath.Join(configDir, "mcp.json"),
+		filepath.Join(configDir, fileDotMCPJSON),
+		filepath.Join(configDir, fileMCPJSON),
 		filepath.Join(home, ".codebuddy.json"),
 	}
 	for _, candidate := range candidates {
@@ -120,19 +120,19 @@ func unmarshalRuntimeMcpConfig(raw []byte, format string) (map[string]any, error
 	switch format {
 	case "toml":
 		if err := toml.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
+			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
 		}
 	case "jsonc":
 		stripped, err := stripJSONC(raw)
 		if err != nil {
-			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
+			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
 		}
 		if err := json.Unmarshal(stripped, &cfg); err != nil {
-			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
+			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
 		}
 	default:
 		if err := json.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
+			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
 		}
 	}
 	return cfg, nil
@@ -266,7 +266,7 @@ func loadRuntimeMcpServerConfigs(provider string) (map[string]any, bool, error) 
 		}
 		path, key, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", "toml"
 	case "cursor":
-		path, key, format = filepath.Join(home, ".cursor", "mcp.json"), "mcpServers", "json"
+		path, key, format = filepath.Join(home, ".cursor", fileMCPJSON), "mcpServers", "json"
 	case "opencode":
 		configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 		if configHome == "" {
@@ -343,7 +343,7 @@ func loadClaudePluginMcpServerConfigs(home string) map[string]any {
 		paths := claudePluginComponentPaths(
 			plugin.InstallPath,
 			manifest.MCPServers,
-			filepath.Join(plugin.InstallPath, ".mcp.json"),
+			filepath.Join(plugin.InstallPath, fileDotMCPJSON),
 		)
 		for _, path := range paths {
 			raw, err := os.ReadFile(path)
@@ -378,9 +378,9 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 	var format string
 	switch provider {
 	case "claude":
-		path, key, source, format = filepath.Join(home, ".claude.json"), "mcpServers", "User config", "json"
+		path, key, source, format = filepath.Join(home, ".claude.json"), "mcpServers", labelUserConfig, "json"
 	case "codebuddy":
-		path, key, source, format = codebuddyUserMcpConfigPath(home), "mcpServers", "User config", "jsonc"
+		path, key, source, format = codebuddyUserMcpConfigPath(home), "mcpServers", labelUserConfig, "jsonc"
 	case "kimi":
 		// Inventory only — kimi is deliberately absent from
 		// loadRuntimeMcpServerConfigs. `kimi acp` merges this file with the
@@ -390,21 +390,21 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 		if kimiHome == "" {
 			kimiHome = filepath.Join(home, ".kimi-code")
 		}
-		path, key, source, format = filepath.Join(kimiHome, "mcp.json"), "mcpServers", "User config", "json"
+		path, key, source, format = filepath.Join(kimiHome, fileMCPJSON), "mcpServers", labelUserConfig, "json"
 	case "codex":
 		codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
 		if codexHome == "" {
 			codexHome = filepath.Join(home, ".codex")
 		}
-		path, key, source, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", "User config", "toml"
+		path, key, source, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", labelUserConfig, "toml"
 	case "cursor":
-		path, key, source, format = filepath.Join(home, ".cursor", "mcp.json"), "mcpServers", "User config", "json"
+		path, key, source, format = filepath.Join(home, ".cursor", fileMCPJSON), "mcpServers", labelUserConfig, "json"
 	case "opencode":
 		configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 		if configHome == "" {
 			configHome = filepath.Join(home, ".config")
 		}
-		path, key, source, format = filepath.Join(configHome, "opencode", "opencode.json"), "mcp", "User config", "json"
+		path, key, source, format = filepath.Join(configHome, "opencode", "opencode.json"), "mcp", labelUserConfig, "json"
 	case "openclaw":
 		path = strings.TrimSpace(os.Getenv("CLAWDBOT_CONFIG_PATH"))
 		if path == "" {
@@ -414,7 +414,7 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 			}
 			path = filepath.Join(stateDir, "openclaw.json")
 		}
-		key, source, format = "mcp.servers", "User config", "json"
+		key, source, format = "mcp.servers", labelUserConfig, "json"
 	default:
 		return []runtimeLocalMcpServerSummary{}, false, nil
 	}
@@ -486,7 +486,7 @@ func listClaudePluginMcpServers(home string) []runtimeLocalMcpServerSummary {
 		paths := claudePluginComponentPaths(
 			plugin.InstallPath,
 			manifest.MCPServers,
-			filepath.Join(plugin.InstallPath, ".mcp.json"),
+			filepath.Join(plugin.InstallPath, fileDotMCPJSON),
 		)
 		for _, path := range paths {
 			raw, err := os.ReadFile(path)

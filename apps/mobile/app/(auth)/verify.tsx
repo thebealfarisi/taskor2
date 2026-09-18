@@ -38,15 +38,15 @@ export default function Verify() {
 
   const submit = async (value: string) => {
     if (!value || !email || submitting) return;
-    void Haptics.selectionAsync();
+    Haptics.selectionAsync();
     setSubmitting(true);
     setError(null);
     try {
       await verifyCode(email, value);
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace(`/${encodePathSegment(email)}`);
     } catch (err) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(mapAuthError(err, "Couldn't verify the code. Try again."));
       setSubmitting(false);
       otpRef.current?.clear();
@@ -56,7 +56,7 @@ export default function Verify() {
 
   const onResend = async () => {
     if (cooldown > 0 || resending || !email) return;
-    void Haptics.selectionAsync();
+    Haptics.selectionAsync();
     setResending(true);
     setError(null);
     try {
@@ -65,7 +65,7 @@ export default function Verify() {
       otpRef.current?.clear();
       setCode("");
     } catch (err) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       setError(mapAuthError(err, "Couldn't resend the code. Try again."));
     } finally {
       setResending(false);

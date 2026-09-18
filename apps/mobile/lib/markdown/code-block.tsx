@@ -164,7 +164,7 @@ function CodeBlockHeader({ code, lang }: Props) {
   const onCopy = async () => {
     try {
       await Clipboard.setStringAsync(code);
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       setCopied(true);
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setCopied(false), 2000);

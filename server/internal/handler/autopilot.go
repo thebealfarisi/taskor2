@@ -523,11 +523,11 @@ func (h *Handler) GetAutopilot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) loadAutopilotInWorkspace(w http.ResponseWriter, r *http.Request, autopilotID, workspaceID string) (db.Autopilot, bool) {
-	autopilotUUID, ok := parseUUIDOrBadRequest(w, autopilotID, "autopilot id")
+	autopilotUUID, ok := parseUUIDOrBadRequest(w, autopilotID, paramAutopilotID)
 	if !ok {
 		return db.Autopilot{}, false
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return db.Autopilot{}, false
 	}
@@ -537,7 +537,7 @@ func (h *Handler) loadAutopilotInWorkspace(w http.ResponseWriter, r *http.Reques
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "autopilot not found")
+		writeError(w, http.StatusNotFound, errMsgAutopilotNotFound)
 		return db.Autopilot{}, false
 	}
 	return autopilot, true
@@ -610,7 +610,7 @@ func (h *Handler) requireAutopilotAccessManagement(w http.ResponseWriter, r *htt
 func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	var req CreateAutopilotRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Title == "" {
@@ -646,7 +646,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -656,7 +656,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		assigneeType = *req.AssigneeType
 	}
 	if !isValidAutopilotAssigneeType(assigneeType) {
-		writeError(w, http.StatusBadRequest, "assignee_type must be agent or squad")
+		writeError(w, http.StatusBadRequest, errMsgAssigneeTypeMustBe)
 		return
 	}
 	projectID, ok := h.parseAutopilotProjectID(w, r, req.ProjectID, wsUUID)
@@ -672,7 +672,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateAutopilot)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -699,7 +699,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		ProjectID:          projectID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateAutopilot)
 		return
 	}
 
@@ -707,7 +707,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 	// the creating member as publisher, so every autopilot has an accountable
 	// human at dispatch time (MUL-4302 §3.4).
 	if err := h.recordAutopilotRuleVersion(r.Context(), qtx, autopilot, "member", parseUUID(userID)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateAutopilot)
 		return
 	}
 
@@ -722,7 +722,7 @@ func (h *Handler) CreateAutopilot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateAutopilot)
 		return
 	}
 	subs, err := h.Queries.ListAutopilotSubscribers(r.Context(), autopilot.ID)
@@ -806,7 +806,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	}
 	var req UpdateAutopilotRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	var rawFields map[string]json.RawMessage
@@ -861,7 +861,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			nextType = *req.AssigneeType
 		}
 		if !isValidAutopilotAssigneeType(nextType) {
-			writeError(w, http.StatusBadRequest, "assignee_type must be agent or squad")
+			writeError(w, http.StatusBadRequest, errMsgAssigneeTypeMustBe)
 			return
 		}
 		if idSent {
@@ -907,7 +907,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -936,11 +936,11 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: prev.WorkspaceID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "autopilot not found")
+		writeError(w, http.StatusNotFound, errMsgAutopilotNotFound)
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 		return
 	}
 	if lockedPrev.UpdatedAt.Valid != prev.UpdatedAt.Valid ||
@@ -954,7 +954,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 
 	autopilot, err := qtx.UpdateAutopilot(r.Context(), params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 		return
 	}
 
@@ -965,7 +965,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	// leave accountability with the previous publisher (MUL-4302 §3.4).
 	if autopilotRuleSubstantiveChange(prev, autopilot) {
 		if err := h.recordAutopilotRuleVersion(r.Context(), qtx, autopilot, "member", parseUUID(userID)); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 			return
 		}
 		// An autopilot-level substantive edit governs every trigger, so responsibility
@@ -976,7 +976,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 			PublishedByType: pgtype.Text{String: "member", Valid: true},
 			PublishedByID:   parseUUID(userID),
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 			return
 		}
 	}
@@ -999,7 +999,7 @@ func (h *Handler) UpdateAutopilot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateAutopilot)
 		return
 	}
 
@@ -1078,11 +1078,11 @@ func (h *Handler) DeleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	workspaceID := h.resolveWorkspaceID(r)
 
-	idUUID, ok := parseUUIDOrBadRequest(w, id, "autopilot id")
+	idUUID, ok := parseUUIDOrBadRequest(w, id, paramAutopilotID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -1092,7 +1092,7 @@ func (h *Handler) DeleteAutopilot(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "autopilot not found")
+		writeError(w, http.StatusNotFound, errMsgAutopilotNotFound)
 		return
 	}
 	if !h.requireAutopilotWrite(w, r, ap, workspaceID) {
@@ -1111,23 +1111,23 @@ func (h *Handler) DeleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	// rule version with this member as publisher, atomically with the archive.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteAutopilot)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
 	if err := qtx.ArchiveAutopilot(r.Context(), idUUID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteAutopilot)
 		return
 	}
 	ap.Status = "archived" // reflect the post-archive state in the version snapshot
 	if err := h.recordAutopilotRuleVersion(r.Context(), qtx, ap, "member", parseUUID(userID)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteAutopilot)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteAutopilot)
 		return
 	}
 
@@ -1172,7 +1172,7 @@ func (h *Handler) AddAutopilotCollaborator(w http.ResponseWriter, r *http.Reques
 
 	var req AutopilotCollaboratorRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.UserID == "" {
@@ -1279,7 +1279,7 @@ func (h *Handler) CreateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 
 	var req CreateAutopilotTriggerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	if req.Kind == "" {
@@ -1376,7 +1376,7 @@ func (h *Handler) CreateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 		}
 		trigger, err := h.createWebhookTriggerWithMintedToken(r, ap, ptrToText(req.Label), provider, eventFiltersBytes, publisherID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to create trigger")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToCreateTrigger)
 			return
 		}
 		resp := h.triggerToResponse(trigger)
@@ -1391,7 +1391,7 @@ func (h *Handler) CreateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 	// Schedule create: write the trigger and republish the rule version atomically.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateTrigger)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1413,15 +1413,15 @@ func (h *Handler) CreateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 		PublishedByID:   publisherID,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateTrigger)
 		return
 	}
 	if err := h.recordAutopilotRuleVersion(r.Context(), qtx, ap, "member", publisherID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateTrigger)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateTrigger)
 		return
 	}
 
@@ -1596,7 +1596,7 @@ func (h *Handler) validateAutopilotAssigneeForSave(
 		}
 		return true
 	default:
-		writeError(w, http.StatusBadRequest, "assignee_type must be agent or squad")
+		writeError(w, http.StatusBadRequest, errMsgAssigneeTypeMustBe)
 		return false
 	}
 }
@@ -1614,20 +1614,20 @@ func (h *Handler) UpdateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, "trigger id")
+	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, paramTriggerID)
 	if !ok {
 		return
 	}
 
 	prev, err := h.Queries.GetAutopilotTrigger(r.Context(), triggerUUID)
 	if err != nil || uuidToString(prev.AutopilotID) != uuidToString(ap.ID) {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, errMsgTriggerNotFound)
 		return
 	}
 
 	var req UpdateAutopilotTriggerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 
@@ -1722,7 +1722,7 @@ func (h *Handler) UpdateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateTrigger)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -1730,7 +1730,7 @@ func (h *Handler) UpdateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 
 	trigger, err := qtx.UpdateAutopilotTrigger(r.Context(), params)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateTrigger)
 		return
 	}
 
@@ -1747,7 +1747,7 @@ func (h *Handler) UpdateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 		!bytes.Equal(prev.EventFilters, trigger.EventFilters)
 	if triggerSubstantiveChange {
 		if err := h.recordAutopilotRuleVersion(r.Context(), qtx, ap, "member", parseUUID(userID)); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update trigger")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateTrigger)
 			return
 		}
 		// Responsibility for THIS trigger's runs transfers to the editor. Scoped to the
@@ -1758,12 +1758,12 @@ func (h *Handler) UpdateAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 			PublishedByType: pgtype.Text{String: "member", Valid: true},
 			PublishedByID:   parseUUID(userID),
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to update trigger")
+			writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateTrigger)
 			return
 		}
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToUpdateTrigger)
 		return
 	}
 
@@ -1780,15 +1780,15 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 	triggerID := chi.URLParam(r, "triggerId")
 	workspaceID := h.resolveWorkspaceID(r)
 
-	autopilotUUID, ok := parseUUIDOrBadRequest(w, autopilotID, "autopilot id")
+	autopilotUUID, ok := parseUUIDOrBadRequest(w, autopilotID, paramAutopilotID)
 	if !ok {
 		return
 	}
-	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, "trigger id")
+	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, paramTriggerID)
 	if !ok {
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, paramWorkspaceID)
 	if !ok {
 		return
 	}
@@ -1798,7 +1798,7 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 		WorkspaceID: wsUUID,
 	})
 	if err != nil {
-		writeError(w, http.StatusNotFound, "autopilot not found")
+		writeError(w, http.StatusNotFound, errMsgAutopilotNotFound)
 		return
 	}
 	if !h.requireAutopilotWrite(w, r, ap, workspaceID) {
@@ -1807,7 +1807,7 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 
 	trigger, err := h.Queries.GetAutopilotTrigger(r.Context(), triggerUUID)
 	if err != nil || uuidToString(trigger.AutopilotID) != uuidToString(autopilotUUID) {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, errMsgTriggerNotFound)
 		return
 	}
 
@@ -1821,22 +1821,22 @@ func (h *Handler) DeleteAutopilotTrigger(w http.ResponseWriter, r *http.Request)
 	// delete.
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteTrigger)
 		return
 	}
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
 	if err := qtx.DeleteAutopilotTrigger(r.Context(), triggerUUID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteTrigger)
 		return
 	}
 	if err := h.recordAutopilotRuleVersion(r.Context(), qtx, ap, "member", parseUUID(userID)); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteTrigger)
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete trigger")
+		writeError(w, http.StatusInternalServerError, errMsgFailedToDeleteTrigger)
 		return
 	}
 
@@ -1864,13 +1864,13 @@ func (h *Handler) RotateAutopilotTriggerWebhookToken(w http.ResponseWriter, r *h
 		return
 	}
 
-	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, "trigger id")
+	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, paramTriggerID)
 	if !ok {
 		return
 	}
 	prev, err := h.Queries.GetAutopilotTrigger(r.Context(), triggerUUID)
 	if err != nil || uuidToString(prev.AutopilotID) != uuidToString(ap.ID) {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, errMsgTriggerNotFound)
 		return
 	}
 	if prev.Kind != "webhook" {
@@ -1932,13 +1932,13 @@ func (h *Handler) SetAutopilotTriggerSigningSecret(w http.ResponseWriter, r *htt
 	if !h.requireAutopilotWrite(w, r, ap, workspaceID) {
 		return
 	}
-	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, "trigger id")
+	triggerUUID, ok := parseUUIDOrBadRequest(w, triggerID, paramTriggerID)
 	if !ok {
 		return
 	}
 	prev, err := h.Queries.GetAutopilotTrigger(r.Context(), triggerUUID)
 	if err != nil || uuidToString(prev.AutopilotID) != uuidToString(ap.ID) {
-		writeError(w, http.StatusNotFound, "trigger not found")
+		writeError(w, http.StatusNotFound, errMsgTriggerNotFound)
 		return
 	}
 	if prev.Kind != "webhook" {
@@ -1948,7 +1948,7 @@ func (h *Handler) SetAutopilotTriggerSigningSecret(w http.ResponseWriter, r *htt
 
 	var req SetSigningSecretRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
 		return
 	}
 	secret := strings.TrimSpace(req.SigningSecret)

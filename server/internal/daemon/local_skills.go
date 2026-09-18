@@ -307,7 +307,7 @@ func relativizeHomePath(path string) string {
 }
 
 func readLocalSkillMainFile(skillDir string) (string, error) {
-	mainPath := filepath.Join(skillDir, "SKILL.md")
+	mainPath := filepath.Join(skillDir, fileSkillMD)
 	info, err := os.Stat(mainPath)
 	if err != nil {
 		return "", err
@@ -355,7 +355,7 @@ func collectLocalSkillFiles(skillDir string, includeContent bool) ([]SkillFileDa
 			}
 			return nil
 		}
-		if isIgnoredLocalSkillEntry(entry.Name()) || strings.EqualFold(entry.Name(), "SKILL.md") {
+		if isIgnoredLocalSkillEntry(entry.Name()) || strings.EqualFold(entry.Name(), fileSkillMD) {
 			return nil
 		}
 
@@ -506,7 +506,7 @@ func enumerateLocalSkills(
 			continue
 		}
 
-		mainPath := filepath.Join(path, "SKILL.md")
+		mainPath := filepath.Join(path, fileSkillMD)
 		if _, err := os.Stat(mainPath); err == nil {
 			rel, err := filepath.Rel(walkRoot, path)
 			if err != nil {
@@ -614,7 +614,7 @@ func loadRuntimeLocalSkillBundle(provider, skillKey string) (*runtimeLocalSkillB
 		// ~/.agents/skills/foo. Treat a missing SKILL.md as "this root doesn't
 		// have it" and continue; only a non-IsNotExist stat error on the
 		// SKILL.md (permission, IO) is returned.
-		mainPath := filepath.Join(skillDir, "SKILL.md")
+		mainPath := filepath.Join(skillDir, fileSkillMD)
 		if _, err := os.Stat(mainPath); err != nil {
 			if os.IsNotExist(err) {
 				continue

@@ -279,10 +279,10 @@ func resolveDevecoNativeFromShim(shimPath string, statFn func(string) (os.FileIn
 	scope := filepath.Join(prefix, "node_modules", "@deveco")
 	candidates := []string{
 		// postinstall copies the selected native binary here; most reliable.
-		filepath.Join(scope, "deveco-code", "bin", "deveco.exe"),
+		filepath.Join(scope, "deveco-code", "bin", binaryDevecoExe),
 		// Fall back to the platform sub-packages directly if the copy is absent.
-		filepath.Join(scope, "deveco-code-windows-x64", "bin", "deveco.exe"),
-		filepath.Join(scope, "deveco-code-windows-x64-baseline", "bin", "deveco.exe"),
+		filepath.Join(scope, "deveco-code-windows-x64", "bin", binaryDevecoExe),
+		filepath.Join(scope, "deveco-code-windows-x64-baseline", "bin", binaryDevecoExe),
 	}
 	for _, candidate := range candidates {
 		if _, err := statFn(candidate); err == nil {
