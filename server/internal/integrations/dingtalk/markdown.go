@@ -93,36 +93,47 @@ func chunkMarkdown(body string) []string {
 		// A single oversized line cannot fit a chunk; hard-split it.
 		if len(line) > markdownContentByteBudget {
 			flush(true)
-			pieceBudget := markdownContentByteBudget
-			if fenceOpen {
-				pieceBudget = markdownByteBudget - len(fenceInfo) - len("\n") - len("\n```")
-			}
-			for _, piece := range hardSplit(line, pieceBudget) {
-				// A piece split out of an oversized line inside a code block must
-				// carry its own fences, or it would render as plain text.
-				if fenceOpen {
-					piece = fenceInfo + "\n" + piece + "\n```"
-				}
-				chunks = append(chunks, piece)
-			}
+			chunks = append(chunks, splitOversizedLine(line, fenceOpen, fenceInfo)...)
 			continue
 		}
 		if cur.Len()+len(line) > markdownContentByteBudget {
 			flush(true)
 		}
-		if isFenceLine(line) {
-			if fenceOpen {
-				fenceOpen = false
-				fenceInfo = ""
-			} else {
-				fenceOpen = true
-				fenceInfo = continuationFence(line)
-			}
-		}
+		updateFenceState(line, &fenceOpen, &fenceInfo)
 		cur.WriteString(line)
 	}
 	flush(false)
 	return chunks
+}
+
+func splitOversizedLine(line string, fenceOpen bool, fenceInfo string) []string {
+	pieceBudget := markdownContentByteBudget
+	if fenceOpen {
+		pieceBudget = markdownByteBudget - len(fenceInfo) - len("\n") - len("\n```")
+	}
+	var out []string
+	for _, piece := range hardSplit(line, pieceBudget) {
+		// A piece split out of an oversized line inside a code block must
+		// carry its own fences, or it would render as plain text.
+		if fenceOpen {
+			piece = fenceInfo + "\n" + piece + "\n```"
+		}
+		out = append(out, piece)
+	}
+	return out
+}
+
+func updateFenceState(line string, fenceOpen *bool, fenceInfo *string) {
+	if !isFenceLine(line) {
+		return
+	}
+	if *fenceOpen {
+		*fenceOpen = false
+		*fenceInfo = ""
+	} else {
+		*fenceOpen = true
+		*fenceInfo = continuationFence(line)
+	}
 }
 
 func continuationFence(line string) string {

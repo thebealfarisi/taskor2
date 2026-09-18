@@ -427,38 +427,7 @@ func (o *Outbound) dispatchTerminalReplies(ctx context.Context) {
 
 	for {
 		o.terminalMu.Lock()
-		now := o.now()
-		for o.terminalRetries.Len() > 0 && !o.terminalRetries[0].retryAt.After(now) {
-			retry := heap.Pop(&o.terminalRetries).(terminalRetry)
-			session := o.terminalSessions[retry.sessionID]
-			if session == nil || !session.retryWaiting {
-				continue
-			}
-			session.retryWaiting = false
-			o.queueTerminalReadyLocked(retry.sessionID, session)
-		}
-		for o.terminalInFlight < terminalWorkerCount && len(o.terminalReady) > 0 {
-			sessionID := o.terminalReady[0]
-			o.terminalReady[0] = ""
-			o.terminalReady = o.terminalReady[1:]
-			session := o.terminalSessions[sessionID]
-			if session == nil || len(session.queue) == 0 || !session.ready {
-				continue
-			}
-			session.ready = false
-			session.running = true
-			o.terminalInFlight++
-			o.terminalWork <- terminalWork{sessionID: sessionID, reply: session.queue[0]}
-		}
-		var timerC <-chan time.Time
-		if o.terminalRetries.Len() > 0 {
-			delay := o.terminalRetries[0].retryAt.Sub(o.now())
-			if delay < 0 {
-				delay = 0
-			}
-			timer.Reset(delay)
-			timerC = timer.C
-		}
+		timerC := o.stepTerminalDispatchLocked(timer)
 		o.terminalMu.Unlock()
 
 		select {
@@ -470,11 +439,57 @@ func (o *Outbound) dispatchTerminalReplies(ctx context.Context) {
 		case <-o.terminalWake:
 		case <-timerC:
 		}
-		if timerC != nil && !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
+		drainTimer(timer, timerC)
+	}
+}
+
+func (o *Outbound) drainTerminalRetriesLocked(now time.Time) {
+	for o.terminalRetries.Len() > 0 && !o.terminalRetries[0].retryAt.After(now) {
+		retry := heap.Pop(&o.terminalRetries).(terminalRetry)
+		session := o.terminalSessions[retry.sessionID]
+		if session == nil || !session.retryWaiting {
+			continue
+		}
+		session.retryWaiting = false
+		o.queueTerminalReadyLocked(retry.sessionID, session)
+	}
+}
+
+func (o *Outbound) dispatchReadyTerminalLocked() {
+	for o.terminalInFlight < terminalWorkerCount && len(o.terminalReady) > 0 {
+		sessionID := o.terminalReady[0]
+		o.terminalReady[0] = ""
+		o.terminalReady = o.terminalReady[1:]
+		session := o.terminalSessions[sessionID]
+		if session == nil || len(session.queue) == 0 || !session.ready {
+			continue
+		}
+		session.ready = false
+		session.running = true
+		o.terminalInFlight++
+		o.terminalWork <- terminalWork{sessionID: sessionID, reply: session.queue[0]}
+	}
+}
+
+func (o *Outbound) stepTerminalDispatchLocked(timer *time.Timer) <-chan time.Time {
+	o.drainTerminalRetriesLocked(o.now())
+	o.dispatchReadyTerminalLocked()
+	if o.terminalRetries.Len() == 0 {
+		return nil
+	}
+	delay := o.terminalRetries[0].retryAt.Sub(o.now())
+	if delay < 0 {
+		delay = 0
+	}
+	timer.Reset(delay)
+	return timer.C
+}
+
+func drainTimer(timer *time.Timer, timerC <-chan time.Time) {
+	if timerC != nil && !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
 		}
 	}
 }
@@ -563,40 +578,7 @@ type terminalRequestResult struct {
 // fixed worker available for another session.
 func (o *Outbound) sendNextTerminalRequest(ctx context.Context, reply *terminalReply) terminalRequestResult {
 	if !reply.initialized {
-		target, err := o.resolveTarget(ctx, reply.event, false)
-		if err != nil {
-			return terminalRequestResult{done: true, err: err}
-		}
-		if target == nil {
-			return terminalRequestResult{done: true}
-		}
-
-		o.mu.Lock()
-		st := o.streams[target.streamKey]
-		var schedule *chatSchedule
-		if st != nil {
-			schedule = st.schedule
-		} else {
-			schedule = o.retainChatLocked(target.botKey, target.chatID)
-			if schedule == nil {
-				o.mu.Unlock()
-				return terminalRequestResult{retryAt: o.now().Add(chatCapacityRetry)}
-			}
-		}
-		delete(o.streams, target.streamKey)
-		o.mu.Unlock()
-
-		reply.initialized = true
-		reply.target = target
-		reply.schedule = schedule
-		reply.chunks = chunkMessage(chatDoneContent(reply.event.Payload), maxMessageUnits)
-		if st != nil {
-			reply.streamedMessageID = st.messageID
-		}
-		if len(reply.chunks) == 0 {
-			return terminalRequestResult{done: true}
-		}
-		return terminalRequestResult{retryAt: o.now()}
+		return o.initTerminalReply(ctx, reply)
 	}
 
 	schedule := reply.schedule
@@ -610,30 +592,74 @@ func (o *Outbound) sendNextTerminalRequest(ctx context.Context, reply *terminalR
 	api := newBotAPI(o.apiBase, reply.target.botToken, o.client)
 
 	if reply.streamedMessageID != 0 && !reply.placeholderEdited && !reply.fallbackFreshSend {
-		err := api.EditMessageText(ctx, editMessageTextParams{
-			ChatID: reply.target.chatID, MessageID: reply.streamedMessageID,
-			Text: formatHTML(reply.chunks[0]), ParseMode: "HTML",
-		})
-		if retry, ok := retryAfter(err); ok {
-			retryAt := o.now().Add(retry)
-			schedule.setBackoffTill(retryAt)
-			return terminalRequestResult{retryAt: retryAt}
-		}
-		if err != nil && !isNotModified(err) {
-			reply.fallbackFreshSend = true
-			reply.chunkIndex = 0
-			return terminalRequestResult{retryAt: o.now()}
-		}
-		reply.placeholderEdited = true
-		reply.chunkIndex = 1
-		schedule.lastEdit = o.now()
-		schedule.setBackoffTill(time.Time{})
-		if reply.chunkIndex == len(reply.chunks) {
-			return terminalRequestResult{done: true}
-		}
-		return terminalRequestResult{retryAt: schedule.lastEdit.Add(editInterval)}
+		return o.sendTerminalStreamEdit(ctx, reply, api, schedule)
+	}
+	return o.sendTerminalChunk(ctx, reply, api, schedule)
+}
+
+func (o *Outbound) initTerminalReply(ctx context.Context, reply *terminalReply) terminalRequestResult {
+	target, err := o.resolveTarget(ctx, reply.event, false)
+	if err != nil {
+		return terminalRequestResult{done: true, err: err}
+	}
+	if target == nil {
+		return terminalRequestResult{done: true}
 	}
 
+	o.mu.Lock()
+	st := o.streams[target.streamKey]
+	var schedule *chatSchedule
+	if st != nil {
+		schedule = st.schedule
+	} else {
+		schedule = o.retainChatLocked(target.botKey, target.chatID)
+		if schedule == nil {
+			o.mu.Unlock()
+			return terminalRequestResult{retryAt: o.now().Add(chatCapacityRetry)}
+		}
+	}
+	delete(o.streams, target.streamKey)
+	o.mu.Unlock()
+
+	reply.initialized = true
+	reply.target = target
+	reply.schedule = schedule
+	reply.chunks = chunkMessage(chatDoneContent(reply.event.Payload), maxMessageUnits)
+	if st != nil {
+		reply.streamedMessageID = st.messageID
+	}
+	if len(reply.chunks) == 0 {
+		return terminalRequestResult{done: true}
+	}
+	return terminalRequestResult{retryAt: o.now()}
+}
+
+func (o *Outbound) sendTerminalStreamEdit(ctx context.Context, reply *terminalReply, api *botAPI, schedule *chatSchedule) terminalRequestResult {
+	err := api.EditMessageText(ctx, editMessageTextParams{
+		ChatID: reply.target.chatID, MessageID: reply.streamedMessageID,
+		Text: formatHTML(reply.chunks[0]), ParseMode: "HTML",
+	})
+	if retry, ok := retryAfter(err); ok {
+		retryAt := o.now().Add(retry)
+		schedule.setBackoffTill(retryAt)
+		return terminalRequestResult{retryAt: retryAt}
+	}
+	if err != nil && !isNotModified(err) {
+		reply.fallbackFreshSend = true
+		reply.chunkIndex = 0
+		return terminalRequestResult{retryAt: o.now()}
+	}
+	reply.placeholderEdited = true
+	reply.chunkIndex = 1
+	schedule.lastEdit = o.now()
+	schedule.setBackoffTill(time.Time{})
+	if reply.chunkIndex == len(reply.chunks) {
+		return terminalRequestResult{done: true}
+	}
+	return terminalRequestResult{retryAt: schedule.lastEdit.Add(editInterval)}
+}
+
+func (o *Outbound) sendTerminalChunk(ctx context.Context, reply *terminalReply, api *botAPI, schedule *chatSchedule) terminalRequestResult {
 	chunk := reply.chunks[reply.chunkIndex]
 	params := sendMessageParams{
 		ChatID: reply.target.chatID, Text: formatHTML(chunk), ParseMode: "HTML",
@@ -822,6 +848,21 @@ func (o *Outbound) makeChatScheduleRoomLocked(now time.Time) bool {
 	if len(o.chats) < maxChatSchedules {
 		return true
 	}
+	if inactiveKey, inactive := o.findOldestInactiveScheduleLocked(now); inactive != nil {
+		delete(o.chats, inactiveKey)
+		return true
+	}
+
+	activeKey, active := o.findOldestBackoffScheduleLocked(now)
+	if active == nil {
+		return false
+	}
+	o.mergeBotFallbackLocked(active.key.botKey, active.backoffSnapshot(), now)
+	delete(o.chats, activeKey)
+	return true
+}
+
+func (o *Outbound) findOldestInactiveScheduleLocked(now time.Time) (chatScheduleKey, *chatSchedule) {
 	var inactiveKey chatScheduleKey
 	var inactive *chatSchedule
 	for key, schedule := range o.chats {
@@ -833,11 +874,10 @@ func (o *Outbound) makeChatScheduleRoomLocked(now time.Time) bool {
 			inactiveKey, inactive = key, schedule
 		}
 	}
-	if inactive != nil {
-		delete(o.chats, inactiveKey)
-		return true
-	}
+	return inactiveKey, inactive
+}
 
+func (o *Outbound) findOldestBackoffScheduleLocked(now time.Time) (chatScheduleKey, *chatSchedule) {
 	var activeKey chatScheduleKey
 	var active *chatSchedule
 	for key, schedule := range o.chats {
@@ -852,12 +892,7 @@ func (o *Outbound) makeChatScheduleRoomLocked(now time.Time) bool {
 			activeKey, active = key, schedule
 		}
 	}
-	if active == nil {
-		return false
-	}
-	o.mergeBotFallbackLocked(active.key.botKey, active.backoffSnapshot(), now)
-	delete(o.chats, activeKey)
-	return true
+	return activeKey, active
 }
 
 func (o *Outbound) canMergeBotFallbackLocked(botKey string, now time.Time) bool {
@@ -973,22 +1008,10 @@ type replyTarget struct {
 // chat session id is recovered from the task row (EventTaskMessage carries
 // only TaskID).
 func (o *Outbound) resolveTarget(ctx context.Context, e events.Event, viaTask bool) (*replyTarget, error) {
-	var task *db.AgentTaskQueue
 	taskID, hasTaskID := eventTaskID(e)
-	sessionID, err := util.ParseUUID(e.ChatSessionID)
+	sessionID, task, err := o.resolveSessionAndTask(ctx, e, taskID, hasTaskID, viaTask)
 	if err != nil || !sessionID.Valid {
-		if !viaTask || !hasTaskID {
-			return nil, nil
-		}
-		taskRow, terr := o.q.GetAgentTask(ctx, taskID)
-		if terr != nil {
-			return nil, fmt.Errorf("load agent task: %w", terr)
-		}
-		if !taskRow.ChatSessionID.Valid {
-			return nil, nil
-		}
-		task = &taskRow
-		sessionID = taskRow.ChatSessionID
+		return nil, err
 	}
 	binding, err := o.q.GetChannelChatSessionBindingBySession(ctx, db.GetChannelChatSessionBindingBySessionParams{
 		ChatSessionID: sessionID,
@@ -1007,19 +1030,9 @@ func (o *Outbound) resolveTarget(ctx context.Context, e events.Event, viaTask bo
 	if !hasTaskID {
 		return nil, nil
 	}
-	if task == nil {
-		taskRow, terr := o.q.GetAgentTask(ctx, taskID)
-		if terr != nil {
-			return nil, fmt.Errorf("load agent task: %w", terr)
-		}
-		task = &taskRow
-	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, o.q, *task)
-	if err != nil {
-		return nil, fmt.Errorf("classify task input origin: %w", err)
-	}
-	if !deliver {
-		return nil, nil
+	deliver, err := o.verifyTaskProvenance(ctx, taskID, task)
+	if err != nil || !deliver {
+		return nil, err
 	}
 	inst, err := o.q.GetChannelInstallation(ctx, db.GetChannelInstallationParams{
 		ID:          binding.InstallationID,
@@ -1044,6 +1057,39 @@ func (o *Outbound) resolveTarget(ctx context.Context, e events.Event, viaTask bo
 		replyTo:   replyTo,
 		botToken:  creds.BotToken,
 	}, nil
+}
+
+func (o *Outbound) resolveSessionAndTask(ctx context.Context, e events.Event, taskID pgtype.UUID, hasTaskID, viaTask bool) (pgtype.UUID, *db.AgentTaskQueue, error) {
+	sessionID, err := util.ParseUUID(e.ChatSessionID)
+	if err == nil && sessionID.Valid {
+		return sessionID, nil, nil
+	}
+	if !viaTask || !hasTaskID {
+		return pgtype.UUID{}, nil, nil
+	}
+	taskRow, terr := o.q.GetAgentTask(ctx, taskID)
+	if terr != nil {
+		return pgtype.UUID{}, nil, fmt.Errorf("load agent task: %w", terr)
+	}
+	if !taskRow.ChatSessionID.Valid {
+		return pgtype.UUID{}, nil, nil
+	}
+	return taskRow.ChatSessionID, &taskRow, nil
+}
+
+func (o *Outbound) verifyTaskProvenance(ctx context.Context, taskID pgtype.UUID, task *db.AgentTaskQueue) (bool, error) {
+	if task == nil {
+		taskRow, terr := o.q.GetAgentTask(ctx, taskID)
+		if terr != nil {
+			return false, fmt.Errorf("load agent task: %w", terr)
+		}
+		task = &taskRow
+	}
+	deliver, err := engine.TaskInputIsChannelIngested(ctx, o.q, *task)
+	if err != nil {
+		return false, fmt.Errorf("classify task input origin: %w", err)
+	}
+	return deliver, nil
 }
 
 // outboundTarget recovers the numeric chat id (from the binding config when

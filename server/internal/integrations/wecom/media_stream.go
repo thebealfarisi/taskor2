@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 )
 
 // mediaStreamChunk is how much ciphertext is decrypted at a time. Large
@@ -51,47 +52,70 @@ const mediaStreamChunk = 256 << 10
 // block — so the final block is held back until the source is exhausted and
 // unpadded then. Everything before it is written as it goes.
 func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size int64, err error) {
-	key, err := decodeMediaAESKey(aesKey)
+	mode, err := initMediaCipher(aesKey)
 	if err != nil {
 		return nil, 0, err
 	}
-	block, err := aes.NewCipher(key)
+	out, err := createDecryptedTempFile(dir)
 	if err != nil {
-		return nil, 0, fmt.Errorf("wecom: media cipher: %w", err)
-	}
-	// The IV is the first 16 bytes of the key, as WeCom's own libraries do.
-	mode := cipher.NewCBCDecrypter(block, key[:aes.BlockSize])
-
-	out, err := os.CreateTemp(dir, "wecom-media-*.bin")
-	if err != nil {
-		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
-	}
-	// Unlink now: the file stays readable through the handle and disappears
-	// the moment the process lets go of it, including on a crash. Nothing
-	// with decrypted attachment content is left behind for anyone to find.
-	if err := os.Remove(out.Name()); err != nil {
-		out.Close()
-		return nil, 0, fmt.Errorf("wecom: media temp file: %w", err)
-	}
-	if err := out.Chmod(0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// Best effort: the file is already unlinked, so this is belt as well
-		// as braces.
-		_ = err
+		return nil, 0, err
 	}
 	defer func() {
 		if err != nil {
 			out.Close()
+			if runtime.GOOS == "windows" {
+				_ = os.Remove(out.Name())
+			}
 		}
 	}()
 
+	tail, written, err := streamDecryptBlocks(mode, src, out)
+	if err != nil {
+		return nil, 0, err
+	}
+	totalSize, err := finalizeDecryptedFile(out, tail, written)
+	if err != nil {
+		return nil, 0, err
+	}
+	return out, totalSize, nil
+}
+
+func initMediaCipher(aesKey string) (cipher.BlockMode, error) {
+	key, err := decodeMediaAESKey(aesKey)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("wecom: media cipher: %w", err)
+	}
+	// The IV is the first 16 bytes of the key, as WeCom's own libraries do.
+	return cipher.NewCBCDecrypter(block, key[:aes.BlockSize]), nil
+}
+
+func createDecryptedTempFile(dir string) (*os.File, error) {
+	out, err := os.CreateTemp(dir, "wecom-media-*.bin")
+	if err != nil {
+		return nil, fmt.Errorf("wecom: media temp file: %w", err)
+	}
+	if runtime.GOOS != "windows" {
+		// Unlink now on POSIX: the file stays readable through the handle and disappears
+		// the moment the process lets go of it, including on a crash.
+		if err := os.Remove(out.Name()); err != nil {
+			out.Close()
+			return nil, fmt.Errorf("wecom: media temp file: %w", err)
+		}
+	}
+	if err := out.Chmod(0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		_ = err
+	}
+	return out, nil
+}
+
+func streamDecryptBlocks(mode cipher.BlockMode, src io.Reader, out *os.File) ([]byte, int64, error) {
 	buf := make([]byte, mediaStreamChunk)
-	// tail holds back the last mediaPadBlock bytes of plaintext, because the
-	// PKCS#7 pad is up to 32 bytes and therefore spans TWO AES blocks — the
-	// pad block and the cipher block are not the same size here, which is the
-	// trap media_crypt.go documents. Holding one AES block back would unpad
-	// correctly only for pads of 16 or less, i.e. about half of all files.
 	tail := make([]byte, 0, mediaPadBlock+aes.BlockSize)
-	var carry []byte // ciphertext bytes not yet on a block boundary
+	var carry []byte
 	var written int64
 
 	emit := func(plain []byte) error {
@@ -116,7 +140,7 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 			if usable > 0 {
 				chunk := carry[:usable]
 				mode.CryptBlocks(chunk, chunk)
-				if err = emit(chunk); err != nil {
+				if err := emit(chunk); err != nil {
 					return nil, 0, fmt.Errorf("wecom: media decrypt: write: %w", err)
 				}
 				carry = append(carry[:0], carry[usable:]...)
@@ -136,24 +160,24 @@ func decryptToFile(aesKey string, src io.Reader, dir string) (f *os.File, size i
 	if written == 0 && len(tail) == 0 {
 		return nil, 0, errors.New("wecom: media ciphertext is empty")
 	}
+	return tail, written, nil
+}
 
-	// The pad is inside what was held back, and unpadMedia validates every
-	// byte of it — a tail that does not check out means a wrong key or a
-	// truncated body, and the file in front of it cannot be trusted either.
+func finalizeDecryptedFile(out *os.File, tail []byte, written int64) (int64, error) {
 	unpadded, err := unpadMedia(tail)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 	if len(unpadded) > 0 {
 		if _, err = out.Write(unpadded); err != nil {
-			return nil, 0, fmt.Errorf("wecom: media decrypt: write: %w", err)
+			return 0, fmt.Errorf("wecom: media decrypt: write: %w", err)
 		}
 		written += int64(len(unpadded))
 	}
 	if _, err = out.Seek(0, io.SeekStart); err != nil {
-		return nil, 0, fmt.Errorf("wecom: media decrypt: rewind: %w", err)
+		return 0, fmt.Errorf("wecom: media decrypt: rewind: %w", err)
 	}
-	return out, written, nil
+	return written, nil
 }
 
 // peekFile reads up to n bytes from the head of f and rewinds it, so a caller

@@ -384,68 +384,89 @@ func notifyIssueSubscribers(
 	userPrefs := loadUserPrefs(ctx, queries, workspaceID, memberIDs)
 
 	for _, sub := range subs {
-		// Only notify member-type subscribers (not agents)
-		if sub.UserType != "member" {
-			continue
-		}
-
 		subID := util.UUIDToString(sub.UserID)
-
-		// Skip the actor
-		if subID == e.ActorID {
-			continue
-		}
-
-		// Skip any extra excluded IDs
-		if exclude[subID] {
-			continue
-		}
-
-		// Skip if this notification type is muted by the user
-		if prefs, ok := userPrefs[subID]; ok && isNotifMuted(prefs, notifType) {
-			continue
-		}
-
-		// Delegated subscriptions deliver a narrower event set than direct
-		// ones — see deliverToSubscriber.
-		if !deliverToSubscriber(sub.Reason, notifType, issueStatus) {
+		shouldDeliver, suppressed := checkSubscriberDelivery(sub, subID, e.ActorID, exclude, userPrefs, notifType, issueStatus)
+		if suppressed {
 			tierSuppressed[subID] = true
 			continue
 		}
-
-		item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
-			ID:            dbid.NewV7(),
-			WorkspaceID:   parseUUID(workspaceID),
-			RecipientType: "member",
-			RecipientID:   sub.UserID,
-			Type:          notifType,
-			Severity:      severity,
-			IssueID:       parseUUID(targetIssueID),
-			Title:         title,
-			Body:          util.StrToText(body),
-			ActorType:     util.StrToText(e.ActorType),
-			ActorID:       optionalUUID(e.ActorID),
-			Details:       details,
-		})
-		if err != nil {
-			slog.Error("subscriber notification creation failed",
-				"subscriber_id", subID, "type", notifType, "error", err)
+		if !shouldDeliver {
 			continue
 		}
 
+		deliverSubscriberInboxItem(ctx, queries, bus, workspaceID, targetIssueID, issueStatus, notifType, severity, title, body, details, e, sub, subID)
 		notified[subID] = true
-		resp := inboxItemToResponse(item)
-		resp["issue_status"] = issueStatus
-		bus.Publish(events.Event{
-			Type:        protocol.EventInboxNew,
-			WorkspaceID: workspaceID,
-			ActorType:   e.ActorType,
-			ActorID:     e.ActorID,
-			Payload:     map[string]any{"item": resp},
-		})
 	}
 
 	return notified, tierSuppressed
+}
+
+func checkSubscriberDelivery(
+	sub db.IssueSubscriber,
+	subID string,
+	actorID string,
+	exclude map[string]bool,
+	userPrefs map[string]map[string]string,
+	notifType string,
+	issueStatus string,
+) (shouldDeliver bool, tierSuppressed bool) {
+	if sub.UserType != "member" || subID == actorID || exclude[subID] {
+		return false, false
+	}
+	if prefs, ok := userPrefs[subID]; ok && isNotifMuted(prefs, notifType) {
+		return false, false
+	}
+	if !deliverToSubscriber(sub.Reason, notifType, issueStatus) {
+		return false, true
+	}
+	return true, false
+}
+
+func deliverSubscriberInboxItem(
+	ctx context.Context,
+	queries *db.Queries,
+	bus *events.Bus,
+	workspaceID string,
+	targetIssueID string,
+	issueStatus string,
+	notifType string,
+	severity string,
+	title string,
+	body string,
+	details []byte,
+	e events.Event,
+	sub db.IssueSubscriber,
+	subID string,
+) {
+	item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+		ID:            dbid.NewV7(),
+		WorkspaceID:   parseUUID(workspaceID),
+		RecipientType: "member",
+		RecipientID:   sub.UserID,
+		Type:          notifType,
+		Severity:      severity,
+		IssueID:       parseUUID(targetIssueID),
+		Title:         title,
+		Body:          util.StrToText(body),
+		ActorType:     util.StrToText(e.ActorType),
+		ActorID:       optionalUUID(e.ActorID),
+		Details:       details,
+	})
+	if err != nil {
+		slog.Error("subscriber notification creation failed",
+			"subscriber_id", subID, "type", notifType, "error", err)
+		return
+	}
+
+	resp := inboxItemToResponse(item)
+	resp["issue_status"] = issueStatus
+	bus.Publish(events.Event{
+		Type:        protocol.EventInboxNew,
+		WorkspaceID: workspaceID,
+		ActorType:   e.ActorType,
+		ActorID:     e.ActorID,
+		Payload:     map[string]any{"item": resp},
+	})
 }
 
 // notifyDirect creates an inbox item for a specific recipient. Skips if the
@@ -525,55 +546,8 @@ func notifyMentionedMembers(
 	skip map[string]bool,
 	details []byte,
 ) {
-	// Collect the set of member IDs to notify.
-	recipientIDs := map[string]bool{}
-
-	hasAll := false
-	var squadIDs []string
-	for _, m := range mentions {
-		if m.Type == "all" {
-			hasAll = true
-			continue
-		}
-		if m.Type == "member" {
-			recipientIDs[m.ID] = true
-		}
-		if m.Type == "squad" {
-			squadIDs = append(squadIDs, m.ID)
-		}
-	}
-
-	// Expand each @squad mention to its human members. Agent members of a
-	// squad are reached via comment-trigger / assignment paths, not the
-	// mention-inbox path, so we only seed member-typed recipients here.
-	for _, sid := range squadIDs {
-		squadUUID, err := util.ParseUUID(sid)
-		if err != nil {
-			continue
-		}
-		members, err := queries.ListSquadMembers(context.Background(), squadUUID)
-		if err != nil {
-			slog.Error("failed to list squad members for @squad mention", "squad_id", sid, "error", err)
-			continue
-		}
-		for _, sm := range members {
-			if sm.MemberType == "member" {
-				recipientIDs[util.UUIDToString(sm.MemberID)] = true
-			}
-		}
-	}
-
-	// If @all is present, expand to all workspace members.
-	if hasAll {
-		members, err := queries.ListMembers(context.Background(), parseUUID(e.WorkspaceID))
-		if err != nil {
-			slog.Error("failed to list members for @all mention", "workspace_id", e.WorkspaceID, "error", err)
-		} else {
-			for _, m := range members {
-				recipientIDs[util.UUIDToString(m.UserID)] = true
-			}
-		}
-	}
+	ctx := context.Background()
+	recipientIDs := resolveMentionRecipients(ctx, queries, mentions, e.WorkspaceID)
 
 	// Batch-load notification preferences for all mention recipients.
 	var mentionUserIDs []string
@@ -582,7 +556,7 @@ func notifyMentionedMembers(
 			mentionUserIDs = append(mentionUserIDs, id)
 		}
 	}
-	mentionPrefs := loadUserPrefs(context.Background(), queries, e.WorkspaceID, mentionUserIDs)
+	mentionPrefs := loadUserPrefs(ctx, queries, e.WorkspaceID, mentionUserIDs)
 
 	for id := range recipientIDs {
 		if id == e.ActorID || skip[id] {
@@ -594,33 +568,102 @@ func notifyMentionedMembers(
 		if p, ok := mentionPrefs[id]; ok && isNotifMuted(p, "mentioned") {
 			continue
 		}
-		item, err := queries.CreateInboxItem(context.Background(), db.CreateInboxItemParams{
-			ID:            dbid.NewV7(),
-			WorkspaceID:   parseUUID(e.WorkspaceID),
-			RecipientType: "member",
-			RecipientID:   parseUUID(id),
-			Type:          "mentioned",
-			Severity:      "info",
-			IssueID:       parseUUID(issueID),
-			Title:         title,
-			ActorType:     util.StrToText(e.ActorType),
-			ActorID:       optionalUUID(e.ActorID),
-			Details:       details,
-		})
+		deliverMentionInboxItem(ctx, queries, bus, e, id, issueID, title, details, issueStatus)
+	}
+}
+
+func resolveMentionRecipients(ctx context.Context, queries *db.Queries, mentions []mention, workspaceID string) map[string]bool {
+	recipientIDs := map[string]bool{}
+	hasAll := false
+	var squadIDs []string
+
+	for _, m := range mentions {
+		switch m.Type {
+		case "all":
+			hasAll = true
+		case "member":
+			recipientIDs[m.ID] = true
+		case "squad":
+			squadIDs = append(squadIDs, m.ID)
+		}
+	}
+
+	expandSquadMentions(ctx, queries, squadIDs, recipientIDs)
+
+	if hasAll {
+		expandAllMention(ctx, queries, workspaceID, recipientIDs)
+	}
+
+	return recipientIDs
+}
+
+func expandSquadMentions(ctx context.Context, queries *db.Queries, squadIDs []string, recipientIDs map[string]bool) {
+	for _, sid := range squadIDs {
+		squadUUID, err := util.ParseUUID(sid)
 		if err != nil {
-			slog.Error("mention inbox creation failed", "mentioned_id", id, "error", err)
 			continue
 		}
-		resp := inboxItemToResponse(item)
-		resp["issue_status"] = issueStatus
-		bus.Publish(events.Event{
-			Type:        protocol.EventInboxNew,
-			WorkspaceID: e.WorkspaceID,
-			ActorType:   e.ActorType,
-			ActorID:     e.ActorID,
-			Payload:     map[string]any{"item": resp},
-		})
+		members, err := queries.ListSquadMembers(ctx, squadUUID)
+		if err != nil {
+			slog.Error("failed to list squad members for @squad mention", "squad_id", sid, "error", err)
+			continue
+		}
+		for _, sm := range members {
+			if sm.MemberType == "member" {
+				recipientIDs[util.UUIDToString(sm.MemberID)] = true
+			}
+		}
 	}
+}
+
+func expandAllMention(ctx context.Context, queries *db.Queries, workspaceID string, recipientIDs map[string]bool) {
+	members, err := queries.ListMembers(ctx, parseUUID(workspaceID))
+	if err != nil {
+		slog.Error("failed to list members for @all mention", "workspace_id", workspaceID, "error", err)
+		return
+	}
+	for _, m := range members {
+		recipientIDs[util.UUIDToString(m.UserID)] = true
+	}
+}
+
+func deliverMentionInboxItem(
+	ctx context.Context,
+	queries *db.Queries,
+	bus *events.Bus,
+	e events.Event,
+	id string,
+	issueID string,
+	title string,
+	details []byte,
+	issueStatus string,
+) {
+	item, err := queries.CreateInboxItem(ctx, db.CreateInboxItemParams{
+		ID:            dbid.NewV7(),
+		WorkspaceID:   parseUUID(e.WorkspaceID),
+		RecipientType: "member",
+		RecipientID:   parseUUID(id),
+		Type:          "mentioned",
+		Severity:      "info",
+		IssueID:       parseUUID(issueID),
+		Title:         title,
+		ActorType:     util.StrToText(e.ActorType),
+		ActorID:       optionalUUID(e.ActorID),
+		Details:       details,
+	})
+	if err != nil {
+		slog.Error("mention inbox creation failed", "mentioned_id", id, "error", err)
+		return
+	}
+	resp := inboxItemToResponse(item)
+	resp["issue_status"] = issueStatus
+	bus.Publish(events.Event{
+		Type:        protocol.EventInboxNew,
+		WorkspaceID: e.WorkspaceID,
+		ActorType:   e.ActorType,
+		ActorID:     e.ActorID,
+		Payload:     map[string]any{"item": resp},
+	})
 }
 
 // registerNotificationListeners wires up event bus listeners that create inbox

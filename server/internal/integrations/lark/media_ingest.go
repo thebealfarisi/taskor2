@@ -63,86 +63,101 @@ func (r *feishuMediaResolver) HasMedia(msg channel.InboundMessage) bool {
 }
 
 func (r *feishuMediaResolver) ResolveMedia(ctx context.Context, inst engine.ResolvedInstallation, _ engine.ResolvedIdentity, _ pgtype.UUID, chatMessageID pgtype.UUID, msg channel.InboundMessage) channel.InboundMessage {
+	lm, resources, creds, ok := r.validateResolveMedia(inst, msg)
+	if !ok {
+		return msg
+	}
+	for resIndex, res := range resources {
+		ref, ok := r.processMediaResource(ctx, inst, chatMessageID, lm, creds, res, resIndex)
+		if ok {
+			msg.MediaRefs = append(msg.MediaRefs, ref)
+		}
+	}
+	return msg
+}
+
+func (r *feishuMediaResolver) validateResolveMedia(inst engine.ResolvedInstallation, msg channel.InboundMessage) (InboundMessage, []larkMediaResource, InstallationCredentials, bool) {
 	lm, err := larkMsgFromRaw(msg)
 	if err != nil {
 		r.logMediaWarn("lark media ingest skipped: raw decode failed", InboundMessage{MessageID: msg.MessageID}, err)
-		return msg
+		return InboundMessage{}, nil, InstallationCredentials{}, false
 	}
 	resources := mediaResourcesFromMessage(lm)
 	if len(resources) == 0 {
-		return msg
+		return InboundMessage{}, nil, InstallationCredentials{}, false
 	}
 	if r.api == nil || r.creds == nil || r.storage == nil || r.ledger == nil {
 		r.logMediaWarn("lark media ingest skipped: missing dependency", lm, nil)
-		return msg
+		return InboundMessage{}, nil, InstallationCredentials{}, false
 	}
 	larkInst, ok := inst.Platform.(Installation)
 	if !ok {
 		r.logMediaWarn("lark media ingest skipped: installation payload unavailable", lm, nil)
-		return msg
+		return InboundMessage{}, nil, InstallationCredentials{}, false
 	}
 	creds, err := installationCredentialsFor(larkInst, r.creds)
 	if err != nil {
 		r.logMediaWarn("lark media ingest skipped: credentials unavailable", lm, err)
-		return msg
+		return InboundMessage{}, nil, InstallationCredentials{}, false
 	}
-	for resIndex, res := range resources {
-		key := mediaObjectKey(inst, chatMessageID, res)
-		link := r.storage.ObjectURL(key)
-		// Persist the upload intent BEFORE any write can happen. Every
-		// failure from here on — download error, upload error (even one the
-		// store may still be processing), resolve deadline, crash — simply
-		// leaves this row for the reconciler; nothing is ever deleted inline.
-		ok, err := r.ledger.RecordPendingMediaObject(ctx, engine.RecordPendingMediaObjectParams{
-			StorageKey:     key,
-			WorkspaceID:    inst.WorkspaceID,
-			ChatMessageID:  chatMessageID,
-			StorageURL:     link,
-			InstallationID: inst.ID,
-		})
-		if err != nil {
-			// No durable intent, no upload — fail-safe direction.
-			r.logMediaWarn("lark media ingest skipped: intent record failed", lm, err)
-			continue
-		}
-		if !ok {
-			// The reconciler owns this key ('deleting'); never resurrect it.
-			r.logMediaWarn("lark media ingest skipped: key owned by reconciler", lm, nil)
-			continue
-		}
-		got, err := r.downloadResource(ctx, creds, DownloadResourceParams{
-			MessageID: res.messageID,
-			FileKey:   res.key,
-			Type:      res.fetchType,
-		})
-		if err != nil {
-			r.logMediaWarn("lark media download failed", lm, err)
-			continue
-		}
-		contentType := mediaContentType(res, got)
-		filename := mediaFilename(lm, res, got, contentType, resIndex)
-		uploadedBytes, err := r.uploadResource(ctx, key, got.Body, got.SizeBytes, contentType, filename)
-		if err != nil {
-			// The store may still be processing the PUT — deleting here
-			// could reorder with it. The intent row (written above) covers
-			// the object either way; the reconciler settles it.
-			r.logMediaWarn("lark media upload failed", lm, err)
-			continue
-		}
-		sizeBytes := got.SizeBytes
-		if sizeBytes == 0 {
-			sizeBytes = uploadedBytes
-		}
-		msg.MediaRefs = append(msg.MediaRefs, channel.MediaRef{
-			Type:       res.kind,
-			StorageKey: key,
-			StorageURL: link,
-			Filename:   filename,
-			MimeType:   contentType,
-			SizeBytes:  sizeBytes,
-		})
+	return lm, resources, creds, true
+}
+
+func (r *feishuMediaResolver) processMediaResource(ctx context.Context, inst engine.ResolvedInstallation, chatMessageID pgtype.UUID, lm InboundMessage, creds InstallationCredentials, res larkMediaResource, resIndex int) (channel.MediaRef, bool) {
+	key := mediaObjectKey(inst, chatMessageID, res)
+	link := r.storage.ObjectURL(key)
+	// Persist the upload intent BEFORE any write can happen. Every
+	// failure from here on — download error, upload error (even one the
+	// store may still be processing), resolve deadline, crash — simply
+	// leaves this row for the reconciler; nothing is ever deleted inline.
+	ok, err := r.ledger.RecordPendingMediaObject(ctx, engine.RecordPendingMediaObjectParams{
+		StorageKey:     key,
+		WorkspaceID:    inst.WorkspaceID,
+		ChatMessageID:  chatMessageID,
+		StorageURL:     link,
+		InstallationID: inst.ID,
+	})
+	if err != nil {
+		// No durable intent, no upload — fail-safe direction.
+		r.logMediaWarn("lark media ingest skipped: intent record failed", lm, err)
+		return channel.MediaRef{}, false
 	}
-	return msg
+	if !ok {
+		// The reconciler owns this key ('deleting'); never resurrect it.
+		r.logMediaWarn("lark media ingest skipped: key owned by reconciler", lm, nil)
+		return channel.MediaRef{}, false
+	}
+	got, err := r.downloadResource(ctx, creds, DownloadResourceParams{
+		MessageID: res.messageID,
+		FileKey:   res.key,
+		Type:      res.fetchType,
+	})
+	if err != nil {
+		r.logMediaWarn("lark media download failed", lm, err)
+		return channel.MediaRef{}, false
+	}
+	contentType := mediaContentType(res, got)
+	filename := mediaFilename(lm, res, got, contentType, resIndex)
+	uploadedBytes, err := r.uploadResource(ctx, key, got.Body, got.SizeBytes, contentType, filename)
+	if err != nil {
+		// The store may still be processing the PUT — deleting here
+		// could reorder with it. The intent row (written above) covers
+		// the object either way; the reconciler settles it.
+		r.logMediaWarn("lark media upload failed", lm, err)
+		return channel.MediaRef{}, false
+	}
+	sizeBytes := got.SizeBytes
+	if sizeBytes == 0 {
+		sizeBytes = uploadedBytes
+	}
+	return channel.MediaRef{
+		Type:       res.kind,
+		StorageKey: key,
+		StorageURL: link,
+		Filename:   filename,
+		MimeType:   contentType,
+		SizeBytes:  sizeBytes,
+	}, true
 }
 
 // mediaObjectKey derives the object key from the CHAT message the object will
@@ -311,46 +326,48 @@ func mediaResourcesFromPost(lm InboundMessage) []larkMediaResource {
 		return nil
 	}
 	var out []larkMediaResource
-	// A post may reference the same image_key/file_key in more than one span.
-	// The object key is derived from (message, type, key), so duplicates would
-	// upload to the SAME key twice: a later failed attempt could destroy the
-	// object an earlier success already produced (dangling attachment), and a
-	// later success would yield two attachment rows for one object. Collapse
-	// them here, before any upload.
 	seen := make(map[string]bool)
 	for _, para := range doc.Content {
 		for _, span := range para {
-			switch span.Tag {
-			case "img":
-				if span.ImageKey == "" || seen["image\x00"+span.ImageKey] {
-					continue
-				}
-				seen["image\x00"+span.ImageKey] = true
-				out = append(out, larkMediaResource{
-					key:       span.ImageKey,
-					kind:      channel.MsgTypeImage,
-					fetchType: "image",
-					filename:  firstNonEmpty(span.FileName, span.Name),
-					mimeType:  span.MimeType,
-					messageID: lm.MessageID,
-				})
-			case "media":
-				if span.FileKey == "" || seen["file\x00"+span.FileKey] {
-					continue
-				}
-				seen["file\x00"+span.FileKey] = true
-				out = append(out, larkMediaResource{
-					key:       span.FileKey,
-					kind:      channel.MsgTypeVideo,
-					fetchType: "file",
-					filename:  firstNonEmpty(span.FileName, span.Name),
-					mimeType:  span.MimeType,
-					messageID: lm.MessageID,
-				})
+			if res, ok := parsePostSpanResource(span, lm, seen); ok {
+				out = append(out, res)
 			}
 		}
 	}
 	return out
+}
+
+func parsePostSpanResource(span larkPostSpan, lm InboundMessage, seen map[string]bool) (larkMediaResource, bool) {
+	switch span.Tag {
+	case "img":
+		if span.ImageKey == "" || seen["image\x00"+span.ImageKey] {
+			return larkMediaResource{}, false
+		}
+		seen["image\x00"+span.ImageKey] = true
+		return larkMediaResource{
+			key:       span.ImageKey,
+			kind:      channel.MsgTypeImage,
+			fetchType: "image",
+			filename:  firstNonEmpty(span.FileName, span.Name),
+			mimeType:  span.MimeType,
+			messageID: lm.MessageID,
+		}, true
+	case "media":
+		if span.FileKey == "" || seen["file\x00"+span.FileKey] {
+			return larkMediaResource{}, false
+		}
+		seen["file\x00"+span.FileKey] = true
+		return larkMediaResource{
+			key:       span.FileKey,
+			kind:      channel.MsgTypeVideo,
+			fetchType: "file",
+			filename:  firstNonEmpty(span.FileName, span.Name),
+			mimeType:  span.MimeType,
+			messageID: lm.MessageID,
+		}, true
+	default:
+		return larkMediaResource{}, false
+	}
 }
 
 // mediaFilename picks a name for the stored object. index disambiguates the

@@ -270,148 +270,140 @@ func (c *WSLongConnConnector) Run(ctx context.Context, inst Installation, emit E
 		"ping_interval", pingInterval.String(),
 	)
 
-	for {
-		// Re-arm the read deadline before every Read so a stalled
-		// connection eventually unblocks the syscall.
-		if err := conn.SetReadDeadline(c.cfg.Now().Add(c.cfg.ReadDeadline)); err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("set read deadline: %w", err)
-		}
+	return c.runReadLoop(ctx, inst, creds, emit, conn, &writeMu, endpoint, assembler, log)
+}
 
-		msgType, raw, err := conn.ReadMessage()
+func (c *WSLongConnConnector) runReadLoop(ctx context.Context, inst Installation, creds InstallationCredentials, emit EventEmitter, conn WSConn, writeMu *sync.Mutex, endpoint WSEndpoint, assembler *chunkAssembler, log *slog.Logger) error {
+	for {
+		msgType, raw, err := c.readNextRawMessage(ctx, conn, log)
 		if err != nil {
-			if ctx.Err() != nil {
-				log.Info("lark ws connector: ctx cancelled, read returned",
-					"close_err", err.Error(),
-				)
-				return nil
-			}
-			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Info("lark ws connector: server closed connection", "err", err.Error())
-				return nil
-			}
-			return fmt.Errorf("read message: %w", err)
+			return err
 		}
-		// Lark only sends binary frames. A text frame is a Lark-side
-		// schema regression — log + drop to be safe.
+		if raw == nil {
+			return nil
+		}
 		if msgType != websocket.BinaryMessage {
-			log.Warn("lark ws connector: dropped non-binary frame",
-				"type", msgType,
-				"len", len(raw),
-			)
+			log.Warn("lark ws connector: dropped non-binary frame", "type", msgType, "len", len(raw))
 			continue
 		}
 
 		frame, err := UnmarshalFrame(raw)
 		if err != nil {
-			log.Warn("lark ws connector: frame protobuf decode failed",
-				"err", err.Error(),
-				"raw_len", len(raw),
-			)
+			log.Warn("lark ws connector: frame protobuf decode failed", "err", err.Error(), "raw_len", len(raw))
 			continue
 		}
 
-		// Control frames carry ping / pong / config updates. We
-		// only have to act on pings (reply with a pong); pongs and
-		// config payloads are accepted silently.
-		if frame.Method == FrameMethodControl {
-			if frame.HeaderValue(FrameHeaderTypeKey) == FrameHeaderTypePing {
-				if werr := c.writeFrame(&writeMu, conn, NewPongFrame(endpoint.ServiceID)); werr != nil {
-					log.Warn("lark ws connector: pong write failed", "err", werr.Error())
-				}
-			}
-			continue
-		}
-
-		// Multi-frame events: stash the chunk and skip ACK until the
-		// full payload has arrived. This mirrors the SDK's combine()
-		// behaviour — the SDK does NOT ACK partial chunks; Lark
-		// reconciles delivery on its side using sum/seq, so ACKing
-		// partials would tell Lark "we got it" before we actually
-		// have the assembled payload.
-		sum, seq, msgID := parseChunkHeaders(frame)
-		payload := frame.Payload
-		if sum > 1 {
-			assembled, complete := assembler.admit(msgID, sum, seq, frame.Payload)
-			if !complete {
-				log.Debug("lark ws connector: partial chunk buffered",
-					"message_id", msgID,
-					"seq", seq,
-					"sum", sum,
-					"pending", assembler.pendingCount(),
-				)
-				continue
-			}
-			payload = assembled
-			log.Debug("lark ws connector: chunk reassembly complete",
-				"message_id", msgID,
-				"chunks", sum,
-				"bytes", len(payload),
-			)
-		}
-
-		// Data frames: hand the (possibly reassembled) JSON payload to
-		// the decoder, emit if it resolved to a message, and ACK back.
-		msg, ok, derr := c.cfg.FrameDecoder.Decode(payload, inst)
-		if derr != nil {
-			log.Warn("lark ws connector: frame decode failed",
-				"err", derr.Error(),
-				"payload_len", len(frame.Payload),
-			)
-			// A decode failure still gets a 200 ACK: the message is
-			// valid wire-wise, we just can't act on it. NACKing would
-			// trigger a Lark-side retry storm of a payload we've
-			// already proven we can't parse.
-			if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
-				log.Warn("lark ws connector: ack-after-decode-error write failed", "err", werr.Error())
-				return fmt.Errorf(errFmtWriteAck, werr)
-			}
-			continue
-		}
-		if !ok {
-			// Heartbeat / unhandled event type. ACK 200 so the server
-			// stops sending it; the decoder owns the "what we handle"
-			// policy.
-			if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
-				log.Warn("lark ws connector: ack-after-drop write failed", "err", werr.Error())
-				return fmt.Errorf(errFmtWriteAck, werr)
-			}
-			continue
-		}
-
-		// Enrich the decoded body with explicitly-attached context
-		// (quoted reply / forwarded bundle) before emitting. This runs
-		// before the frame ACK, so it is bounded by EnrichTimeout and
-		// degrades to a placeholder on failure rather than blocking the
-		// pipeline. Most messages need no enrichment and return
-		// immediately without any network call.
-		if c.cfg.Enricher != nil {
-			enrichCtx, cancelEnrich := context.WithTimeout(ctx, c.cfg.EnrichTimeout)
-			msg = c.cfg.Enricher.Enrich(enrichCtx, msg, creds)
-			cancelEnrich()
-		}
-
-		_, emitErr := emit(ctx, msg)
-		if emitErr != nil {
-			// Infra failure from Dispatcher (DB down, etc.). NACK so
-			// Lark retries this event on a healthy replica; then
-			// return so the Hub backs off and reconnects.
-			if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, false)); werr != nil {
-				log.Warn("lark ws connector: nack write failed", "err", werr.Error())
-			}
-			log.Error("lark ws connector: emit infra error",
-				"event_id", msg.EventID,
-				"err", emitErr.Error(),
-			)
-			return fmt.Errorf("dispatch: %w", emitErr)
-		}
-		if werr := c.writeFrame(&writeMu, conn, NewAckFrame(frame, true)); werr != nil {
-			log.Warn("lark ws connector: ack write failed", "err", werr.Error())
-			return fmt.Errorf(errFmtWriteAck, werr)
+		if err := c.handleIncomingFrame(ctx, inst, creds, emit, conn, writeMu, endpoint, assembler, frame, log); err != nil {
+			return err
 		}
 	}
+}
+
+func (c *WSLongConnConnector) readNextRawMessage(ctx context.Context, conn WSConn, log *slog.Logger) (int, []byte, error) {
+	if err := conn.SetReadDeadline(c.cfg.Now().Add(c.cfg.ReadDeadline)); err != nil {
+		if ctx.Err() != nil {
+			return 0, nil, nil
+		}
+		return 0, nil, fmt.Errorf("set read deadline: %w", err)
+	}
+
+	msgType, raw, err := conn.ReadMessage()
+	if err != nil {
+		if ctx.Err() != nil {
+			log.Info("lark ws connector: ctx cancelled, read returned", "close_err", err.Error())
+			return 0, nil, nil
+		}
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			log.Info("lark ws connector: server closed connection", "err", err.Error())
+			return 0, nil, nil
+		}
+		return 0, nil, fmt.Errorf("read message: %w", err)
+	}
+	return msgType, raw, nil
+}
+
+func (c *WSLongConnConnector) handleIncomingFrame(ctx context.Context, inst Installation, creds InstallationCredentials, emit EventEmitter, conn WSConn, writeMu *sync.Mutex, endpoint WSEndpoint, assembler *chunkAssembler, frame *Frame, log *slog.Logger) error {
+	if frame.Method == FrameMethodControl {
+		c.handleControlFrame(conn, writeMu, endpoint.ServiceID, frame, log)
+		return nil
+	}
+
+	payload, ready := c.reassemblePayload(frame, assembler, log)
+	if !ready {
+		return nil
+	}
+
+	return c.processDataFrame(ctx, inst, creds, emit, conn, writeMu, frame, payload, log)
+}
+
+func (c *WSLongConnConnector) handleControlFrame(conn WSConn, writeMu *sync.Mutex, serviceID int32, frame *Frame, log *slog.Logger) {
+	if frame.HeaderValue(FrameHeaderTypeKey) == FrameHeaderTypePing {
+		if werr := c.writeFrame(writeMu, conn, NewPongFrame(serviceID)); werr != nil {
+			log.Warn("lark ws connector: pong write failed", "err", werr.Error())
+		}
+	}
+}
+
+func (c *WSLongConnConnector) reassemblePayload(frame *Frame, assembler *chunkAssembler, log *slog.Logger) ([]byte, bool) {
+	sum, seq, msgID := parseChunkHeaders(frame)
+	if sum <= 1 {
+		return frame.Payload, true
+	}
+	assembled, complete := assembler.admit(msgID, sum, seq, frame.Payload)
+	if !complete {
+		log.Debug("lark ws connector: partial chunk buffered",
+			"message_id", msgID,
+			"seq", seq,
+			"sum", sum,
+			"pending", assembler.pendingCount(),
+		)
+		return nil, false
+	}
+	log.Debug("lark ws connector: chunk reassembly complete",
+		"message_id", msgID,
+		"chunks", sum,
+		"bytes", len(assembled),
+	)
+	return assembled, true
+}
+
+func (c *WSLongConnConnector) processDataFrame(ctx context.Context, inst Installation, creds InstallationCredentials, emit EventEmitter, conn WSConn, writeMu *sync.Mutex, frame *Frame, payload []byte, log *slog.Logger) error {
+	msg, ok, derr := c.cfg.FrameDecoder.Decode(payload, inst)
+	if derr != nil {
+		log.Warn("lark ws connector: frame decode failed", "err", derr.Error(), "payload_len", len(frame.Payload))
+		if werr := c.writeFrame(writeMu, conn, NewAckFrame(frame, true)); werr != nil {
+			log.Warn("lark ws connector: ack-after-decode-error write failed", "err", werr.Error())
+			return fmt.Errorf(errFmtWriteAck, werr)
+		}
+		return nil
+	}
+	if !ok {
+		if werr := c.writeFrame(writeMu, conn, NewAckFrame(frame, true)); werr != nil {
+			log.Warn("lark ws connector: ack-after-drop write failed", "err", werr.Error())
+			return fmt.Errorf(errFmtWriteAck, werr)
+		}
+		return nil
+	}
+
+	if c.cfg.Enricher != nil {
+		enrichCtx, cancelEnrich := context.WithTimeout(ctx, c.cfg.EnrichTimeout)
+		msg = c.cfg.Enricher.Enrich(enrichCtx, msg, creds)
+		cancelEnrich()
+	}
+
+	if _, emitErr := emit(ctx, msg); emitErr != nil {
+		if werr := c.writeFrame(writeMu, conn, NewAckFrame(frame, false)); werr != nil {
+			log.Warn("lark ws connector: nack write failed", "err", werr.Error())
+		}
+		log.Error("lark ws connector: emit infra error", "event_id", msg.EventID, "err", emitErr.Error())
+		return fmt.Errorf("dispatch: %w", emitErr)
+	}
+
+	if werr := c.writeFrame(writeMu, conn, NewAckFrame(frame, true)); werr != nil {
+		log.Warn("lark ws connector: ack write failed", "err", werr.Error())
+		return fmt.Errorf(errFmtWriteAck, werr)
+	}
+	return nil
 }
 
 // writeFrame serializes a Frame and writes it as a binary WebSocket

@@ -29,117 +29,124 @@ func isAssignmentRecipientType(assigneeType string) bool {
 // serialization boundary (see subscribeDelegatedHuman).
 func registerSubscriberListeners(bus *events.Bus, pool *pgxpool.Pool) {
 	queries := db.New(pool)
-	// issue:created — subscribe creator + assignee (if different)
+
 	bus.Subscribe(protocol.EventIssueCreated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		// Issues created via handler use IssueResponse; autopilot-created issues
-		// use map[string]any (see service/autopilot.go → IssueToMap).
-		issue, ok := extractIssueFields(payload["issue"])
-		if !ok {
-			return
-		}
+		handleIssueCreatedSubscriber(bus, pool, queries, e)
+	})
 
-		// Subscribe the creator
-		addSubscriber(bus, queries, e.WorkspaceID, issue.ID, issue.CreatorType, issue.CreatorID, "creator")
+	bus.Subscribe(protocol.EventIssueUpdated, func(e events.Event) {
+		handleIssueUpdatedSubscriber(bus, queries, e)
+	})
 
-		// Subscribe the assignee if it is a direct recipient and differs from the creator.
-		if issue.AssigneeType != nil && issue.AssigneeID != nil &&
-			isAssignmentRecipientType(*issue.AssigneeType) &&
-			!(*issue.AssigneeType == issue.CreatorType && *issue.AssigneeID == issue.CreatorID) {
+	bus.Subscribe(protocol.EventCommentCreated, func(e events.Event) {
+		handleCommentCreatedSubscriber(bus, queries, e)
+	})
+}
+
+func handleIssueCreatedSubscriber(bus *events.Bus, pool *pgxpool.Pool, queries *db.Queries, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := extractIssueFields(payload["issue"])
+	if !ok {
+		return
+	}
+
+	// Subscribe the creator
+	addSubscriber(bus, queries, e.WorkspaceID, issue.ID, issue.CreatorType, issue.CreatorID, "creator")
+
+	// Subscribe the assignee if it is a direct recipient and differs from the creator.
+	if issue.AssigneeType != nil && issue.AssigneeID != nil &&
+		isAssignmentRecipientType(*issue.AssigneeType) &&
+		!(*issue.AssigneeType == issue.CreatorType && *issue.AssigneeID == issue.CreatorID) {
+		addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
+	}
+
+	// Subscribe @mentioned users in description
+	if issue.Description != nil && *issue.Description != "" {
+		for _, m := range parseMentions(*issue.Description) {
+			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, m.Type, m.ID, "mentioned")
+		}
+	}
+
+	// Subscribe the human this issue was created ON BEHALF OF. Every rule
+	// above keys on ACTOR identity, so when an agent creates an issue and
+	// assigns it to an agent, every subscriber is an agent — and
+	// notifyIssueSubscribers only delivers to members. The result is a full
+	// subscriber list with zero recipients (MUL-5483).
+	subscribeDelegatedHuman(bus, pool, queries, e.WorkspaceID, issue.ID)
+}
+
+func handleIssueUpdatedSubscriber(bus *events.Bus, queries *db.Queries, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := extractIssueFields(payload["issue"])
+	if !ok {
+		return
+	}
+
+	// Subscribe new assignee if assignee changed
+	if assigneeChanged, _ := payload["assignee_changed"].(bool); assigneeChanged {
+		if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
 			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
 		}
+	}
 
-		// Subscribe @mentioned users in description
-		if issue.Description != nil && *issue.Description != "" {
-			for _, m := range parseMentions(*issue.Description) {
-				addSubscriber(bus, queries, e.WorkspaceID, issue.ID, m.Type, m.ID, "mentioned")
-			}
-		}
-
-		// Subscribe the human this issue was created ON BEHALF OF. Every rule
-		// above keys on ACTOR identity, so when an agent creates an issue and
-		// assigns it to an agent, every subscriber is an agent — and
-		// notifyIssueSubscribers only delivers to members. The result is a full
-		// subscriber list with zero recipients (MUL-5483).
-		subscribeDelegatedHuman(bus, pool, queries, e.WorkspaceID, issue.ID)
-	})
-
-	// issue:updated — subscribe new assignee or @mentioned users
-	bus.Subscribe(protocol.EventIssueUpdated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		issue, ok := extractIssueFields(payload["issue"])
-		if !ok {
-			return
-		}
-
-		// Subscribe new assignee if assignee changed
-		if assigneeChanged, _ := payload["assignee_changed"].(bool); assigneeChanged {
-			if issue.AssigneeType != nil && issue.AssigneeID != nil && isAssignmentRecipientType(*issue.AssigneeType) {
-				addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
-			}
-		}
-
-		// Subscribe newly @mentioned users in description
-		if descriptionChanged, _ := payload["description_changed"].(bool); descriptionChanged && issue.Description != nil {
-			newMentions := parseMentions(*issue.Description)
-			if len(newMentions) > 0 {
-				prevMentioned := map[string]bool{}
-				if prevDescription, _ := payload["prev_description"].(*string); prevDescription != nil {
-					for _, m := range parseMentions(*prevDescription) {
-						prevMentioned[m.Type+":"+m.ID] = true
-					}
+	// Subscribe newly @mentioned users in description
+	if descriptionChanged, _ := payload["description_changed"].(bool); descriptionChanged && issue.Description != nil {
+		newMentions := parseMentions(*issue.Description)
+		if len(newMentions) > 0 {
+			prevMentioned := map[string]bool{}
+			if prevDescription, _ := payload["prev_description"].(*string); prevDescription != nil {
+				for _, m := range parseMentions(*prevDescription) {
+					prevMentioned[m.Type+":"+m.ID] = true
 				}
-				for _, m := range newMentions {
-					if !prevMentioned[m.Type+":"+m.ID] {
-						addSubscriber(bus, queries, e.WorkspaceID, issue.ID, m.Type, m.ID, "mentioned")
-					}
+			}
+			for _, m := range newMentions {
+				if !prevMentioned[m.Type+":"+m.ID] {
+					addSubscriber(bus, queries, e.WorkspaceID, issue.ID, m.Type, m.ID, "mentioned")
 				}
 			}
 		}
-	})
+	}
+}
 
-	// comment:created — subscribe the commenter
-	bus.Subscribe(protocol.EventCommentCreated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
+func handleCommentCreatedSubscriber(bus *events.Bus, queries *db.Queries, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
 
-		// Comments created via handler use CommentResponse; agent comments from task.go use map[string]any
-		var issueID, authorType, authorID string
-		if comment, ok := payload["comment"].(handler.CommentResponse); ok {
-			issueID = comment.IssueID
-			authorType = comment.AuthorType
-			authorID = comment.AuthorID
-		} else if commentMap, ok := payload["comment"].(map[string]any); ok {
-			issueID, _ = commentMap["issue_id"].(string)
-			authorType, _ = commentMap["author_type"].(string)
-			authorID, _ = commentMap["author_id"].(string)
-		} else {
-			return
-		}
-		if issueID == "" || authorID == "" {
-			return
-		}
+	var issueID, authorType, authorID string
+	if comment, ok := payload["comment"].(handler.CommentResponse); ok {
+		issueID = comment.IssueID
+		authorType = comment.AuthorType
+		authorID = comment.AuthorID
+	} else if commentMap, ok := payload["comment"].(map[string]any); ok {
+		issueID, _ = commentMap["issue_id"].(string)
+		authorType, _ = commentMap["author_type"].(string)
+		authorID, _ = commentMap["author_id"].(string)
+	} else {
+		return
+	}
+	if issueID == "" || authorID == "" {
+		return
+	}
 
-		// Platform-authored system comments (MUL-2538 child-done parent notify)
-		// have author_type='system' and a zero UUID author. They must NOT
-		// add a subscriber row: issue_subscriber.user_type is constrained to
-		// ('member','agent'), and a "system" subscriber has no inbox to read
-		// anyway. Skip them at the side-effect boundary so the system event
-		// stays a pure WS broadcast for the timeline.
-		if authorType == "system" {
-			return
-		}
+	// Platform-authored system comments (MUL-2538 child-done parent notify)
+	// have author_type='system' and a zero UUID author. They must NOT
+	// add a subscriber row: issue_subscriber.user_type is constrained to
+	// ('member','agent'), and a "system" subscriber has no inbox to read
+	// anyway. Skip them at the side-effect boundary so the system event
+	// stays a pure WS broadcast for the timeline.
+	if authorType == "system" {
+		return
+	}
 
-		addSubscriber(bus, queries, e.WorkspaceID, issueID, authorType, authorID, "commenter")
-	})
+	addSubscriber(bus, queries, e.WorkspaceID, issueID, authorType, authorID, "commenter")
 }
 
 // subscribeDelegatedHuman auto-subscribes the accountable human behind an

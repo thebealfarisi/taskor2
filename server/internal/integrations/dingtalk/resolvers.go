@@ -325,37 +325,48 @@ func (r *sessionBinder) EnsureSession(ctx context.Context, p engine.EnsureSessio
 		AgentID:        routeParams.AgentID,
 	}
 	for attempt := 0; attempt < 3; attempt++ {
-		matches, err := r.q.DingTalkGroupRouteMatchesAgent(ctx, routeParams)
-		if err != nil {
-			return pgtype.UUID{}, fmt.Errorf("verify dingtalk group route: %w", err)
-		}
-		if !matches {
-			return pgtype.UUID{}, engine.ErrRouteChanged
-		}
-		if _, err := r.q.DeleteDingTalkStaleGroupChatBinding(ctx, staleParams); err != nil {
-			return pgtype.UUID{}, fmt.Errorf("retire stale dingtalk group session: %w", err)
-		}
-
-		sessionID, err := r.session.EnsureSession(ctx, input)
+		sessionID, done, err := r.ensureGroupSessionAttempt(ctx, input, routeParams, staleParams)
 		if err != nil {
 			return pgtype.UUID{}, err
 		}
-		matches, err = r.q.DingTalkGroupRouteMatchesAgent(ctx, routeParams)
-		if err != nil {
-			return pgtype.UUID{}, fmt.Errorf("recheck dingtalk group route: %w", err)
-		}
-		if !matches {
-			return pgtype.UUID{}, engine.ErrRouteChanged
-		}
-		retired, err := r.q.DeleteDingTalkStaleGroupChatBinding(ctx, staleParams)
-		if err != nil {
-			return pgtype.UUID{}, fmt.Errorf("recheck dingtalk group session: %w", err)
-		}
-		if retired == 0 {
+		if done {
 			return sessionID, nil
 		}
 	}
 	return pgtype.UUID{}, engine.ErrRouteChanged
+}
+
+func (r *sessionBinder) ensureGroupSessionAttempt(ctx context.Context, input engine.EnsureSessionInput, routeParams db.DingTalkGroupRouteMatchesAgentParams, staleParams db.DeleteDingTalkStaleGroupChatBindingParams) (pgtype.UUID, bool, error) {
+	matches, err := r.q.DingTalkGroupRouteMatchesAgent(ctx, routeParams)
+	if err != nil {
+		return pgtype.UUID{}, false, fmt.Errorf("verify dingtalk group route: %w", err)
+	}
+	if !matches {
+		return pgtype.UUID{}, false, engine.ErrRouteChanged
+	}
+	if _, err := r.q.DeleteDingTalkStaleGroupChatBinding(ctx, staleParams); err != nil {
+		return pgtype.UUID{}, false, fmt.Errorf("retire stale dingtalk group session: %w", err)
+	}
+
+	sessionID, err := r.session.EnsureSession(ctx, input)
+	if err != nil {
+		return pgtype.UUID{}, false, err
+	}
+	matches, err = r.q.DingTalkGroupRouteMatchesAgent(ctx, routeParams)
+	if err != nil {
+		return pgtype.UUID{}, false, fmt.Errorf("recheck dingtalk group route: %w", err)
+	}
+	if !matches {
+		return pgtype.UUID{}, false, engine.ErrRouteChanged
+	}
+	retired, err := r.q.DeleteDingTalkStaleGroupChatBinding(ctx, staleParams)
+	if err != nil {
+		return pgtype.UUID{}, false, fmt.Errorf("recheck dingtalk group session: %w", err)
+	}
+	if retired == 0 {
+		return sessionID, true, nil
+	}
+	return pgtype.UUID{}, false, nil
 }
 
 func (r *sessionBinder) MarkPendingFresh(ctx context.Context, sessionID pgtype.UUID) error {

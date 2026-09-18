@@ -112,41 +112,49 @@ type workspaceResolver func(r *http.Request) (string, error)
 // TODO: cache slug→UUID lookup (slug is immutable, safe to cache with short TTL)
 func resolveWorkspaceUUID(queries *db.Queries) workspaceResolver {
 	return func(r *http.Request) (string, error) {
-		// Task-token-authenticated requests must operate on the
-		// token's bound workspace. The auth middleware wrote that ID
-		// into X-Workspace-ID; nothing the agent can put on the wire
-		// (slug header/query, id query, URL param) can override it.
-		if r.Header.Get(headerXActorSource) == "task_token" {
-			id := r.Header.Get(headerXWorkspaceID)
-			if id == "" {
-				return "", errWorkspaceNotFound
-			}
-			return id, nil
-		}
-		// Slug path (preferred — frontend sends this after the URL refactor)
-		if slug := r.URL.Query().Get("workspace_slug"); slug != "" {
-			ws, err := queries.GetWorkspaceBySlug(r.Context(), slug)
-			if err != nil {
-				return "", errWorkspaceNotFound
-			}
-			return util.UUIDToString(ws.ID), nil
-		}
-		if slug := r.Header.Get("X-Workspace-Slug"); slug != "" {
-			ws, err := queries.GetWorkspaceBySlug(r.Context(), slug)
-			if err != nil {
-				return "", errWorkspaceNotFound
-			}
-			return util.UUIDToString(ws.ID), nil
-		}
-		// UUID fallback (CLI, daemon, legacy clients)
-		if id := r.URL.Query().Get("workspace_id"); id != "" {
-			return id, nil
-		}
-		if id := r.Header.Get(headerXWorkspaceID); id != "" {
-			return id, nil
-		}
-		return "", nil
+		return resolveWorkspaceUUIDFromRequest(r, queries)
 	}
+}
+
+func resolveWorkspaceUUIDFromRequest(r *http.Request, queries *db.Queries) (string, error) {
+	// Task-token-authenticated requests must operate on the
+	// token's bound workspace. The auth middleware wrote that ID
+	// into X-Workspace-ID; nothing the agent can put on the wire
+	// (slug header/query, id query, URL param) can override it.
+	if r.Header.Get(headerXActorSource) == "task_token" {
+		id := r.Header.Get(headerXWorkspaceID)
+		if id == "" {
+			return "", errWorkspaceNotFound
+		}
+		return id, nil
+	}
+	// Slug path (preferred — frontend sends this after the URL refactor)
+	if slug := getWorkspaceSlug(r); slug != "" {
+		ws, err := queries.GetWorkspaceBySlug(r.Context(), slug)
+		if err != nil {
+			return "", errWorkspaceNotFound
+		}
+		return util.UUIDToString(ws.ID), nil
+	}
+	// UUID fallback (CLI, daemon, legacy clients)
+	if id := getWorkspaceID(r); id != "" {
+		return id, nil
+	}
+	return "", nil
+}
+
+func getWorkspaceSlug(r *http.Request) string {
+	if slug := r.URL.Query().Get("workspace_slug"); slug != "" {
+		return slug
+	}
+	return r.Header.Get("X-Workspace-Slug")
+}
+
+func getWorkspaceID(r *http.Request) string {
+	if id := r.URL.Query().Get("workspace_id"); id != "" {
+		return id
+	}
+	return r.Header.Get(headerXWorkspaceID)
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -205,61 +213,75 @@ func buildMiddleware(queries *db.Queries, resolve workspaceResolver, roles []str
 				return
 			}
 
-			// Final task-token binding check: even when the workspace
-			// was resolved from a chi URL parameter
-			// (RequireWorkspaceMemberFromURL), the agent must not be
-			// allowed to operate on a workspace other than the one
-			// stamped into its task token. This is the catch-all
-			// behind resolveWorkspaceUUID's earlier check. MUL-2600.
-			if r.Header.Get(headerXActorSource) == "task_token" {
-				bound := r.Header.Get(headerXWorkspaceID)
-				if bound == "" || workspaceID != bound {
-					writeError(w, http.StatusForbidden, "task token is bound to a different workspace")
-					return
-				}
-			}
-
-			userID := r.Header.Get(headerXUserID)
-			if userID == "" {
-				writeError(w, http.StatusUnauthorized, "user not authenticated")
+			if err := checkTaskTokenWorkspaceBinding(r, workspaceID); err != nil {
+				writeError(w, http.StatusForbidden, err.Error())
 				return
 			}
 
-			userUUID, err := util.ParseUUID(userID)
-			if err != nil {
-				writeError(w, http.StatusUnauthorized, "user not authenticated")
+			member, status, errMsg := authorizeWorkspaceMember(r, queries, workspaceID, roles)
+			if errMsg != "" {
+				writeError(w, status, errMsg)
 				return
-			}
-			wsUUID, err := util.ParseUUID(workspaceID)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "invalid workspace_id")
-				return
-			}
-			member, err := queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
-				UserID:      userUUID,
-				WorkspaceID: wsUUID,
-			})
-			if err != nil {
-				writeError(w, http.StatusNotFound, errMsgWorkspaceNotFound)
-				return
-			}
-
-			if len(roles) > 0 {
-				allowed := false
-				for _, role := range roles {
-					if member.Role == role {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					writeError(w, http.StatusForbidden, "insufficient permissions")
-					return
-				}
 			}
 
 			ctx := SetMemberContext(r.Context(), workspaceID, member)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func checkTaskTokenWorkspaceBinding(r *http.Request, workspaceID string) error {
+	// Final task-token binding check: even when the workspace
+	// was resolved from a chi URL parameter
+	// (RequireWorkspaceMemberFromURL), the agent must not be
+	// allowed to operate on a workspace other than the one
+	// stamped into its task token. This is the catch-all
+	// behind resolveWorkspaceUUID's earlier check. MUL-2600.
+	if r.Header.Get(headerXActorSource) == "task_token" {
+		bound := r.Header.Get(headerXWorkspaceID)
+		if bound == "" || workspaceID != bound {
+			return errors.New("task token is bound to a different workspace")
+		}
+	}
+	return nil
+}
+
+func authorizeWorkspaceMember(r *http.Request, queries *db.Queries, workspaceID string, roles []string) (db.Member, int, string) {
+	userID := r.Header.Get(headerXUserID)
+	if userID == "" {
+		return db.Member{}, http.StatusUnauthorized, "user not authenticated"
+	}
+
+	userUUID, err := util.ParseUUID(userID)
+	if err != nil {
+		return db.Member{}, http.StatusUnauthorized, "user not authenticated"
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		return db.Member{}, http.StatusBadRequest, "invalid workspace_id"
+	}
+	member, err := queries.GetMemberByUserAndWorkspace(r.Context(), db.GetMemberByUserAndWorkspaceParams{
+		UserID:      userUUID,
+		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		return db.Member{}, http.StatusNotFound, errMsgWorkspaceNotFound
+	}
+
+	if !hasRequiredWorkspaceRole(member.Role, roles) {
+		return db.Member{}, http.StatusForbidden, "insufficient permissions"
+	}
+	return member, 0, ""
+}
+
+func hasRequiredWorkspaceRole(memberRole string, roles []string) bool {
+	if len(roles) == 0 {
+		return true
+	}
+	for _, role := range roles {
+		if memberRole == role {
+			return true
+		}
+	}
+	return false
 }

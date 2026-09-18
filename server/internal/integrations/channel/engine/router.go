@@ -305,59 +305,123 @@ const (
 // processClaimed runs the post-dedup pipeline. Mirrors
 // lark.Dispatcher.processClaimed; see its boundary contract per step.
 func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channel.InboundMessage, inst ResolvedInstallation, claimToken pgtype.UUID, bareFresh bool) (Result, dedupFinalize, error) {
-	// 3. Group-mention filter (group chats only), before identity so an
-	//    unbound user's idle group chatter never spams a binding card.
-	if msg.Source.ChatType == channel.ChatTypeGroup && !msg.AddressedToBot {
-		return r.drop(ctx, set, msg, inst.ID, DropReasonNotAddressedInGroup), finalizeMark, nil
+	inst, identity, earlyResult, finalize, err := r.validateInboundSenderAndRoute(ctx, set, msg, inst)
+	if earlyResult != nil || err != nil {
+		if earlyResult != nil {
+			return *earlyResult, finalize, err
+		}
+		return Result{}, finalize, err
 	}
 
-	// 4. Identity check: map the platform sender to a Multica user and
-	//    re-verify workspace membership (no binding->member FK; MUL-3515 §4).
+	mediaPendingSeconds := 0.0
+	parsedCommand, _ := ParseIssueCommand(msg.CommandText)
+	issueNeedsUsage := parsedCommand != nil && parsedCommand.Title == ""
+	hasMedia := set.Media != nil && set.Media.HasMedia(msg)
+	resolveMedia := !issueNeedsUsage && hasMedia
+	localMediaDeadline := time.Now().Add(r.mediaTimeout)
+	if resolveMedia {
+		mediaPendingSeconds = r.mediaTimeout.Seconds()
+	}
+
+	sessionID, appendRes, appendEarlyRes, appendFinalize, err := r.ensureSessionAndAppend(
+		ctx, set, msg, inst, identity, claimToken, bareFresh, mediaPendingSeconds,
+	)
+	if appendEarlyRes != nil || err != nil {
+		if appendEarlyRes != nil {
+			return *appendEarlyRes, appendFinalize, err
+		}
+		return Result{}, appendFinalize, err
+	}
+
+	postAppendFinalize := finalizeNone
+	if !appendRes.DedupMarked {
+		postAppendFinalize = finalizeMark
+	}
+
+	if appendRes.IssueCommand != nil {
+		res, err := r.handleIssueCommand(ctx, set, inst, identity, sessionID, msg, appendRes, resolveMedia, hasMedia, localMediaDeadline)
+		if err != nil {
+			return Result{}, postAppendFinalize, err
+		}
+		return res, postAppendFinalize, nil
+	}
+
+	res := Result{
+		Outcome:        OutcomeIngested,
+		InstallationID: inst.ID,
+		ChatSessionID:  sessionID,
+		Sender:         msg.Source.SenderID,
+	}
+	if !msg.SkipAgentRun {
+		r.scheduleRun(set, inst, msg, sessionID, identity.UserID)
+		res.runScheduled = true
+	}
+	if resolveMedia {
+		r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, db.Issue{}, pgtype.Text{}, "", pgtype.UUID{}, localMediaDeadline)
+	}
+	return res, postAppendFinalize, nil
+}
+
+func (r *Router) validateInboundSenderAndRoute(ctx context.Context, set ResolverSet, msg channel.InboundMessage, inst ResolvedInstallation) (ResolvedInstallation, ResolvedIdentity, *Result, dedupFinalize, error) {
+	if msg.Source.ChatType == channel.ChatTypeGroup && !msg.AddressedToBot {
+		res := r.drop(ctx, set, msg, inst.ID, DropReasonNotAddressedInGroup)
+		return inst, ResolvedIdentity{}, &res, finalizeMark, nil
+	}
+
 	identity, err := set.Identity.ResolveSender(ctx, inst, msg)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrSenderUnbound):
 			_ = set.Audit.RecordDrop(ctx, inst.ID, msg, DropReasonUnboundUser)
-			return Result{
+			res := Result{
 				Outcome:        OutcomeNeedsBinding,
 				DropReason:     DropReasonUnboundUser,
 				InstallationID: inst.ID,
 				Sender:         msg.Source.SenderID,
-			}, finalizeMark, nil
+			}
+			return inst, ResolvedIdentity{}, &res, finalizeMark, nil
 		case errors.Is(err, ErrSenderNotMember):
-			return r.drop(ctx, set, msg, inst.ID, DropReasonNonWorkspaceMember), finalizeMark, nil
+			res := r.drop(ctx, set, msg, inst.ID, DropReasonNonWorkspaceMember)
+			return inst, ResolvedIdentity{}, &res, finalizeMark, nil
 		default:
-			return Result{}, finalizeRelease, fmt.Errorf("resolve sender: %w", err)
+			return inst, ResolvedIdentity{}, nil, finalizeRelease, fmt.Errorf("resolve sender: %w", err)
 		}
 	}
 
-	// Platform discovery that exposes a conversation to workspace members must
-	// run only after both the @bot gate and sender membership validation. The
-	// resolver may also finalize a platform-specific target selected by that
-	// newly discovered route.
 	if set.Validated != nil {
-		inst, err = set.Validated.ResolveValidatedInbound(ctx, inst, identity, msg)
-		if err != nil {
-			if errors.Is(err, ErrTargetAgentArchived) {
-				return Result{
+		var validErr error
+		inst, validErr = set.Validated.ResolveValidatedInbound(ctx, inst, identity, msg)
+		if validErr != nil {
+			if errors.Is(validErr, ErrTargetAgentArchived) {
+				res := Result{
 					Outcome:        OutcomeAgentArchived,
 					InstallationID: inst.ID,
 					Sender:         msg.Source.SenderID,
-				}, finalizeMark, nil
+				}
+				return inst, identity, &res, finalizeMark, nil
 			}
-			return Result{}, finalizeRelease, fmt.Errorf("resolve validated inbound route: %w", err)
+			return inst, identity, nil, finalizeRelease, fmt.Errorf("resolve validated inbound route: %w", validErr)
 		}
 	}
 
-	// 5-6. Resolve the chat_session, then append the message and dedup Mark as
-	// the durable transition point. A platform route fence may reject the append
-	// when a concurrent reassignment committed first. Resolve the latest route
-	// and retry this same claimed message in-process: DingTalk has already ACKed
-	// the callback and will not redeliver it.
+	return inst, identity, nil, finalizeNone, nil
+}
+
+func (r *Router) ensureSessionAndAppend(
+	ctx context.Context,
+	set ResolverSet,
+	msg channel.InboundMessage,
+	inst ResolvedInstallation,
+	identity ResolvedIdentity,
+	claimToken pgtype.UUID,
+	bareFresh bool,
+	mediaPendingSeconds float64,
+) (pgtype.UUID, AppendResult, *Result, dedupFinalize, error) {
 	sessionCreator := identity.UserID
 	if msg.Source.ChatType == channel.ChatTypeGroup {
 		sessionCreator = inst.InstallerUserID
 	}
+
 	refreshChangedRoute := func() (Result, bool, error) {
 		if set.Validated == nil {
 			return Result{}, false, ErrRouteChanged
@@ -377,70 +441,40 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 		return Result{}, false, nil
 	}
 
-	// The media budget is persisted only when the message actually carries
-	// media: a plain text message must never wait behind the media semaphore
-	// or fall back to the 45s deadline after a crash. It is a relative
-	// duration — the append transaction anchors it to the DB clock, the same
-	// clock every now()-based reader uses.
-	mediaPendingSeconds := 0.0
-	// AppendMessage must classify this exact CommandText again when it marks the
-	// durable message as a channel command. Platform binders must preserve the
-	// source carried in AppendParams.Message; changing it would let the media
-	// decision here disagree with the terminal outcome after the append.
-	parsedCommand, _ := ParseIssueCommand(msg.CommandText)
-	issueNeedsUsage := parsedCommand != nil && parsedCommand.Title == ""
-	hasMedia := set.Media != nil && set.Media.HasMedia(msg)
-	resolveMedia := !issueNeedsUsage && hasMedia
-	// The local monotonic budget starts BEFORE the append: the DB anchors its
-	// fallback at now() during the insert, so a post-commit local start would
-	// end Δ(append latency) AFTER the durable deadline — a window where the
-	// task is already claimable while the resolver still runs, handing the
-	// agent a placeholder that binds moments later. Starting here keeps the
-	// ordering local-gives-up ≤ durable-fallback-fires.
-	localMediaDeadline := time.Now().Add(r.mediaTimeout)
-	if resolveMedia {
-		mediaPendingSeconds = r.mediaTimeout.Seconds()
-	}
-
-	var sessionID pgtype.UUID
-	var appendRes AppendResult
 	for {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return Result{}, finalizeRelease, ctxErr
+			return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, ctxErr
 		}
-		sessionID, err = set.Session.EnsureSession(ctx, EnsureSessionParams{
+		sessionID, err := set.Session.EnsureSession(ctx, EnsureSessionParams{
 			Installation: inst,
 			Sender:       sessionCreator,
 			Message:      msg,
 		})
 		if errors.Is(err, ErrRouteChanged) {
 			if result, done, refreshErr := refreshChangedRoute(); refreshErr != nil {
-				return Result{}, finalizeRelease, refreshErr
+				return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, refreshErr
 			} else if done {
-				return result, finalizeMark, nil
+				return pgtype.UUID{}, AppendResult{}, &result, finalizeMark, nil
 			}
 			continue
 		}
 		if err != nil {
-			// Single tx; an error rolled it back, nothing landed. Release.
-			return Result{}, finalizeRelease, fmt.Errorf("ensure chat session: %w", err)
+			return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, fmt.Errorf("ensure chat session: %w", err)
 		}
 		if bareFresh {
-			// ForceFresh is a task-dispatch property. A bare command has no useful
-			// task to dispatch, so remember the intent and apply it to the next real
-			// message instead of writing or running an empty turn.
 			if err := set.Session.MarkPendingFresh(ctx, sessionID); err != nil {
-				return Result{}, finalizeRelease, fmt.Errorf("persist fresh command: %w", err)
+				return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, fmt.Errorf("persist fresh command: %w", err)
 			}
-			return Result{
+			res := Result{
 				Outcome:        OutcomeFreshPending,
 				InstallationID: inst.ID,
 				ChatSessionID:  sessionID,
 				Sender:         msg.Source.SenderID,
-			}, finalizeMark, nil
+			}
+			return sessionID, AppendResult{}, &res, finalizeMark, nil
 		}
 
-		appendRes, err = set.Session.AppendMessage(ctx, AppendParams{
+		appendRes, err := set.Session.AppendMessage(ctx, AppendParams{
 			SessionID:           sessionID,
 			Sender:              identity.UserID,
 			InstallationID:      inst.ID,
@@ -452,130 +486,85 @@ func (r *Router) processClaimed(ctx context.Context, set ResolverSet, msg channe
 		})
 		if errors.Is(err, ErrRouteChanged) {
 			if result, done, refreshErr := refreshChangedRoute(); refreshErr != nil {
-				return Result{}, finalizeRelease, refreshErr
+				return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, refreshErr
 			} else if done {
-				return result, finalizeMark, nil
+				return pgtype.UUID{}, AppendResult{}, &result, finalizeMark, nil
 			}
 			continue
 		}
 		if err != nil {
 			if errors.Is(err, ErrClaimLost) {
-				return Result{}, finalizeNone, err
+				return pgtype.UUID{}, AppendResult{}, nil, finalizeNone, err
 			}
-			return Result{}, finalizeRelease, fmt.Errorf("append user message: %w", err)
+			return pgtype.UUID{}, AppendResult{}, nil, finalizeRelease, fmt.Errorf("append user message: %w", err)
 		}
-		break
+		return sessionID, appendRes, nil, finalizeNone, nil
 	}
+}
 
-	// Post-append paths must NOT Release (chat_message + Mark already
-	// committed). Mark-again is a no-op, so finalizeNone — unless the binder
-	// did not Mark in-tx (defensive), then fall back to a post-pipeline Mark.
-	postAppendFinalize := finalizeNone
-	if !appendRes.DedupMarked {
-		postAppendFinalize = finalizeMark
-	}
-
+func (r *Router) handleIssueCommand(
+	ctx context.Context,
+	set ResolverSet,
+	inst ResolvedInstallation,
+	identity ResolvedIdentity,
+	sessionID pgtype.UUID,
+	msg channel.InboundMessage,
+	appendRes AppendResult,
+	resolveMedia bool,
+	hasMedia bool,
+	localMediaDeadline time.Time,
+) (Result, error) {
 	res := Result{
 		Outcome:        OutcomeIngested,
 		InstallationID: inst.ID,
 		ChatSessionID:  sessionID,
 		Sender:         msg.Source.SenderID,
 	}
-	var mediaIssue db.Issue
-	var deferredIssueTaskID pgtype.UUID
 
-	// 7. /issue command, if present. chat_message is already durable; all
-	//    error returns from here signal finalizeNone (or the defensive Mark).
-	if appendRes.IssueCommand != nil {
-		if appendRes.IssueCommand.Title == "" {
-			res.Outcome = OutcomeIssueUsage
-			res.IssueUsageHadMedia = hasMedia
-			return res, postAppendFinalize, nil
-		}
-		if resolveMedia {
-			// CommandText intentionally omits adapter-generated media placeholders so
-			// image-before-command layouts still classify as /issue. Restore the
-			// description from the full normalized body after classification so the
-			// created issue retains the inline positions that detached media binding
-			// will materialize. Text-only commands retain their existing parser output.
-			appendRes.IssueCommand.Description = issueDescriptionFromCommandBody(
-				msg.Text,
-				msg.CommandText,
-				appendRes.IssueCommand.Description,
-			)
-		}
-		// One lookup feeds both the broadcast payload's identifier and the
-		// chat reply's.
-		prefix := r.issuePrefix(ctx, inst.WorkspaceID)
-		var assignedRunFireAt time.Time
-		if resolveMedia {
-			// The generic deferred-task sweeper is the crash fallback. Leave room
-			// after the media deadline for the bounded attachment finalizer so it
-			// cannot race an issue agent reading the newly-created issue.
-			assignedRunFireAt = localMediaDeadline.Add(mediaFinalizeTimeout)
-		}
-		issueRes, err := r.createIssue(ctx, inst, set.OriginType, identity.UserID, sessionID, *appendRes.IssueCommand, prefix, assignedRunFireAt)
-		if errors.Is(err, service.ErrActiveDuplicate) && issueRes.DuplicateIssue != nil {
-			duplicate := *issueRes.DuplicateIssue
-			res.IssueID = duplicate.ID
-			res.IssueNumber = duplicate.Number
-			res.IssueTitle = duplicate.Title
-			res.IssueIdentifier = service.IssueIdentifier(prefix, duplicate.Number)
-			res.IssueDuplicate = true
-			// A duplicate is a terminal product outcome, not an infrastructure
-			// failure and not a chat prompt. Finalize the durable chat message's
-			// media state without resolving it. There is no new issue to consume
-			// the media, so downloading and persisting attachments would only
-			// create unused resources.
-			if resolveMedia {
-				r.enqueueMediaFinalization(set, inst, identity, appendRes.MessageID, msg, sessionID, localMediaDeadline)
-			}
-			return res, postAppendFinalize, nil
-		}
-		if err != nil {
-			return Result{}, postAppendFinalize, fmt.Errorf("create issue from command: %w", err)
-		}
-		res.IssueID = issueRes.Issue.ID
-		mediaIssue = issueRes.Issue
-		deferredIssueTaskID = issueRes.AssignedTaskID
-		res.IssueNumber = issueRes.Issue.Number
-		res.IssueTitle = issueRes.Issue.Title
-		// Same renderer the broadcast payload uses, so a degraded prefix can't
-		// show the chat "#42" while the realtime list shows "-42".
-		res.IssueIdentifier = service.IssueIdentifier(prefix, issueRes.Issue.Number)
-		// IssueService.Create already enqueues the assigned agent's issue task.
-		// Scheduling the command as a chat run too makes the agent execute the
-		// same /issue input again. A synchronous issue command is terminal.
-		if resolveMedia {
-			r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, mediaIssue, pgtype.Text{
-				String: appendRes.IssueCommand.Description,
-				Valid:  true,
-			}, msg.CommandText, deferredIssueTaskID, localMediaDeadline)
-		}
-		return res, postAppendFinalize, nil
-	}
-
-	// 8. Debounce the run trigger. The synchronous outcome is OutcomeIngested
-	//    with no TaskID — the task row is created at flush. identity.UserID is
-	//    THIS message's sender (the task initiator), deliberately not the
-	//    session creator (group sessions are creator=installer). Latest sender
-	//    in a window wins (MUL-2645).
-	//
-	//    SkipAgentRun lets an adapter opt this message out of the agent turn —
-	//    used by wecom for standalone /issue commands where the engine has
-	//    already done the meaningful work (created the issue, sent the
-	//    "✅ Created #N" reply via OutboundReplier) and an agent reply would
-	//    just quote the slash command back. The chat_message is still durable
-	//    and the OutboundReplier still fires — only the debounced run trigger
-	//    (and therefore the typing indicator) is suppressed.
-	if !msg.SkipAgentRun {
-		r.scheduleRun(set, inst, msg, sessionID, identity.UserID)
-		res.runScheduled = true
+	if appendRes.IssueCommand.Title == "" {
+		res.Outcome = OutcomeIssueUsage
+		res.IssueUsageHadMedia = hasMedia
+		return res, nil
 	}
 	if resolveMedia {
-		r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, mediaIssue, pgtype.Text{}, "", deferredIssueTaskID, localMediaDeadline)
+		appendRes.IssueCommand.Description = issueDescriptionFromCommandBody(
+			msg.Text,
+			msg.CommandText,
+			appendRes.IssueCommand.Description,
+		)
 	}
-	return res, postAppendFinalize, nil
+	prefix := r.issuePrefix(ctx, inst.WorkspaceID)
+	var assignedRunFireAt time.Time
+	if resolveMedia {
+		assignedRunFireAt = localMediaDeadline.Add(mediaFinalizeTimeout)
+	}
+	issueRes, err := r.createIssue(ctx, inst, set.OriginType, identity.UserID, sessionID, *appendRes.IssueCommand, prefix, assignedRunFireAt)
+	if errors.Is(err, service.ErrActiveDuplicate) && issueRes.DuplicateIssue != nil {
+		duplicate := *issueRes.DuplicateIssue
+		res.IssueID = duplicate.ID
+		res.IssueNumber = duplicate.Number
+		res.IssueTitle = duplicate.Title
+		res.IssueIdentifier = service.IssueIdentifier(prefix, duplicate.Number)
+		res.IssueDuplicate = true
+		if resolveMedia {
+			r.enqueueMediaFinalization(set, inst, identity, appendRes.MessageID, msg, sessionID, localMediaDeadline)
+		}
+		return res, nil
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("create issue from command: %w", err)
+	}
+	res.IssueID = issueRes.Issue.ID
+	res.IssueNumber = issueRes.Issue.Number
+	res.IssueTitle = issueRes.Issue.Title
+	res.IssueIdentifier = service.IssueIdentifier(prefix, issueRes.Issue.Number)
+	if resolveMedia {
+		r.enqueueMedia(set, inst, identity, appendRes.MessageID, msg, sessionID, issueRes.Issue, pgtype.Text{
+			String: appendRes.IssueCommand.Description,
+			Valid:  true,
+		}, msg.CommandText, issueRes.AssignedTaskID, localMediaDeadline)
+	}
+	return res, nil
 }
 
 // enqueueMedia detaches remote media I/O from Handle while preserving message

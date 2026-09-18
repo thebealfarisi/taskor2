@@ -119,31 +119,36 @@ func chunkMessage(text string, maxUnits int) []string {
 	}
 	var chunks []string
 	for len(runes) > 0 {
-		n := 0
-		end := 0
-		for i, r := range runes {
-			units := 1
-			if r > 0xFFFF {
-				units = 2
-			}
-			if n+units > maxUnits {
-				break
-			}
-			n += units
-			end = i + 1
-		}
-		if end == 0 {
-			end = 1
-		}
-		// Prefer the last newline in the window, but only when it leaves a
-		// substantial first chunk rather than producing tiny fragments.
-		if i := lastIndexRune(runes[:end], '\n'); i >= 0 && utf16Units(string(runes[:i])) > maxUnits/2 {
-			end = i + 1
-		}
+		end := findChunkEnd(runes, maxUnits)
 		chunks = append(chunks, strings.TrimRight(string(runes[:end]), "\n"))
 		runes = runes[end:]
 	}
 	return chunks
+}
+
+func findChunkEnd(runes []rune, maxUnits int) int {
+	n := 0
+	end := 0
+	for i, r := range runes {
+		units := 1
+		if r > 0xFFFF {
+			units = 2
+		}
+		if n+units > maxUnits {
+			break
+		}
+		n += units
+		end = i + 1
+	}
+	if end == 0 {
+		end = 1
+	}
+	// Prefer the last newline in the window, but only when it leaves a
+	// substantial first chunk rather than producing tiny fragments.
+	if i := lastIndexRune(runes[:end], '\n'); i >= 0 && utf16Units(string(runes[:i])) > maxUnits/2 {
+		end = i + 1
+	}
+	return end
 }
 
 func utf16Units(s string) int {

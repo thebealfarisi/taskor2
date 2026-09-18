@@ -261,27 +261,15 @@ func (c *wecomChannel) Connect(ctx context.Context) (err error) {
 		}
 	}()
 
-	// Read loop. Every frame comes back through the same decode → dispatch
-	// → (maybe) reply path. A single bad frame does NOT tear the socket
-	// down — only transport / handler errors escalate.
+	return c.runReadLoop(ctx, conn, sender, log, callbacks, cbDone)
+}
+
+func (c *wecomChannel) runReadLoop(ctx context.Context, conn wsConn, sender *wsSender, log *slog.Logger, callbacks chan frameEnvelope, cbDone <-chan struct{}) error {
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		// Armed immediately before the read, and nowhere else.
-		//
-		// It used to be armed after ReadMessage returned, which put
-		// everything the loop then did inside the window. Only the server's
-		// pong resets the deadline on a quiet bot and our ping goes out every
-		// 30s, so on a loaded pool the next read could time out on a socket
-		// that was perfectly healthy. The idle window should measure idleness.
-		//
-		// The error is no longer discarded: a socket that refuses a deadline
-		// is not one to keep reading from.
 		if err := conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-			// The shutdown path closes the socket, and a closed socket
-			// refuses a deadline. That is an ordinary stop, not a failure to
-			// report to the Supervisor.
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -304,45 +292,37 @@ func (c *wecomChannel) Connect(ctx context.Context) (err error) {
 			continue
 		}
 		traceIn(log, env)
-		switch env.Cmd {
-		case cmdMsgCallback, cmdEventCallback:
-			select {
-			case callbacks <- env:
-				c.mx().RecordCallbackQueued()
-				continue
-			default:
-				// The worker is behind. Blocking is the deliberate choice
-				// (see below), and it is also the thing an operator wants to
-				// know about — from here on the socket stops being drained,
-				// and if it lasts, WeCom replaces the connection.
-				c.mx().RecordCallbackQueueBlocked()
-			}
-			select {
-			case callbacks <- env:
-				c.mx().RecordCallbackQueued()
-			case <-cbDone:
-				// The worker has stopped, so this send has no receiver — and
-				// no closer either: the queue is closed by a defer that
-				// cannot run until this loop returns. With a full queue that
-				// is a permanent park, because the worker's conn.Close()
-				// wakes a read loop sitting in ReadMessage, not one sitting
-				// on a send, and ctx stays live on this path. Nothing would
-				// ever reconnect: the Supervisor would keep renewing the
-				// lease for a connection that had stopped reading.
-				//
-				// Return and let the deferred handler substitute the
-				// worker's error, which is the real cause.
-				return nil
-			case <-ctx.Done():
-				return nil
-			}
-		default:
-			// Acks, pings and pongs stay on the read loop: they are the
-			// frames the worker's own writes are waiting for.
-			if err := c.dispatchFrame(ctx, env, sender, log); err != nil {
-				return err
-			}
+		if err := c.handleIncomingFrame(ctx, env, sender, log, callbacks, cbDone); err != nil {
+			return err
 		}
+	}
+}
+
+func (c *wecomChannel) handleIncomingFrame(ctx context.Context, env frameEnvelope, sender *wsSender, log *slog.Logger, callbacks chan frameEnvelope, cbDone <-chan struct{}) error {
+	switch env.Cmd {
+	case cmdMsgCallback, cmdEventCallback:
+		return c.enqueueCallback(ctx, env, callbacks, cbDone)
+	default:
+		return c.dispatchFrame(ctx, env, sender, log)
+	}
+}
+
+func (c *wecomChannel) enqueueCallback(ctx context.Context, env frameEnvelope, callbacks chan frameEnvelope, cbDone <-chan struct{}) error {
+	select {
+	case callbacks <- env:
+		c.mx().RecordCallbackQueued()
+		return nil
+	default:
+		c.mx().RecordCallbackQueueBlocked()
+	}
+	select {
+	case callbacks <- env:
+		c.mx().RecordCallbackQueued()
+		return nil
+	case <-cbDone:
+		return nil
+	case <-ctx.Done():
+		return nil
 	}
 }
 
@@ -377,24 +357,18 @@ func (c *wecomChannel) subscribe(ctx context.Context, conn wsConn, sender *wsSen
 		return fmt.Errorf("wecom: send subscribe: %w", err)
 	}
 
-	// Wait for the matching ack — the server writes it as a frame with
-	// cmd empty (or absent) and headers.req_id equal to ours. Any other
-	// frame that arrives first is dropped (subscribe is the very first
-	// exchange, so this is rare in practice).
 	deadline := time.Now().Add(subscribeTimeout)
 	_ = conn.SetReadDeadline(deadline)
+	return c.waitForSubscribeAck(ctx, conn, log, reqID)
+}
+
+func (c *wecomChannel) waitForSubscribeAck(ctx context.Context, conn wsConn, log *slog.Logger, reqID string) error {
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		typ, payload, err := conn.ReadMessage()
 		if err != nil {
-			// The socket died, the ack never arrived inside
-			// subscribeTimeout, or our own ctx was cancelled mid-read and
-			// the watchdog closed the socket under us. Infrastructure or a
-			// shutdown — nobody has to be told either way, and the next
-			// backoff may well succeed. A rolling restart therefore adds a
-			// few counts here; the rate matters, a handful does not.
 			c.mx().RecordConnectFailure()
 			return fmt.Errorf("wecom: subscribe read: %w", err)
 		}
@@ -405,39 +379,25 @@ func (c *wecomChannel) subscribe(ctx context.Context, conn wsConn, sender *wsSen
 		if err := json.Unmarshal(payload, &env); err != nil {
 			continue
 		}
-		// Traced before the req_id filter: a subscribe that is rejected, or
-		// answered on a req_id we never sent, is exactly the failure an
-		// operator turns tracing on to see.
 		traceIn(log, env)
 		if env.Headers.ReqID != reqID {
 			continue
 		}
 		if env.ErrCode != 0 {
-			// Which of the two counters this is depends on what the ack
-			// means, and classifySubscribeAck already decides that — the
-			// same verdict the install-time credential probe gets. Branch on
-			// its answer rather than testing the errcode again here: a
-			// second copy of rejectionErrCodes would be free to drift from
-			// the probe's, and then the dashboard and the install screen
-			// would disagree about the same code.
-			err := classifySubscribeAck(log, env.ErrCode, env.ErrMsg)
-			if errors.Is(err, ErrCredentialsRejected) {
-				// Refused on its merits: a wrong secret, a deleted bot.
-				// Counted apart from every other connection failure because
-				// it is the only one that repeats identically on every
-				// backoff until a person changes something.
-				c.mx().RecordAuthFailure()
-			} else {
-				// Unverifiable — a throttle, or a platform-side failure.
-				// It clears on its own, exactly like a dial that did not
-				// land, so it belongs on that counter and not on the one an
-				// operator reads as "go rotate a credential".
-				c.mx().RecordConnectFailure()
-			}
-			return err
+			return c.handleSubscribeError(log, env)
 		}
 		return nil
 	}
+}
+
+func (c *wecomChannel) handleSubscribeError(log *slog.Logger, env frameEnvelope) error {
+	err := classifySubscribeAck(log, env.ErrCode, env.ErrMsg)
+	if errors.Is(err, ErrCredentialsRejected) {
+		c.mx().RecordAuthFailure()
+	} else {
+		c.mx().RecordConnectFailure()
+	}
+	return err
 }
 
 // dispatchFrame routes one server frame. Only aibot_msg_callback ever
@@ -446,86 +406,77 @@ func (c *wecomChannel) subscribe(ctx context.Context, conn wsConn, sender *wsSen
 func (c *wecomChannel) dispatchFrame(ctx context.Context, env frameEnvelope, sender *wsSender, log *slog.Logger) error {
 	switch env.Cmd {
 	case cmdMsgCallback:
-		var mc aibotMsgCallback
-		if err := json.Unmarshal(env.Body, &mc); err != nil {
-			log.Warn("wecom: bad aibot_msg_callback body", "error", err)
-			return nil
-		}
-		text, ok := mc.ownText()
-		// Traced with the RESOLVED body, not mc.Text.Content: that field is
-		// empty for every voice, media and 图文混排 callback, so tracing it
-		// would print len=0 for exactly the messages an operator turned
-		// tracing on to look at.
-		traceInbound(log, mc, text)
-		msg := channelMessageFromCallback(c.botID, c.botDisplayName, mc, text, env.Headers.ReqID)
-		if !ok {
-			// Nothing in this message can be read: a kind the adapter does
-			// not know (a location card), or a known kind that arrived
-			// without the one field that makes it usable — a voice note whose
-			// recognition came back empty, an image callback carrying no url.
-			// Silence reads as a broken bot, so answer the same chat with a
-			// one-line receipt and stop. Best-effort: a send failure degrades
-			// to the prior silent drop.
-			log.Debug("wecom: unsupported message kind, replying with a receipt", "msg_type", mc.MsgType, "msg_id", mc.MsgID)
-			if err := sender.sendText(msg.Source.ChatID, aibotChatTypeFromChannel(msg.Source.ChatType), unsupportedMsgTypeReceipt); err != nil {
-				log.Debug("wecom: unsupported-kind receipt send failed", "error", err, "msg_id", mc.MsgID)
-			}
-			return nil
-		}
-		if err := c.handler(ctx, msg); err != nil {
-			return err
-		}
-		return nil
+		return c.handleMsgCallback(ctx, env, sender, log)
 	case cmdEventCallback:
-		var ec aibotEventCallback
-		if err := json.Unmarshal(env.Body, &ec); err != nil {
-			log.Warn("wecom: bad aibot_event_callback body", "error", err)
-			return nil
-		}
-		switch ec.Event.EventType {
-		case eventDisconnected:
-			// Another connection displaced ours. Return so the Supervisor
-			// can backoff and reconnect (which will in turn displace THAT
-			// one — the last writer wins).
-			return errors.New("wecom: received disconnected_event (superseded)")
-		default:
-			log.Debug("wecom: event", "type", ec.Event.EventType)
-			return nil
-		}
+		return c.handleEventCallback(env, log)
 	case cmdServerPing:
-		// Server-initiated ping (rare per the docs, but handle defensively).
-		if err := sender.write(map[string]any{
-			"cmd":     cmdPong,
-			"headers": frameHeaders{ReqID: env.Headers.ReqID},
-		}); err != nil {
-			return fmt.Errorf("wecom: pong: %w", err)
-		}
-		return nil
+		return c.handleServerPing(env, sender)
 	case cmdPong:
-		// Ack for our client-initiated ping — no-op.
 		return nil
 	default:
-		// Anonymous ack frames (empty cmd) for our writes. Most are
-		// errcode=0 no-ops, but aibot_send_msg / aibot_respond_msg /
-		// aibot_upload_media_* can reject with a non-zero errcode
-		// (e.g. wrong msgtype, rate limit, chat not writable). Log the
-		// error so a failed outbound is visible without having to
-		// packet-capture the socket.
-		// Hand it to whoever wrote the frame, if anybody is waiting. An
-		// unclaimed ack is not an error — the pushes that do not wait for a
-		// verdict share this connection.
-		if sender.routeResponse(env) {
-			return nil
-		}
-		if env.ErrCode != 0 {
-			log.Warn("wecom: server ack error",
-				"errcode", env.ErrCode,
-				"errmsg", env.ErrMsg,
-				"req_id", env.Headers.ReqID,
-			)
+		return c.handleDefaultAck(env, sender, log)
+	}
+}
+
+func (c *wecomChannel) handleMsgCallback(ctx context.Context, env frameEnvelope, sender *wsSender, log *slog.Logger) error {
+	var mc aibotMsgCallback
+	if err := json.Unmarshal(env.Body, &mc); err != nil {
+		log.Warn("wecom: bad aibot_msg_callback body", "error", err)
+		return nil
+	}
+	text, ok := mc.ownText()
+	traceInbound(log, mc, text)
+	msg := channelMessageFromCallback(c.botID, c.botDisplayName, mc, text, env.Headers.ReqID)
+	if !ok {
+		log.Debug("wecom: unsupported message kind, replying with a receipt", "msg_type", mc.MsgType, "msg_id", mc.MsgID)
+		if err := sender.sendText(msg.Source.ChatID, aibotChatTypeFromChannel(msg.Source.ChatType), unsupportedMsgTypeReceipt); err != nil {
+			log.Debug("wecom: unsupported-kind receipt send failed", "error", err, "msg_id", mc.MsgID)
 		}
 		return nil
 	}
+	if err := c.handler(ctx, msg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *wecomChannel) handleEventCallback(env frameEnvelope, log *slog.Logger) error {
+	var ec aibotEventCallback
+	if err := json.Unmarshal(env.Body, &ec); err != nil {
+		log.Warn("wecom: bad aibot_event_callback body", "error", err)
+		return nil
+	}
+	switch ec.Event.EventType {
+	case eventDisconnected:
+		return errors.New("wecom: received disconnected_event (superseded)")
+	default:
+		log.Debug("wecom: event", "type", ec.Event.EventType)
+		return nil
+	}
+}
+
+func (c *wecomChannel) handleServerPing(env frameEnvelope, sender *wsSender) error {
+	if err := sender.write(map[string]any{
+		"cmd":     cmdPong,
+		"headers": frameHeaders{ReqID: env.Headers.ReqID},
+	}); err != nil {
+		return fmt.Errorf("wecom: pong: %w", err)
+	}
+	return nil
+}
+
+func (c *wecomChannel) handleDefaultAck(env frameEnvelope, sender *wsSender, log *slog.Logger) error {
+	if sender.routeResponse(env) {
+		return nil
+	}
+	if env.ErrCode != 0 {
+		log.Warn("wecom: server ack error",
+			"errcode", env.ErrCode,
+			"errmsg", env.ErrMsg,
+			"req_id", env.Headers.ReqID,
+		)
+	}
+	return nil
 }
 
 // pingLoop sends heartbeat frames every pingInterval until ctx is

@@ -311,6 +311,17 @@ func (c *RegistrationClient) Begin(ctx context.Context, namePreset string, regio
 // prior PollResult). Domain selection lives outside the client so the
 // session state machine in RegistrationService is the single source of
 // truth for which host the next call must hit.
+type pollResponse struct {
+	ClientID     string `json:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty"`
+	UserInfo     *struct {
+		OpenID      string `json:"open_id,omitempty"`
+		TenantBrand string `json:"tenant_brand,omitempty"`
+	} `json:"user_info,omitempty"`
+	Error            string `json:"error,omitempty"`
+	ErrorDescription string `json:"error_description,omitempty"`
+}
+
 func (c *RegistrationClient) Poll(ctx context.Context, domain, deviceCode string) (*PollResult, error) {
 	if deviceCode == "" {
 		return nil, &RegistrationError{Code: "invalid_argument", Description: "device_code is required"}
@@ -318,16 +329,7 @@ func (c *RegistrationClient) Poll(ctx context.Context, domain, deviceCode string
 	if domain == "" {
 		domain = c.cfg.Domain
 	}
-	var resp struct {
-		ClientID     string `json:"client_id,omitempty"`
-		ClientSecret string `json:"client_secret,omitempty"`
-		UserInfo     *struct {
-			OpenID      string `json:"open_id,omitempty"`
-			TenantBrand string `json:"tenant_brand,omitempty"`
-		} `json:"user_info,omitempty"`
-		Error            string `json:"error,omitempty"`
-		ErrorDescription string `json:"error_description,omitempty"`
-	}
+	var resp pollResponse
 	form := url.Values{
 		"action":      []string{"poll"},
 		"device_code": []string{deviceCode},
@@ -336,78 +338,63 @@ func (c *RegistrationClient) Poll(ctx context.Context, domain, deviceCode string
 		return nil, err
 	}
 
-	// Tenant-brand-driven domain swap. Lark emits this exactly once on
-	// the transition poll when the authorized account does not match
-	// the cloud the begin call hit; the next poll must reach the
-	// matching open-platform host to learn the credentials. We surface
-	// the swap (domain + region) as a typed signal so the service does
-	// not have to know the brand string OR re-derive the region from
-	// the host.
-	//
-	// Both directions are honored: feishu→lark for users who scanned a
-	// Feishu QR with a Lark-international account, AND lark→feishu for
-	// users who picked the new "Bind to Lark" CTA but actually
-	// authorized with a mainland Feishu account. Symmetry matters
-	// because the split-CTA UI (MUL-3083) also begins on
-	// accounts.larksuite.com directly — without the reverse swap, a
-	// "wrong entry" install on that side would carry RegionLark all
-	// the way through finishSuccess and fail (or commit a wrong-region
-	// row) at GetBotInfo. The check is gated on the current domain so
-	// we do not loop on the same brand we already match.
 	if resp.UserInfo != nil {
-		switch resp.UserInfo.TenantBrand {
-		case registrationTenantBrandLark:
-			if !strings.HasPrefix(domain, c.cfg.LarkDomain) {
-				return &PollResult{
-					SwitchedDomain: c.cfg.LarkDomain,
-					SwitchedRegion: RegionLark,
-				}, nil
-			}
-		case registrationTenantBrandFeishu:
-			if !strings.HasPrefix(domain, c.cfg.Domain) {
-				return &PollResult{
-					SwitchedDomain: c.cfg.Domain,
-					SwitchedRegion: RegionFeishu,
-				}, nil
-			}
+		if swap := c.checkDomainSwap(domain, resp.UserInfo.TenantBrand); swap != nil {
+			return swap, nil
 		}
 	}
 
-	// Success: both client_id AND client_secret AND the installer
-	// open_id must be present. Partial responses are treated as a
-	// protocol error so RegistrationService never writes a
-	// half-populated lark_installation row.
 	if resp.ClientID != "" && resp.ClientSecret != "" {
-		if resp.UserInfo == nil || resp.UserInfo.OpenID == "" {
-			return nil, &RegistrationError{
-				Code:        "invalid_response",
-				Description: "success response missing installer open_id",
-			}
-		}
-		return &PollResult{
-			ClientID:     resp.ClientID,
-			ClientSecret: resp.ClientSecret,
-			OpenID:       OpenID(resp.UserInfo.OpenID),
-		}, nil
+		return parsePollSuccess(resp)
 	}
 
-	switch resp.Error {
+	return parsePollStatusOrError(resp.Error, resp.ErrorDescription), nil
+}
+
+func (c *RegistrationClient) checkDomainSwap(domain, tenantBrand string) *PollResult {
+	switch tenantBrand {
+	case registrationTenantBrandLark:
+		if !strings.HasPrefix(domain, c.cfg.LarkDomain) {
+			return &PollResult{
+				SwitchedDomain: c.cfg.LarkDomain,
+				SwitchedRegion: RegionLark,
+			}
+		}
+	case registrationTenantBrandFeishu:
+		if !strings.HasPrefix(domain, c.cfg.Domain) {
+			return &PollResult{
+				SwitchedDomain: c.cfg.Domain,
+				SwitchedRegion: RegionFeishu,
+			}
+		}
+	}
+	return nil
+}
+
+func parsePollSuccess(resp pollResponse) (*PollResult, error) {
+	if resp.UserInfo == nil || resp.UserInfo.OpenID == "" {
+		return nil, &RegistrationError{
+			Code:        "invalid_response",
+			Description: "success response missing installer open_id",
+		}
+	}
+	return &PollResult{
+		ClientID:     resp.ClientID,
+		ClientSecret: resp.ClientSecret,
+		OpenID:       OpenID(resp.UserInfo.OpenID),
+	}, nil
+}
+
+func parsePollStatusOrError(errCode, errDesc string) *PollResult {
+	switch errCode {
 	case "authorization_pending", "slow_down":
-		return &PollResult{Status: resp.Error}, nil
-	case "access_denied", "expired_token":
-		return &PollResult{
-			Err: &RegistrationError{Code: resp.Error, Description: resp.ErrorDescription},
-		}, nil
+		return &PollResult{Status: errCode}
 	case "":
-		// Empty error AND empty credentials = keep polling; this
-		// matches the upstream SDK's tolerant handling for the case
-		// where the server briefly returns an empty body during the
-		// authorize-redirect window.
-		return &PollResult{Status: "authorization_pending"}, nil
+		return &PollResult{Status: "authorization_pending"}
 	default:
 		return &PollResult{
-			Err: &RegistrationError{Code: resp.Error, Description: resp.ErrorDescription},
-		}, nil
+			Err: &RegistrationError{Code: errCode, Description: errDesc},
+		}
 	}
 }
 

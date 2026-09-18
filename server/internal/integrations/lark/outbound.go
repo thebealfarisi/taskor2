@@ -305,33 +305,10 @@ func (p *Patcher) handleEvent(e events.Event) {
 
 func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 	taskID, chatSessionID, ok := taskAndSessionFromEvent(e)
-	if !ok {
-		return nil
-	}
-	if !chatSessionID.Valid {
+	if !ok || !chatSessionID.Valid {
 		// Issue / autopilot tasks have no chat_session.
 		return nil
 	}
-	// A cancelled run has no reply to place, so the only thing owed to the user
-	// is taking the Typing badge off. That runs before every lookup below,
-	// because each of them can answer "no" for a run that still has a badge on
-	// screen:
-	//
-	//   - the binding is gone by the time a session delete's cancels are
-	//     broadcast (they fire after the transaction that dropped it commits);
-	//
-	//   - the origin classification answers "does this answer belong on Lark",
-	//     and a task cancelled for owning an empty input batch — the failure
-	//     #6611 fixed the cause of — reports no channel-ingested messages, so a
-	//     clear behind it would be skipped on exactly the run that most needs
-	//     it. A cancellation has no answer to misroute, so the question does not
-	//     arise.
-	//
-	// Nothing is posted here, so neither gate is protecting anything: the badge
-	// is Lark's own, and Clear only touches sessions this process put one on.
-	// The clear is keyed by session rather than by turn, so cancelling one of
-	// two turns in a session takes the badge off both; the worst that costs is a
-	// missing badge on a turn still running.
 	if e.Type == protocol.EventTaskCancelled {
 		if p.typingIndicator != nil {
 			p.typingIndicator.Clear(ctx, chatSessionID)
@@ -339,50 +316,14 @@ func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 		return nil
 	}
 
-	binding, err := p.queries.GetLarkChatSessionBindingBySession(ctx, chatSessionID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Web-only chat session — not a Lark target.
-			return nil
-		}
-		return fmt.Errorf("lookup chat session binding: %w", err)
-	}
-
-	// Only bound sessions reach here, so classify the task origin before
-	// spending any send work. Web/mobile direct-chat tasks can reuse a session
-	// that originated in Lark, but their replies belong only in Multica.
-	// Sealed channel tasks own an input batch just like direct tasks, so the
-	// discriminator is the immutable channel_ingested provenance of that
-	// batch, not chat_input_task_id presence (which #5645 originally used).
-	task, err := p.queries.GetAgentTask(ctx, taskID)
-	if err != nil {
-		return fmt.Errorf("load agent task: %w", err)
-	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, p.queries, task)
-	if err != nil {
-		return fmt.Errorf("classify task input origin: %w", err)
-	}
-	if !deliver {
-		return nil
-	}
-
-	inst, err := p.queries.GetLarkInstallation(ctx, binding.InstallationID)
-	if err != nil {
-		return fmt.Errorf("load installation: %w", err)
-	}
-	if InstallationStatus(inst.Status) != InstallationActive {
-		// Revoked between trigger and event; nothing to patch.
-		return nil
-	}
-	creds, err := p.installationCredentials(inst)
-	if err != nil {
+	binding, deliver, err := p.resolveBindingAndOrigin(ctx, taskID, chatSessionID)
+	if err != nil || !deliver {
 		return err
 	}
 
-	agent, agentErr := p.queries.GetAgent(ctx, inst.AgentID)
-	agentName := ""
-	if agentErr == nil {
-		agentName = agent.Name
+	creds, agentName, active, err := p.loadActiveCredentials(ctx, binding)
+	if err != nil || !active {
+		return err
 	}
 
 	// Clear the "processing" reaction before the reply is visible so the
@@ -401,6 +342,48 @@ func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 	return nil
 }
 
+func (p *Patcher) resolveBindingAndOrigin(ctx context.Context, taskID, chatSessionID pgtype.UUID) (ChatSessionBinding, bool, error) {
+	binding, err := p.queries.GetLarkChatSessionBindingBySession(ctx, chatSessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Web-only chat session — not a Lark target.
+			return ChatSessionBinding{}, false, nil
+		}
+		return ChatSessionBinding{}, false, fmt.Errorf("lookup chat session binding: %w", err)
+	}
+
+	task, err := p.queries.GetAgentTask(ctx, taskID)
+	if err != nil {
+		return ChatSessionBinding{}, false, fmt.Errorf("load agent task: %w", err)
+	}
+	deliver, err := engine.TaskInputIsChannelIngested(ctx, p.queries, task)
+	if err != nil {
+		return ChatSessionBinding{}, false, fmt.Errorf("classify task input origin: %w", err)
+	}
+	return binding, deliver, nil
+}
+
+func (p *Patcher) loadActiveCredentials(ctx context.Context, binding ChatSessionBinding) (InstallationCredentials, string, bool, error) {
+	inst, err := p.queries.GetLarkInstallation(ctx, binding.InstallationID)
+	if err != nil {
+		return InstallationCredentials{}, "", false, fmt.Errorf("load installation: %w", err)
+	}
+	if InstallationStatus(inst.Status) != InstallationActive {
+		// Revoked between trigger and event; nothing to patch.
+		return InstallationCredentials{}, "", false, nil
+	}
+	creds, err := p.installationCredentials(inst)
+	if err != nil {
+		return InstallationCredentials{}, "", false, err
+	}
+
+	agentName := ""
+	if agent, agentErr := p.queries.GetAgent(ctx, inst.AgentID); agentErr == nil {
+		agentName = agent.Name
+	}
+	return creds, agentName, true, nil
+}
+
 // sendChatReply turns ChatDonePayload.Content into a Lark message.
 // The wire shape is chosen per-reply based on whether the body
 // contains any markdown syntax:
@@ -409,11 +392,6 @@ func (p *Patcher) processEvent(ctx context.Context, e events.Event) error {
 //     reply should feel like a normal IM message, not a notification
 //     card with chrome around it.
 //
-//   - Anything with markdown (headings, lists, code blocks, tables,
-//     bold/italic, links) → schema-2.0 interactive card with a
-//     `tag: "markdown"` body element so Lark's client renders the
-//     formatting instead of leaving raw `**bold**` characters in
-//     the transcript. The card is visually subtler than the legacy
 //     binding-prompt template — just a single markdown block, no
 //     header / icon / CTA buttons.
 //
@@ -570,17 +548,22 @@ func (p *Patcher) fail(ctx context.Context, creds InstallationCredentials, bindi
 // `chat_session_id` (chat tasks only). EventChatDone carries a
 // ChatDonePayload struct instead.
 func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID, ok bool) {
-	if e.TaskID != "" {
-		if err := taskID.Scan(e.TaskID); err != nil {
-			taskID = pgtype.UUID{}
-		}
+	taskID = scanEventUUID(e.TaskID)
+	chatSessionID = scanEventUUID(e.ChatSessionID)
+	taskID, chatSessionID = scanPayloadUUIDs(e.Payload, taskID, chatSessionID)
+	return taskID, chatSessionID, taskID.Valid
+}
+
+func scanEventUUID(raw string) pgtype.UUID {
+	var id pgtype.UUID
+	if raw != "" {
+		_ = id.Scan(raw)
 	}
-	if e.ChatSessionID != "" {
-		if err := chatSessionID.Scan(e.ChatSessionID); err != nil {
-			chatSessionID = pgtype.UUID{}
-		}
-	}
-	switch p := e.Payload.(type) {
+	return id
+}
+
+func scanPayloadUUIDs(payload any, taskID, chatSessionID pgtype.UUID) (pgtype.UUID, pgtype.UUID) {
+	switch p := payload.(type) {
 	case map[string]any:
 		if !taskID.Valid {
 			if s, _ := p["task_id"].(string); s != "" {
@@ -600,7 +583,7 @@ func taskAndSessionFromEvent(e events.Event) (taskID, chatSessionID pgtype.UUID,
 			_ = chatSessionID.Scan(p.ChatSessionID)
 		}
 	}
-	return taskID, chatSessionID, taskID.Valid
+	return taskID, chatSessionID
 }
 
 func chatDoneContent(payload any) string {

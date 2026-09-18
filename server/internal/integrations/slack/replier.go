@@ -110,39 +110,35 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				"installation_id", util.UUIDToString(inst.ID), "error", err)
 		}
 	case engine.OutcomeAgentOffline:
-		if err := r.post(ctx, inst, msg, agentOfflineText); err != nil {
-			r.logger.WarnContext(ctx, "slack replier: offline notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentOfflineText, "slack replier: offline notice failed")
 	case engine.OutcomeAgentArchived:
-		if err := r.post(ctx, inst, msg, agentArchivedText); err != nil {
-			r.logger.WarnContext(ctx, "slack replier: archived notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentArchivedText, "slack replier: archived notice failed")
 	case engine.OutcomeFreshPending:
-		if err := r.post(ctx, inst, msg, freshPendingText); err != nil {
-			r.logger.WarnContext(ctx, "slack replier: fresh-start confirmation failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, freshPendingText, "slack replier: fresh-start confirmation failed")
 	case engine.OutcomeIssueUsage:
-		if err := r.post(ctx, inst, msg, issueUsageText); err != nil {
-			r.logger.WarnContext(ctx, "slack replier: issue usage reply failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, issueUsageText, "slack replier: issue usage reply failed")
 	case engine.OutcomeIngested:
-		// Only an /issue product result warrants an immediate reply; a plain
-		// chat message stays silent (the agent's own reply lands via ChatDone).
-		if res.IssueID.Valid {
-			text := issueCreatedText(res)
-			if res.IssueDuplicate {
-				text = issueDuplicateText(res)
-			}
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "slack replier: issue outcome reply failed",
-					"installation_id", util.UUIDToString(inst.ID), "error", err)
-			}
-		}
+		r.handleIngestedReply(ctx, inst, msg, res)
 	}
+}
+
+func (r *OutboundReplier) postWithWarn(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text, warnMsg string) {
+	if err := r.post(ctx, inst, msg, text); err != nil {
+		r.logger.WarnContext(ctx, warnMsg, "installation_id", util.UUIDToString(inst.ID), "error", err)
+	}
+}
+
+func (r *OutboundReplier) handleIngestedReply(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) {
+	// Only an /issue product result warrants an immediate reply; a plain
+	// chat message stays silent (the agent's own reply lands via ChatDone).
+	if !res.IssueID.Valid {
+		return
+	}
+	text := issueCreatedText(res)
+	if res.IssueDuplicate {
+		text = issueDuplicateText(res)
+	}
+	r.postWithWarn(ctx, inst, msg, text, "slack replier: issue outcome reply failed")
 }
 
 func (r *OutboundReplier) sendBindingPrompt(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) error {

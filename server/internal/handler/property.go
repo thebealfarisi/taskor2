@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -455,6 +454,7 @@ func (h *Handler) resolveActorRefs(r *http.Request, workspaceID string, refs []a
 // validatePropertyValue checks a raw JSON value against the definition's type
 // and returns the canonical JSON to store. Error strings enumerate the legal
 // values where possible — agents consume these directly to self-correct.
+// Type-specific logic lives in property_value_validators.go.
 func validatePropertyValue(def db.IssueProperty, raw json.RawMessage) ([]byte, error) {
 	if len(raw) == 0 {
 		return nil, errors.New("value is required")
@@ -466,113 +466,26 @@ func validatePropertyValue(def db.IssueProperty, raw json.RawMessage) ([]byte, e
 	if v == nil {
 		return nil, errors.New("value cannot be null (use DELETE to unset a property)")
 	}
-
 	cfg := parsePropertyConfig(def.Config)
 	switch def.Type {
 	case "text":
-		s, ok := v.(string)
-		if !ok {
-			return nil, errors.New("value must be a string")
-		}
-		if strings.TrimSpace(s) == "" {
-			return nil, errors.New("value cannot be empty (use DELETE to unset a property)")
-		}
-		if utf8.RuneCountInString(s) > maxPropertyTextValueLen {
-			return nil, fmt.Errorf("value must be %d characters or fewer", maxPropertyTextValueLen)
-		}
-		return json.Marshal(sanitizeNullBytes(s))
+		return validatePropertyTextValue(v)
 	case "url":
-		s, ok := v.(string)
-		if !ok {
-			return nil, errors.New("value must be a URL string")
-		}
-		s = strings.TrimSpace(s)
-		if len(s) > maxPropertyURLValueLen {
-			return nil, fmt.Errorf("value must be %d characters or fewer", maxPropertyURLValueLen)
-		}
-		u, err := url.Parse(s)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return nil, errors.New("value must be an http(s) URL")
-		}
-		return json.Marshal(s)
+		return validatePropertyURLValue(v)
 	case "number":
-		if _, ok := v.(float64); !ok {
-			return nil, errors.New("value must be a number")
-		}
-		return json.Marshal(v)
+		return validatePropertyNumberValue(v)
 	case "checkbox":
-		if _, ok := v.(bool); !ok {
-			return nil, errors.New("value must be true or false")
-		}
-		return json.Marshal(v)
+		return validatePropertyCheckboxValue(v)
 	case "date":
-		s, ok := v.(string)
-		if !ok {
-			return nil, errors.New("value must be a date string in YYYY-MM-DD format")
-		}
-		if _, err := time.Parse("2006-01-02", s); err != nil {
-			return nil, errors.New("value must be a date string in YYYY-MM-DD format")
-		}
-		return json.Marshal(s)
+		return validatePropertyDateValue(v)
 	case "select":
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("value must be one of the option ids: %s", selectOptionsHint(cfg))
-		}
-		if _, exists := propertyOptionIDs(cfg)[s]; !exists {
-			return nil, fmt.Errorf("value must be one of the option ids: %s", selectOptionsHint(cfg))
-		}
-		return json.Marshal(s)
+		return validatePropertySelectValue(v, cfg)
 	case "multi_select":
-		items, ok := v.([]any)
-		if !ok || len(items) == 0 {
-			return nil, fmt.Errorf("value must be a non-empty array of option ids: %s", selectOptionsHint(cfg))
-		}
-		order := propertyOptionIDs(cfg)
-		seen := make(map[string]struct{}, len(items))
-		ids := make([]string, 0, len(items))
-		for _, item := range items {
-			s, ok := item.(string)
-			if !ok {
-				return nil, fmt.Errorf("value must be a non-empty array of option ids: %s", selectOptionsHint(cfg))
-			}
-			if _, exists := order[s]; !exists {
-				return nil, fmt.Errorf("unknown option id %q; valid option ids: %s", s, selectOptionsHint(cfg))
-			}
-			if _, dup := seen[s]; dup {
-				continue
-			}
-			seen[s] = struct{}{}
-			ids = append(ids, s)
-		}
-		// Canonicalize to config order so equal selections serialize equally
-		// (stable @> containment filtering and change detection).
-		sort.SliceStable(ids, func(a, b int) bool { return order[ids[a]] < order[ids[b]] })
-		return json.Marshal(ids)
+		return validatePropertyMultiSelectValue(v, cfg)
 	case "actor":
-		s, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("value must be an actor reference string like \"member:<uuid>\" (kinds: %s)", actorKindsHint())
-		}
-		ref, err := parseActorRef(s)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(ref.String())
+		return validatePropertyActorValue(v)
 	case "multi_actor":
-		items, ok := v.([]any)
-		if !ok {
-			return nil, fmt.Errorf("value must be an array of actor reference strings like \"member:<uuid>\" (kinds: %s)", actorKindsHint())
-		}
-		refs, err := parseActorRefList(items)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]string, len(refs))
-		for i, ref := range refs {
-			out[i] = ref.String()
-		}
-		return json.Marshal(out)
+		return validatePropertyMultiActorValue(v)
 	default:
 		return nil, fmt.Errorf("unsupported property type %q", def.Type)
 	}

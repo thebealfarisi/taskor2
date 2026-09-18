@@ -329,22 +329,7 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 	gcCtx, cancelGC := context.WithTimeout(ctx, budget)
 	defer cancelGC()
 
-	countCtx, cancelCount := context.WithTimeout(gcCtx, runtimeGCOperationTimeout)
-	blocked, err := queries.CountStaleOfflineRuntimesBlockedByTasks(countCtx, db.CountStaleOfflineRuntimesBlockedByTasksParams{
-		StaleSeconds: offlineRuntimeTTLSeconds,
-		MaxRows:      runtimeGCBlockedScanLimit,
-	})
-	cancelCount()
-	if err != nil {
-		slog.Warn("runtime GC: failed to count task-blocked runtimes", "error", err)
-		metrics.RecordRuntimeGCBlockedObservationFailed()
-	} else {
-		metrics.SetRuntimeGCBlocked(blocked)
-		if blocked > 0 {
-			slog.Debug("runtime GC: stale runtimes blocked by non-terminal tasks",
-				"count", blocked, "count_capped", blocked == runtimeGCBlockedScanLimit)
-		}
-	}
+	observeBlockedRuntimes(gcCtx, queries, metrics)
 
 	listCtx, cancelList := context.WithTimeout(gcCtx, runtimeGCOperationTimeout)
 	candidates, err := queries.ListStaleOfflineRuntimeGCCandidates(listCtx, db.ListStaleOfflineRuntimeGCCandidatesParams{
@@ -361,6 +346,52 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 		return
 	}
 
+	gcWorkspaces, deleted := sweepGCCandidates(gcCtx, txStarter, queries, metrics, candidates)
+	if deleted == 0 {
+		return
+	}
+
+	slog.Info("runtime GC: deleted stale offline runtimes", "count", deleted, "workspaces", len(gcWorkspaces))
+
+	for wsID := range gcWorkspaces {
+		bus.Publish(events.Event{
+			Type:        protocol.EventDaemonRegister,
+			WorkspaceID: wsID,
+			ActorType:   "system",
+			Payload: map[string]any{
+				"action": "runtime_gc",
+			},
+		})
+	}
+}
+
+func observeBlockedRuntimes(ctx context.Context, queries *db.Queries, metrics *obsmetrics.BusinessMetrics) {
+	countCtx, cancelCount := context.WithTimeout(ctx, runtimeGCOperationTimeout)
+	defer cancelCount()
+
+	blocked, err := queries.CountStaleOfflineRuntimesBlockedByTasks(countCtx, db.CountStaleOfflineRuntimesBlockedByTasksParams{
+		StaleSeconds: offlineRuntimeTTLSeconds,
+		MaxRows:      runtimeGCBlockedScanLimit,
+	})
+	if err != nil {
+		slog.Warn("runtime GC: failed to count task-blocked runtimes", "error", err)
+		metrics.RecordRuntimeGCBlockedObservationFailed()
+		return
+	}
+	metrics.SetRuntimeGCBlocked(blocked)
+	if blocked > 0 {
+		slog.Debug("runtime GC: stale runtimes blocked by non-terminal tasks",
+			"count", blocked, "count_capped", blocked == runtimeGCBlockedScanLimit)
+	}
+}
+
+func sweepGCCandidates(
+	gcCtx context.Context,
+	txStarter runtimeGCTxStarter,
+	queries *db.Queries,
+	metrics *obsmetrics.BusinessMetrics,
+	candidates []pgtype.UUID,
+) (map[string]bool, int) {
 	gcWorkspaces := make(map[string]bool)
 	deleted := 0
 	for i, runtimeID := range candidates {
@@ -395,22 +426,7 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 		metrics.RecordRuntimeGCDeleted()
 		gcWorkspaces[workspaceID] = true
 	}
-	if deleted == 0 {
-		return
-	}
-
-	slog.Info("runtime GC: deleted stale offline runtimes", "count", deleted, "workspaces", len(gcWorkspaces))
-
-	for wsID := range gcWorkspaces {
-		bus.Publish(events.Event{
-			Type:        protocol.EventDaemonRegister,
-			WorkspaceID: wsID,
-			ActorType:   "system",
-			Payload: map[string]any{
-				"action": "runtime_gc",
-			},
-		})
-	}
+	return gcWorkspaces, deleted
 }
 
 // gcRuntime re-checks and deletes one candidate under a runtime-row FOR UPDATE
@@ -579,59 +595,70 @@ func broadcastFailedTasks(ctx context.Context, queries *db.Queries, taskSvc *ser
 	processedIssues := make(map[string]bool)
 	affectedAgents := make(map[string]pgtype.UUID)
 	for _, t := range tasks {
-		failureReason := "agent_error"
-		if t.FailureReason.Valid && t.FailureReason.String != "" {
-			failureReason = t.FailureReason.String
-		}
-		workspaceID := ""
-		if t.IssueID.Valid {
-			if issue, err := queries.GetIssue(ctx, t.IssueID); err == nil {
-				workspaceID = util.UUIDToString(issue.WorkspaceID)
-				issueKey := util.UUIDToString(t.IssueID)
-				// Only issues whose status means "an agent is actively working"
-				// get reset. in_review and blocked are deliberately excluded —
-				// they mean a human or an external dependency owns the issue
-				// now, and resetting those to todo would re-trigger an agent on
-				// work someone else is holding. A custom status resolves to the
-				// canonical status it inherits, so a custom review gate is
-				// excluded for the same reason In Review is. (MUL-6243)
-				effectiveStatus := issuestatus.Effective(ctx, queries, issue.WorkspaceID, issue.Status)
-				if effectiveStatus == "in_progress" && !processedIssues[issueKey] {
-					processedIssues[issueKey] = true
-					if hasActive, herr := queries.HasActiveTaskForIssue(ctx, t.IssueID); herr == nil && !hasActive {
-						queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{ID: t.IssueID, Status: "todo", WorkspaceID: issue.WorkspaceID})
-					}
-				}
-			}
-		}
-		payload := map[string]any{
-			"task_id":        util.UUIDToString(t.ID),
-			"agent_id":       util.UUIDToString(t.AgentID),
-			"issue_id":       util.UUIDToString(t.IssueID),
-			"status":         "failed",
-			"failure_reason": failureReason,
-			"retry_pending":  false,
-		}
-		if t.Error.Valid && t.Error.String != "" {
-			payload["error"] = redact.Text(t.Error.String)
-		}
-		e := events.Event{
-			Type:        protocol.EventTaskFailed,
-			WorkspaceID: workspaceID,
-			ActorType:   "system",
-			TaskID:      util.UUIDToString(t.ID),
-			Payload:     payload,
-		}
-		if t.ChatSessionID.Valid {
-			e.ChatSessionID = util.UUIDToString(t.ChatSessionID)
-			payload["chat_session_id"] = e.ChatSessionID
-		}
-		bus.Publish(e)
+		workspaceID := resetStuckIssueForFailedTask(ctx, queries, t, processedIssues)
+		publishFailedTaskEvent(bus, t, workspaceID)
 		affectedAgents[util.UUIDToString(t.AgentID)] = t.AgentID
 	}
 	for _, agentID := range affectedAgents {
 		reconcileAgentStatus(ctx, queries, bus, agentID)
 	}
+}
+
+func resetStuckIssueForFailedTask(ctx context.Context, queries *db.Queries, t db.AgentTaskQueue, processedIssues map[string]bool) string {
+	if !t.IssueID.Valid {
+		return ""
+	}
+	issue, err := queries.GetIssue(ctx, t.IssueID)
+	if err != nil {
+		return ""
+	}
+	workspaceID := util.UUIDToString(issue.WorkspaceID)
+	issueKey := util.UUIDToString(t.IssueID)
+	// Only issues whose status means "an agent is actively working"
+	// get reset. in_review and blocked are deliberately excluded —
+	// they mean a human or an external dependency owns the issue
+	// now, and resetting those to todo would re-trigger an agent on
+	// work someone else is holding. A custom status resolves to the
+	// canonical status it inherits, so a custom review gate is
+	// excluded for the same reason In Review is. (MUL-6243)
+	effectiveStatus := issuestatus.Effective(ctx, queries, issue.WorkspaceID, issue.Status)
+	if effectiveStatus == "in_progress" && !processedIssues[issueKey] {
+		processedIssues[issueKey] = true
+		if hasActive, herr := queries.HasActiveTaskForIssue(ctx, t.IssueID); herr == nil && !hasActive {
+			queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{ID: t.IssueID, Status: "todo", WorkspaceID: issue.WorkspaceID})
+		}
+	}
+	return workspaceID
+}
+
+func publishFailedTaskEvent(bus *events.Bus, t db.AgentTaskQueue, workspaceID string) {
+	failureReason := "agent_error"
+	if t.FailureReason.Valid && t.FailureReason.String != "" {
+		failureReason = t.FailureReason.String
+	}
+	payload := map[string]any{
+		"task_id":        util.UUIDToString(t.ID),
+		"agent_id":       util.UUIDToString(t.AgentID),
+		"issue_id":       util.UUIDToString(t.IssueID),
+		"status":         "failed",
+		"failure_reason": failureReason,
+		"retry_pending":  false,
+	}
+	if t.Error.Valid && t.Error.String != "" {
+		payload["error"] = redact.Text(t.Error.String)
+	}
+	e := events.Event{
+		Type:        protocol.EventTaskFailed,
+		WorkspaceID: workspaceID,
+		ActorType:   "system",
+		TaskID:      util.UUIDToString(t.ID),
+		Payload:     payload,
+	}
+	if t.ChatSessionID.Valid {
+		e.ChatSessionID = util.UUIDToString(t.ChatSessionID)
+		payload["chat_session_id"] = e.ChatSessionID
+	}
+	bus.Publish(e)
 }
 
 // reconcileAgentStatus refreshes agent status from the current working task

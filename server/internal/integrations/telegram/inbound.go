@@ -163,30 +163,30 @@ func mentionsBot(m *Message, botUsername string) bool {
 	if botUsername == "" {
 		return false
 	}
-	wantMention := "@" + botUsername
-	for _, source := range []struct {
-		text     string
-		entities []MessageEntity
-	}{
-		{text: m.Text, entities: m.Entities},
-		{text: m.Caption, entities: m.CaptionEntities},
-	} {
-		for _, entity := range source.entities {
-			if entity.Type != "mention" && entity.Type != "bot_command" {
-				continue
-			}
-			value, ok := messageEntityText(source.text, entity)
-			if !ok {
-				continue
-			}
-			if strings.EqualFold(value, wantMention) || commandTargetsBot(value, botUsername) {
-				return true
-			}
-		}
+	if entitiesMentionBot(m.Text, m.Entities, botUsername) ||
+		entitiesMentionBot(m.Caption, m.CaptionEntities, botUsername) {
+		return true
 	}
 	// Telegram normally supplies entities. Keep a boundary-aware fallback for
 	// old fixtures and defensive compatibility with incomplete gateways.
 	return containsBotMention(m.Text, botUsername) || containsBotMention(m.Caption, botUsername)
+}
+
+func entitiesMentionBot(text string, entities []MessageEntity, botUsername string) bool {
+	wantMention := "@" + botUsername
+	for _, entity := range entities {
+		if entity.Type != "mention" && entity.Type != "bot_command" {
+			continue
+		}
+		value, ok := messageEntityText(text, entity)
+		if !ok {
+			continue
+		}
+		if strings.EqualFold(value, wantMention) || commandTargetsBot(value, botUsername) {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeText strips the bot mention token while retaining shared commands

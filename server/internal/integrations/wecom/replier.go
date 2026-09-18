@@ -107,47 +107,39 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				"installation_id", util.UUIDToString(inst.ID), "error", err)
 		}
 	case engine.OutcomeAgentOffline:
-		if err := r.post(ctx, inst, msg, agentOfflineText); err != nil {
-			r.logger.WarnContext(ctx, "wecom replier: offline notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentOfflineText, "wecom replier: offline notice failed")
 	case engine.OutcomeAgentArchived:
-		if err := r.post(ctx, inst, msg, agentArchivedText); err != nil {
-			r.logger.WarnContext(ctx, "wecom replier: archived notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentArchivedText, "wecom replier: archived notice failed")
 	case engine.OutcomeFreshPending:
-		if err := r.post(ctx, inst, msg, freshPendingText); err != nil {
-			r.logger.WarnContext(ctx, "wecom replier: fresh-start confirmation failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, freshPendingText, "wecom replier: fresh-start confirmation failed")
 	case engine.OutcomeIssueUsage:
-		if err := r.post(ctx, inst, msg, issueUsageText); err != nil {
-			r.logger.WarnContext(ctx, "wecom replier: issue usage reply failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, issueUsageText, "wecom replier: issue usage reply failed")
 	case engine.OutcomeIngested:
-		// Only a /issue-created message warrants a confirmation; a plain
-		// chat message stays silent (the agent's own reply lands via
-		// EventChatDone / Channel.Send).
-		if res.IssueID.Valid {
-			// The engine reports a duplicate by carrying the OTHER issue's
-			// id, number and title with IssueDuplicate set. Answering both
-			// cases with the created copy told the reporter their bug was
-			// filed under a number somebody else opened, under a title they
-			// never wrote — so they stopped chasing it and the report was
-			// lost. slack/replier.go:125 and dingtalk/replier.go:125 both
-			// branch here; WeCom was the one that did not.
-			text := issueCreatedText(res)
-			if res.IssueDuplicate {
-				text = issueDuplicateText(res)
-			}
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "wecom replier: issue confirmation failed",
-					"installation_id", util.UUIDToString(inst.ID),
-					"duplicate", res.IssueDuplicate, "error", err)
-			}
-		}
+		r.handleIngestedReply(ctx, inst, msg, res)
+	}
+}
+
+func (r *OutboundReplier) postWithWarn(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text, warnMsg string) {
+	if text == "" {
+		return
+	}
+	if err := r.post(ctx, inst, msg, text); err != nil {
+		r.logger.WarnContext(ctx, warnMsg, "installation_id", util.UUIDToString(inst.ID), "error", err)
+	}
+}
+
+func (r *OutboundReplier) handleIngestedReply(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) {
+	if !res.IssueID.Valid {
+		return
+	}
+	text := issueCreatedText(res)
+	if res.IssueDuplicate {
+		text = issueDuplicateText(res)
+	}
+	if err := r.post(ctx, inst, msg, text); err != nil {
+		r.logger.WarnContext(ctx, "wecom replier: issue confirmation failed",
+			"installation_id", util.UUIDToString(inst.ID),
+			"duplicate", res.IssueDuplicate, "error", err)
 	}
 }
 

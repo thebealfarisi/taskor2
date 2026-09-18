@@ -727,16 +727,28 @@ func (c *httpAPIClient) DownloadMessageResource(ctx context.Context, creds Insta
 }
 
 func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds InstallationCredentials, p DownloadResourceParams) (DownloadedResourceStream, error) {
-	if p.MessageID == "" {
-		return DownloadedResourceStream{}, errors.New(errMsgMissingMessageID)
-	}
-	if p.FileKey == "" {
-		return DownloadedResourceStream{}, errors.New("lark http client: missing file_key")
+	if err := validateDownloadResourceParams(p); err != nil {
+		return DownloadedResourceStream{}, err
 	}
 	token, err := c.tenantAccessToken(ctx, creds)
 	if err != nil {
 		return DownloadedResourceStream{}, err
 	}
+	reqURL := c.buildResourceDownloadURL(creds, p)
+	return c.executeResourceDownload(ctx, creds, reqURL, token)
+}
+
+func validateDownloadResourceParams(p DownloadResourceParams) error {
+	if p.MessageID == "" {
+		return errors.New(errMsgMissingMessageID)
+	}
+	if p.FileKey == "" {
+		return errors.New("lark http client: missing file_key")
+	}
+	return nil
+}
+
+func (c *httpAPIClient) buildResourceDownloadURL(creds InstallationCredentials, p DownloadResourceParams) string {
 	q := url.Values{}
 	if p.Type != "" {
 		q.Set("type", p.Type)
@@ -745,13 +757,16 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 	if encoded := q.Encode(); encoded != "" {
 		path += "?" + encoded
 	}
+	return c.resolveBaseURL(creds) + path
+}
 
+func (c *httpAPIClient) executeResourceDownload(ctx context.Context, creds InstallationCredentials, reqURL, token string) (DownloadedResourceStream, error) {
 	downloadCtx := ctx
 	var cancel context.CancelFunc
 	if c.cfg.ResourceDownloadTimeout > 0 {
 		downloadCtx, cancel = context.WithTimeout(ctx, c.cfg.ResourceDownloadTimeout)
 	}
-	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, c.resolveBaseURL(creds)+path, nil)
+	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		if cancel != nil {
 			cancel()
@@ -766,6 +781,10 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 		}
 		return DownloadedResourceStream{}, fmt.Errorf("lark http client: download resource: http do: %w", err)
 	}
+	return c.handleResourceDownloadResponse(creds, resp, cancel)
+}
+
+func (c *httpAPIClient) handleResourceDownloadResponse(creds InstallationCredentials, resp *http.Response, cancel context.CancelFunc) (DownloadedResourceStream, error) {
 	closeWithCancel := func() {
 		resp.Body.Close()
 		if cancel != nil {
@@ -786,27 +805,7 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 	}
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(strings.ToLower(contentType), "json") {
-		rawBody, readErr := readMessageResourceErrorBody(resp.Body)
-		closeWithCancel()
-		if readErr != nil {
-			return DownloadedResourceStream{}, readErr
-		}
-		var apiResp struct {
-			Code int    `json:"code"`
-			Msg  string `json:"msg"`
-		}
-		if err := json.Unmarshal(rawBody, &apiResp); err == nil && apiResp.Code != 0 {
-			if isTokenError(apiResp.Code) {
-				c.invalidateToken(creds.AppID)
-			}
-			return DownloadedResourceStream{}, &APIError{Op: "download resource", Code: apiResp.Code, Msg: apiResp.Msg}
-		}
-		return DownloadedResourceStream{
-			Body:        cancelOnClose(io.NopCloser(bytes.NewReader(rawBody)), cancel),
-			ContentType: contentType,
-			Filename:    filenameFromContentDisposition(resp.Header.Get("Content-Disposition")),
-			SizeBytes:   int64(len(rawBody)),
-		}, nil
+		return c.handleJSONResourceResponse(creds, resp, contentType, closeWithCancel, cancel)
 	}
 	if contentType == "" {
 		contentType = "application/octet-stream"
@@ -820,6 +819,30 @@ func (c *httpAPIClient) DownloadMessageResourceStream(ctx context.Context, creds
 		ContentType: contentType,
 		Filename:    filenameFromContentDisposition(resp.Header.Get("Content-Disposition")),
 		SizeBytes:   sizeBytes,
+	}, nil
+}
+
+func (c *httpAPIClient) handleJSONResourceResponse(creds InstallationCredentials, resp *http.Response, contentType string, closeWithCancel func(), cancel context.CancelFunc) (DownloadedResourceStream, error) {
+	rawBody, readErr := readMessageResourceErrorBody(resp.Body)
+	closeWithCancel()
+	if readErr != nil {
+		return DownloadedResourceStream{}, readErr
+	}
+	var apiResp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(rawBody, &apiResp); err == nil && apiResp.Code != 0 {
+		if isTokenError(apiResp.Code) {
+			c.invalidateToken(creds.AppID)
+		}
+		return DownloadedResourceStream{}, &APIError{Op: "download resource", Code: apiResp.Code, Msg: apiResp.Msg}
+	}
+	return DownloadedResourceStream{
+		Body:        cancelOnClose(io.NopCloser(bytes.NewReader(rawBody)), cancel),
+		ContentType: contentType,
+		Filename:    filenameFromContentDisposition(resp.Header.Get("Content-Disposition")),
+		SizeBytes:   int64(len(rawBody)),
 	}, nil
 }
 

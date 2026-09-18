@@ -114,51 +114,49 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				"installation_id", util.UUIDToString(inst.ID), "error", err)
 		}
 	case engine.OutcomeAgentOffline:
-		if err := r.post(ctx, inst, msg, agentOfflineText); err != nil {
-			r.logger.WarnContext(ctx, "dingtalk replier: offline notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentOfflineText, "dingtalk replier: offline notice failed")
 	case engine.OutcomeAgentArchived:
-		if err := r.post(ctx, inst, msg, agentArchivedText); err != nil {
-			r.logger.WarnContext(ctx, "dingtalk replier: archived notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, agentArchivedText, "dingtalk replier: archived notice failed")
 	case engine.OutcomeFreshPending:
-		if err := r.post(ctx, inst, msg, freshPendingText); err != nil {
-			r.logger.WarnContext(ctx, "dingtalk replier: fresh-start confirmation failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, freshPendingText, "dingtalk replier: fresh-start confirmation failed")
 	case engine.OutcomeIssueUsage:
-		text := issueUsageText
-		if res.IssueUsageHadMedia {
-			text = issueUsageWithMediaText
-		}
-		if err := r.post(ctx, inst, msg, text); err != nil {
-			r.logger.WarnContext(ctx, "dingtalk replier: issue usage reply failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.handleIssueUsageReply(ctx, inst, msg, res)
 	case engine.OutcomeIngested:
-		if res.IssueID.Valid {
-			text := issueCreatedText(res)
-			if res.IssueDuplicate {
-				text = issueDuplicateText(res)
-			}
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "dingtalk replier: issue outcome reply failed",
-					"installation_id", util.UUIDToString(inst.ID), "error", err)
-			}
-		}
+		r.handleIngestedReply(ctx, inst, msg, res)
 	case engine.OutcomeDropped:
 		// Dropped /issue commands get a refusal so the sender is not left
 		// waiting for an issue that will never be created; every other drop
 		// (duplicates, unaddressed group chatter) stays silent.
-		if text := droppedReplyText(res, msg); text != "" {
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "dingtalk replier: drop refusal failed",
-					"installation_id", util.UUIDToString(inst.ID), "error", err)
-			}
-		}
+		r.postWithWarn(ctx, inst, msg, droppedReplyText(res, msg), "dingtalk replier: drop refusal failed")
 	}
+}
+
+func (r *OutboundReplier) postWithWarn(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text, warnMsg string) {
+	if text == "" {
+		return
+	}
+	if err := r.post(ctx, inst, msg, text); err != nil {
+		r.logger.WarnContext(ctx, warnMsg, "installation_id", util.UUIDToString(inst.ID), "error", err)
+	}
+}
+
+func (r *OutboundReplier) handleIssueUsageReply(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) {
+	text := issueUsageText
+	if res.IssueUsageHadMedia {
+		text = issueUsageWithMediaText
+	}
+	r.postWithWarn(ctx, inst, msg, text, "dingtalk replier: issue usage reply failed")
+}
+
+func (r *OutboundReplier) handleIngestedReply(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) {
+	if !res.IssueID.Valid {
+		return
+	}
+	text := issueCreatedText(res)
+	if res.IssueDuplicate {
+		text = issueDuplicateText(res)
+	}
+	r.postWithWarn(ctx, inst, msg, text, "dingtalk replier: issue outcome reply failed")
 }
 
 func (r *OutboundReplier) sendBindingPrompt(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) error {

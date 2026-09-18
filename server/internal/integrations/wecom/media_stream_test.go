@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -197,6 +198,9 @@ func TestStreamingDecryptRefusesAnEmptyBody(t *testing.T) {
 // anyone else, and must not outlive the handle — including if the process
 // dies holding it.
 func TestTheTempFileIsPrivateAndUnlinked(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping on Windows because Windows cannot unlink an open file")
+	}
 	key, keyB64 := mediaTestKey(t)
 	dir := t.TempDir()
 	ct := sealMedia(t, key, []byte("secret contents"))

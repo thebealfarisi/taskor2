@@ -58,67 +58,92 @@ func BackfillBotUnionIDs(
 		if ctx.Err() != nil {
 			return
 		}
-		if row.BotUnionID.Valid && row.BotUnionID.String != "" {
-			continue
-		}
-		attempted++
-		secret, err := creds.DecryptAppSecret(row)
-		if err != nil {
-			log.Warn("lark backfill: decrypt app_secret failed",
-				"installation_id", uuidString(row.ID),
-				"app_id", row.AppID,
-				"err", err)
-			errored++
-			continue
-		}
-		// Bound the Lark round-trip so a single hung install row
-		// does not pin the backfill goroutine. 10s matches the
-		// http client's defaultRequestTimeout.
-		fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		info, err := api.GetBotInfo(fetchCtx, InstallationCredentials{
-			AppID:     row.AppID,
-			AppSecret: secret,
-			TenantKey: row.TenantKey.String,
-			Region:    RegionOrDefault(row.Region),
-		})
-		cancel()
-		if err != nil {
-			log.Warn("lark backfill: GetBotInfo failed",
-				"installation_id", uuidString(row.ID),
-				"app_id", row.AppID,
-				"err", err)
-			errored++
-			continue
-		}
-		if info.UnionID == "" {
-			log.Warn("lark backfill: union_id absent in Lark response; leaving NULL",
-				"installation_id", uuidString(row.ID),
-				"app_id", row.AppID,
-				"bot_open_id", string(info.OpenID))
+		switch backfillRow(ctx, row, queries, api, creds, log) {
+		case outcomeFilled:
+			attempted++
+			filled++
+		case outcomeMissed:
+			attempted++
 			missed++
-			continue
-		}
-		if err := queries.SetLarkInstallationBotUnionID(ctx, SetInstallationBotUnionIDParams{
-			ID:         row.ID,
-			BotUnionID: textOrNull(info.UnionID),
-		}); err != nil {
-			log.Warn("lark backfill: persist union_id failed",
-				"installation_id", uuidString(row.ID),
-				"err", err)
+		case outcomeErrored:
+			attempted++
 			errored++
-			continue
 		}
-		filled++
-		log.Info("lark backfill: stamped union_id",
-			"installation_id", uuidString(row.ID),
-			"app_id", row.AppID,
-			"bot_open_id", string(info.OpenID))
 	}
 	log.Info("lark backfill: union_id pass complete",
 		"attempted", attempted,
 		"filled", filled,
 		"missed", missed,
 		"errored", errored)
+}
+
+type backfillOutcome int
+
+const (
+	outcomeSkipped backfillOutcome = iota
+	outcomeFilled
+	outcomeMissed
+	outcomeErrored
+)
+
+func backfillRow(
+	ctx context.Context,
+	row Installation,
+	queries *ChannelStore,
+	api APIClient,
+	creds CredentialsDecrypter,
+	log *slog.Logger,
+) backfillOutcome {
+	if row.BotUnionID.Valid && row.BotUnionID.String != "" {
+		return outcomeSkipped
+	}
+	secret, err := creds.DecryptAppSecret(row)
+	if err != nil {
+		log.Warn("lark backfill: decrypt app_secret failed",
+			"installation_id", uuidString(row.ID),
+			"app_id", row.AppID,
+			"err", err)
+		return outcomeErrored
+	}
+	// Bound the Lark round-trip so a single hung install row
+	// does not pin the backfill goroutine. 10s matches the
+	// http client's defaultRequestTimeout.
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	info, err := api.GetBotInfo(fetchCtx, InstallationCredentials{
+		AppID:     row.AppID,
+		AppSecret: secret,
+		TenantKey: row.TenantKey.String,
+		Region:    RegionOrDefault(row.Region),
+	})
+	cancel()
+	if err != nil {
+		log.Warn("lark backfill: GetBotInfo failed",
+			"installation_id", uuidString(row.ID),
+			"app_id", row.AppID,
+			"err", err)
+		return outcomeErrored
+	}
+	if info.UnionID == "" {
+		log.Warn("lark backfill: union_id absent in Lark response; leaving NULL",
+			"installation_id", uuidString(row.ID),
+			"app_id", row.AppID,
+			"bot_open_id", string(info.OpenID))
+		return outcomeMissed
+	}
+	if err := queries.SetLarkInstallationBotUnionID(ctx, SetInstallationBotUnionIDParams{
+		ID:         row.ID,
+		BotUnionID: textOrNull(info.UnionID),
+	}); err != nil {
+		log.Warn("lark backfill: persist union_id failed",
+			"installation_id", uuidString(row.ID),
+			"err", err)
+		return outcomeErrored
+	}
+	log.Info("lark backfill: stamped union_id",
+		"installation_id", uuidString(row.ID),
+		"app_id", row.AppID,
+		"bot_open_id", string(info.OpenID))
+	return outcomeFilled
 }
 
 // CredentialsDecrypter is the narrow surface BackfillBotUnionIDs needs

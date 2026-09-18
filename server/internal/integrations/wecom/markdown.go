@@ -242,19 +242,27 @@ func parseContainerPrefix(p string) (prefix containerPrefix, ok bool) {
 		case (p[0] == '-' || p[0] == '+' || p[0] == '*') && len(p) > 1 && (p[1] == ' ' || p[1] == '\t'):
 			p = p[2:]
 		default:
-			// An ordered list marker: up to 9 digits, then "." or ")",
-			// then a space.
-			n := 0
-			for n < len(p) && n < 9 && p[n] >= '0' && p[n] <= '9' {
-				n++
-			}
-			if n == 0 || n+1 >= len(p) || (p[n] != '.' && p[n] != ')') || (p[n+1] != ' ' && p[n+1] != '\t') {
+			advance, valid := parseOrderedListMarker(p)
+			if !valid {
 				return containerPrefix{}, false
 			}
-			p = p[n+2:]
+			p = p[advance:]
 		}
 	}
 	return prefix, true
+}
+
+func parseOrderedListMarker(p string) (int, bool) {
+	// An ordered list marker: up to 9 digits, then "." or ")",
+	// then a space.
+	n := 0
+	for n < len(p) && n < 9 && p[n] >= '0' && p[n] <= '9' {
+		n++
+	}
+	if n == 0 || n+1 >= len(p) || (p[n] != '.' && p[n] != ')') || (p[n+1] != ' ' && p[n+1] != '\t') {
+		return 0, false
+	}
+	return n + 2, true
 }
 
 // skipContinuationPrefix steps over the markers of the containers in prefix at
@@ -415,20 +423,28 @@ func isASCIIPunct(c byte) bool {
 // rest of the file already runs on.
 func hasCharacterReference(s string) bool {
 	for i := 0; i < len(s); i++ {
-		if s[i] != '&' {
-			continue
-		}
-		for j := i + 1; j < len(s); j++ {
-			c := s[j]
-			if c == ';' {
-				return j > i+1
-			}
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '#') {
-				break
-			}
+		if s[i] == '&' && matchCharacterReferenceAt(s, i) {
+			return true
 		}
 	}
 	return false
+}
+
+func matchCharacterReferenceAt(s string, i int) bool {
+	for j := i + 1; j < len(s); j++ {
+		c := s[j]
+		if c == ';' {
+			return j > i+1
+		}
+		if !isValidCharRefByte(c) {
+			return false
+		}
+	}
+	return false
+}
+
+func isValidCharRefByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '#'
 }
 
 // hasURIScheme reports whether s begins with a URI scheme followed by ":" —

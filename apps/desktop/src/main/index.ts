@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, screen } from "electron";
+import { app, BrowserWindow, dialog, nativeImage, screen } from "electron";
 import { homedir } from "os";
 import { join } from "path";
 import { pathToFileURL } from "url";
@@ -7,7 +7,7 @@ import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
 import { setupDaemonManager } from "./daemon-manager";
 import { setupLocalDirectory } from "./local-directory";
-import { openExternalSafely, downloadURLSafely } from "./external-url";
+import { openExternalSafely } from "./external-url";
 import { installContextMenu } from "./context-menu";
 import { handleAppShortcut } from "./keyboard-shortcuts";
 import { installNavigationGestures } from "./navigation-gestures";
@@ -15,12 +15,7 @@ import { installNavigationGuard } from "./navigation-guard";
 import { createRendererWebPreferences } from "./renderer-web-preferences";
 import { getAppVersion } from "./app-version";
 import { loadRuntimeConfig } from "./runtime-config-loader";
-import type { RuntimeConfigResult } from "../shared/runtime-config";
-import {
-  RENDERER_ROUTE_CONTEXT_CHANNEL,
-  sanitizeRendererRouteContext,
-  type RendererRouteContext,
-} from "../shared/renderer-route-context";
+import type { RendererRouteContext } from "../shared/renderer-route-context";
 import {
   createElectronReloadPrompt,
   installRendererRecoveryHandlers,
@@ -29,8 +24,6 @@ import {
 import { createBestEffortDevLog } from "./dev-log";
 import {
   writeFreezeBreadcrumb,
-  readFreezeBreadcrumb,
-  ackFreezeBreadcrumb,
   clearFreezeBreadcrumb,
 } from "./freeze-breadcrumb";
 import {
@@ -40,26 +33,14 @@ import {
   snapshotWindowState,
   windowStateFilePath,
 } from "./window-state";
+import { AuthSessionCoordinator } from "./auth-session-coordinator";
+import { NotificationGate } from "./notification-gate";
 import {
-  encodeIssueWindowArgument,
-  parseIssueWindowRequest,
-  type IssueWindowContext,
-} from "../shared/issue-window";
-import {
-  AUTH_SESSION_STATE_CHANNEL,
-  parseAuthSessionUserId,
-} from "../shared/auth-session";
-import {
-  MAIN_RENDERER_CHANNEL_STATE_CHANNEL,
   MainRendererMessageQueue,
-  parseMainRendererChannelState,
   type MainRendererMessageChannel,
 } from "../shared/main-renderer-messages";
-import { AuthSessionCoordinator } from "./auth-session-coordinator";
-import {
-  NotificationGate,
-  parseNativeNotificationPayload,
-} from "./notification-gate";
+import { registerIpcHandlers, setRuntimeConfigResult } from "./ipc-handlers";
+import { IssueWindowManager } from "./issue-window-manager";
 
 // Guards against registering the will-download handler more than once on the
 // same session. window.webContents.session is shared, and createWindow() can
@@ -128,10 +109,8 @@ function freezeBreadcrumbPath(): string {
 }
 
 let mainWindow: BrowserWindow | null = null;
-const issueWindows = new Set<BrowserWindow>();
 const authSessionCoordinator = new AuthSessionCoordinator<BrowserWindow>(
   (window) => {
-    issueWindows.delete(window);
     if (!window.isDestroyed()) window.close();
   },
 );
@@ -143,11 +122,6 @@ const rendererRouteContexts = new WeakMap<
   Electron.WebContents,
   RendererRouteContext
 >();
-
-let runtimeConfigResult: RuntimeConfigResult = {
-  ok: false,
-  error: { message: "Runtime config has not loaded yet" },
-};
 
 // --- Deep link helpers ---------------------------------------------------
 
@@ -453,87 +427,19 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-function createIssueWindow(context: IssueWindowContext): void {
-  const systemLocale = getSystemLocale();
-  lastKnownSystemLocale = systemLocale;
-
-  const window = new BrowserWindow({
-    width: 960,
-    height: 760,
-    minWidth: 720,
-    minHeight: 520,
-    title: context.title,
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 16, y: 17 },
-    show: false,
-    autoHideMenuBar: true,
-    ...(is.dev || process.platform === "linux"
-      ? { icon: BUNDLED_ICON_PATH }
-      : {}),
-    webPreferences: createRendererWebPreferences(
-      join(__dirname, "../preload/index.js"),
-      systemLocale,
-      [encodeIssueWindowArgument(context)],
-    ),
-  });
-
-  issueWindows.add(window);
-  authSessionCoordinator.registerIssueWindow(window);
-  window.on("closed", () => {
-    issueWindows.delete(window);
-    authSessionCoordinator.unregisterIssueWindow(window);
-  });
-
-  window.on("ready-to-show", () => window.show());
-  installLocaleRefresh(window);
-  installDownloadSaveDialogHandler(window);
-
-  window.webContents.setWindowOpenHandler((details) => {
-    openExternalSafely(details.url);
-    return { action: "deny" };
-  });
-  installWindowShortcutHandler(window);
-
-  const initialRouteContext = sanitizeRendererRouteContext({
-    surface: "tab",
-    path: context.path,
-    workspaceSlug: context.workspaceSlug,
-  });
-  if (initialRouteContext) {
-    rendererRouteContexts.set(window.webContents, initialRouteContext);
-  }
-  installRendererRecoveryHandlers(window as unknown as RendererRecoveryWindow, {
-    isDev: is.dev,
-    showReloadPrompt: createElectronReloadPrompt((options) =>
-      dialog.showMessageBox(window, options),
-    ),
-    getDiagnosticContext: () => {
-      // No `windowUrl`: it is an absolute install path (`/Users/<name>/...`
-      // when installed per-user) and the bucketed route below already says
-      // which page the window was on, which is the part we can act on.
-      const routeContext = rendererRouteContexts.get(window.webContents);
-      return routeContext ? { desktopRoute: routeContext } : {};
-    },
-    persistBreadcrumb: is.dev
-      ? undefined
-      : (payload) =>
-          writeFreezeBreadcrumb(freezeBreadcrumbPath(), {
-            ownerId: `issue:${window.id}`,
-            kind: payload.kind,
-            context: payload.context,
-            ts: Date.now(),
-            version: getAppVersion(),
-          }),
-    clearBreadcrumb: is.dev
-      ? undefined
-      : () =>
-          clearFreezeBreadcrumb(freezeBreadcrumbPath(), `issue:${window.id}`),
-    log: devLog,
-  });
-
-  installContextMenu(window.webContents);
-  loadRenderer(window);
-}
+// Issue window manager — owns dedicated issue pop-out windows
+const issueWindowManager = new IssueWindowManager({
+  BUNDLED_ICON_PATH,
+  devLog,
+  freezeBreadcrumbPath,
+  rendererRouteContexts,
+  authSessionCoordinator,
+  installLocaleRefresh,
+  installDownloadSaveDialogHandler,
+  installWindowShortcutHandler,
+  loadRenderer,
+  getSystemLocale,
+});
 
 // --- Dev / production isolation -------------------------------------------
 // Give dev mode a separate app name and userData path so it gets its own
@@ -615,7 +521,7 @@ if (!gotTheLock) {
       readonly VITE_APP_URL?: string;
     };
 
-    runtimeConfigResult = await loadRuntimeConfig({
+    setRuntimeConfigResult(await loadRuntimeConfig({
       isDev: is.dev,
       // electron-vite exposes VITE_* on import.meta.env for the main process;
       // keep dev URL overrides on the same source the renderer used before
@@ -625,7 +531,7 @@ if (!gotTheLock) {
         wsUrl: viteEnv.VITE_WS_URL,
         appUrl: viteEnv.VITE_APP_URL,
       },
-    });
+    }));
 
     electronApp.setAppUserModelId(
       is.dev ? "ai.multica.desktop.dev" : "ai.multica.desktop",
@@ -643,191 +549,22 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window);
     });
 
-    // IPC: open URL in default browser (used by renderer for Google login).
-    // All scheme-allowlist enforcement lives in openExternalSafely — this
-    // is the single audit point for renderer-controlled URLs reaching the
-    // OS shell under the app's intentional webSecurity: false configuration
-    // (the renderer itself runs sandboxed).
-    ipcMain.handle("shell:openExternal", (_event, url: string) => {
-      return openExternalSafely(url);
-    });
-
-    // Renderer requests its own window close (e.g. Cmd+W on the last main
-    // tab, or Cmd+W anywhere in a dedicated issue window).
-    ipcMain.on("window:close", (event) => {
-      BrowserWindow.fromWebContents(event.sender)?.close();
-    });
-
-    ipcMain.handle("window:open-issue", (event, request: unknown) => {
-      if (!BrowserWindow.fromWebContents(event.sender)) {
-        return { ok: false, reason: "invalid_request" } as const;
-      }
-      const context = parseIssueWindowRequest(request);
-      if (!context) {
-        return { ok: false, reason: "invalid_request" } as const;
-      }
-      createIssueWindow(context);
-      return { ok: true } as const;
-    });
-
-    ipcMain.handle("file:download-url", (event, url: string) => {
-      const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-      if (!sourceWindow) {
-        console.warn("[download] ignored file:download-url — source window torn down");
-        return;
-      }
-      downloadURLSafely(sourceWindow, url);
-    });
-
-    // Sync IPC: app version + normalized OS for preload. Sync (not invoke) so
-    // preload can attach the values to `desktopAPI.appInfo` before any renderer
-    // code reads them, ensuring the very first HTTP request from the renderer
-    // already carries X-Client-Version and X-Client-OS.
-    ipcMain.on("app:get-info", (event) => {
-      const p = process.platform;
-      const os = p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
-      event.returnValue = { version: getAppVersion(), os };
-    });
-
-    // Sync IPC: read + clear any freeze/crash breadcrumb left by a previous
-    // session. The renderer flushes it to telemetry on boot (it couldn't be
-    // reported when it happened — the renderer was hung or gone). Read-and-
-    // clear so a failure reports exactly once.
-    ipcMain.on("freeze:get-last", (event) => {
-      event.returnValue = readFreezeBreadcrumb(freezeBreadcrumbPath());
-    });
-
-    // The renderer got its breadcrumb event to posthog — retire that exact
-    // payload. A newer failure recorded since the read keeps its own ts and
-    // survives to be reported on the next boot.
-    ipcMain.on("freeze:ack", (event, ts: unknown) => {
-      if (!BrowserWindow.fromWebContents(event.sender)) return;
-      if (typeof ts !== "number" || !Number.isFinite(ts)) return;
-      ackFreezeBreadcrumb(freezeBreadcrumbPath(), ts);
-    });
-
-    // Sync IPC: preload exposes the validated runtime config before renderer
-    // boot. If desktop.json exists but is invalid, renderer receives the
-    // blocking error and must not silently fall back to the cloud defaults.
-    ipcMain.on("runtime-config:get", (event) => {
-      event.returnValue = runtimeConfigResult;
-    });
-
-    ipcMain.on(RENDERER_ROUTE_CONTEXT_CHANNEL, (event, context: unknown) => {
-      if (!BrowserWindow.fromWebContents(event.sender)) return;
-      const sanitized = sanitizeRendererRouteContext(context);
-      if (!sanitized) return;
-      rendererRouteContexts.set(event.sender, sanitized);
-    });
-
-    // Preload announces each listener only after it has been installed by the
-    // main renderer. Ignore issue-window senders so they can never drain a
-    // payload intended for the tabbed application window.
-    ipcMain.on(
-      MAIN_RENDERER_CHANNEL_STATE_CHANNEL,
-      (event, state: unknown) => {
-        if (!mainWindow || event.sender !== mainWindow.webContents) return;
-        const parsed = parseMainRendererChannelState(state);
-        if (!parsed) return;
-        mainRendererMessages.setReady(
-          parsed.channel,
-          parsed.ready,
-          sendMainRendererMessage,
-        );
-      },
-    );
-
-    // Account identity is the only cross-renderer auth signal. Main remains
-    // authoritative and closes issue windows instead of copying credentials.
-    ipcMain.on(AUTH_SESSION_STATE_CHANNEL, (event, value: unknown) => {
-      const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-      const userId = parseAuthSessionUserId(value);
-      if (!sourceWindow || userId === undefined) return;
-
-      if (sourceWindow === mainWindow) {
-        const accountInvalidated = authSessionCoordinator.reportMain(userId);
-        if (accountInvalidated) {
-          authSessionGeneration += 1;
-          mainRendererMessages.clear("inbox:open");
-        }
-        return;
-      }
-      if (issueWindows.has(sourceWindow)) {
-        authSessionCoordinator.reportIssue(sourceWindow, userId);
-      }
-    });
-
-    // IPC: toggle immersive mode — hides the macOS traffic lights so full-screen
-    // modals (e.g. create-workspace) can place UI in the top-left corner
-    // without fighting the native window controls' hit-test.
-    ipcMain.handle("window:setImmersive", (event, immersive: boolean) => {
-      if (process.platform !== "darwin") return;
-      BrowserWindow.fromWebContents(event.sender)?.setWindowButtonVisibility(
-        !immersive,
-      );
-    });
-
-    // Main owns foreground detection and item-level dedupe. Every renderer
-    // has its own WebSocket and `document.hasFocus()` only describes that one
-    // window, so renderer-only gating can emit N duplicate system banners.
-    ipcMain.on("notification:show", (event, value: unknown) => {
-      const sourceWindow = BrowserWindow.fromWebContents(event.sender);
-      if (!sourceWindow) return;
-      if (sourceWindow === mainWindow) {
-        if (!authSessionCoordinator.hasActiveMainSession()) return;
-      } else if (
-        !issueWindows.has(sourceWindow) ||
-        !authSessionCoordinator.isCurrentIssueSession(sourceWindow)
-      ) {
-        return;
-      }
-
-      const payload = parseNativeNotificationPayload(value);
-      if (!payload || !Notification.isSupported()) return;
-      const anyWindowFocused = BrowserWindow.getAllWindows().some(
-        (window) => !window.isDestroyed() && window.isFocused(),
-      );
-      if (!notificationGate.shouldShow(payload.itemId, anyWindowFocused)) {
-        return;
-      }
-
-      const notification = new Notification({
-        title: payload.title,
-        body: payload.body,
-      });
-      const notificationSessionGeneration = authSessionGeneration;
-      notification.on("click", () => {
-        // A banner emitted for user A must not navigate after the main window
-        // logs out or switches to user B.
-        if (notificationSessionGeneration !== authSessionGeneration) return;
-        // Recreate the main window when an issue-only window outlived it, then
-        // wait for the inbox listener before delivering the navigation.
-        dispatchToMainRenderer("inbox:open", {
-          slug: payload.slug,
-          itemId: payload.itemId,
-          issueKey: payload.issueKey,
-        });
-      });
-      notification.show();
-    });
-
-    // IPC: update the dock / taskbar unread badge. Values above 99 render as
-    // "99+". macOS is the primary target (user-visible dock badge); Linux
-    // Unity launchers also respect `setBadgeCount`. Windows' taskbar overlay
-    // needs a pre-rendered PNG and is deferred — the OS notification + the
-    // in-app inbox sidebar cover the core UX there for now.
-    ipcMain.on("badge:set", (_event, rawCount: number) => {
-      const count = Math.max(0, Math.floor(rawCount));
-      if (process.platform === "darwin") {
-        const label = count === 0 ? "" : count > 99 ? "99+" : String(count);
-        app.dock?.setBadge(label);
-      } else {
-        app.setBadgeCount(count);
-      }
-    });
-
     desktopInitialized = true;
     createWindow();
+
+    registerIpcHandlers({
+      getMainWindow: () => mainWindow,
+      freezeBreadcrumbPath,
+      rendererRouteContexts,
+      authSessionCoordinator,
+      notificationGate,
+      mainRendererMessages,
+      issueWindowManager,
+      getAuthSessionGeneration: () => authSessionGeneration,
+      incrementAuthSessionGeneration: () => { authSessionGeneration += 1; },
+      dispatchToMainRenderer,
+      sendMainRendererMessage,
+    });
 
     setupAutoUpdater(() => mainWindow);
     setupDaemonManager(() => mainWindow);

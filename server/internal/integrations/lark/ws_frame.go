@@ -192,112 +192,127 @@ func UnmarshalFrame(b []byte) (*Frame, error) {
 			return nil, fmt.Errorf("ws frame: consume tag: %w", err)
 		}
 		b = b[n:]
-		switch num {
-		case 1: // SeqID uint64
-			if typ != protowire.VarintType {
-				return nil, fmt.Errorf("ws frame: field 1 expects varint, got %v", typ)
-			}
-			v, m := protowire.ConsumeVarint(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume seq_id: %w", err)
-			}
-			f.SeqID = v
-			b = b[m:]
-		case 2: // LogID uint64
-			if typ != protowire.VarintType {
-				return nil, fmt.Errorf("ws frame: field 2 expects varint, got %v", typ)
-			}
-			v, m := protowire.ConsumeVarint(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume log_id: %w", err)
-			}
-			f.LogID = v
-			b = b[m:]
-		case 3: // Service int32
-			if typ != protowire.VarintType {
-				return nil, fmt.Errorf("ws frame: field 3 expects varint, got %v", typ)
-			}
-			v, m := protowire.ConsumeVarint(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume service: %w", err)
-			}
-			f.Service = int32(v)
-			b = b[m:]
-		case 4: // Method int32
-			if typ != protowire.VarintType {
-				return nil, fmt.Errorf("ws frame: field 4 expects varint, got %v", typ)
-			}
-			v, m := protowire.ConsumeVarint(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume method: %w", err)
-			}
-			f.Method = int32(v)
-			b = b[m:]
-		case 5: // Headers (repeated)
-			if typ != protowire.BytesType {
-				return nil, fmt.Errorf("ws frame: field 5 expects bytes, got %v", typ)
-			}
-			hb, m := protowire.ConsumeBytes(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume header: %w", err)
-			}
-			h, herr := unmarshalHeader(hb)
-			if herr != nil {
-				return nil, herr
-			}
-			f.Headers = append(f.Headers, h)
-			b = b[m:]
-		case 6: // PayloadEncoding string
-			if typ != protowire.BytesType {
-				return nil, fmt.Errorf("ws frame: field 6 expects bytes, got %v", typ)
-			}
-			s, m := protowire.ConsumeString(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume payload_encoding: %w", err)
-			}
-			f.PayloadEncoding = s
-			b = b[m:]
-		case 7: // PayloadType string
-			if typ != protowire.BytesType {
-				return nil, fmt.Errorf("ws frame: field 7 expects bytes, got %v", typ)
-			}
-			s, m := protowire.ConsumeString(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume payload_type: %w", err)
-			}
-			f.PayloadType = s
-			b = b[m:]
-		case 8: // Payload bytes
-			if typ != protowire.BytesType {
-				return nil, fmt.Errorf("ws frame: field 8 expects bytes, got %v", typ)
-			}
-			raw, m := protowire.ConsumeBytes(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume payload: %w", err)
-			}
-			// Copy out so the Frame outlives the input buffer
-			// (ConsumeBytes returns a sub-slice).
-			f.Payload = append([]byte(nil), raw...)
-			b = b[m:]
-		case 9: // LogIDNew string
-			if typ != protowire.BytesType {
-				return nil, fmt.Errorf("ws frame: field 9 expects bytes, got %v", typ)
-			}
-			s, m := protowire.ConsumeString(b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: consume log_id_new: %w", err)
-			}
-			f.LogIDNew = s
-			b = b[m:]
-		default:
-			m := protowire.ConsumeFieldValue(num, typ, b)
-			if err := protowire.ParseError(m); err != nil {
-				return nil, fmt.Errorf("ws frame: skip unknown field %d: %w", num, err)
-			}
-			b = b[m:]
+		rest, err := unmarshalFrameField(num, typ, b, f)
+		if err != nil {
+			return nil, err
 		}
+		b = rest
 	}
 	return f, nil
+}
+
+func unmarshalFrameField(num protowire.Number, typ protowire.Type, b []byte, f *Frame) ([]byte, error) {
+	switch num {
+	case 1:
+		v, rest, err := consumeVarintField(b, typ, "seq_id", 1)
+		if err != nil {
+			return nil, err
+		}
+		f.SeqID = v
+		return rest, nil
+	case 2:
+		v, rest, err := consumeVarintField(b, typ, "log_id", 2)
+		if err != nil {
+			return nil, err
+		}
+		f.LogID = v
+		return rest, nil
+	case 3:
+		v, rest, err := consumeVarintField(b, typ, "service", 3)
+		if err != nil {
+			return nil, err
+		}
+		f.Service = int32(v)
+		return rest, nil
+	case 4:
+		v, rest, err := consumeVarintField(b, typ, "method", 4)
+		if err != nil {
+			return nil, err
+		}
+		f.Method = int32(v)
+		return rest, nil
+	case 5:
+		return unmarshalFrameHeaderField(b, typ, f)
+	case 6:
+		s, rest, err := consumeStringField(b, typ, "payload_encoding", 6)
+		if err != nil {
+			return nil, err
+		}
+		f.PayloadEncoding = s
+		return rest, nil
+	case 7:
+		s, rest, err := consumeStringField(b, typ, "payload_type", 7)
+		if err != nil {
+			return nil, err
+		}
+		f.PayloadType = s
+		return rest, nil
+	case 8:
+		return unmarshalFramePayloadField(b, typ, f)
+	case 9:
+		s, rest, err := consumeStringField(b, typ, "log_id_new", 9)
+		if err != nil {
+			return nil, err
+		}
+		f.LogIDNew = s
+		return rest, nil
+	default:
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if err := protowire.ParseError(m); err != nil {
+			return nil, fmt.Errorf("ws frame: skip unknown field %d: %w", num, err)
+		}
+		return b[m:], nil
+	}
+}
+
+func consumeVarintField(b []byte, typ protowire.Type, fieldName string, fieldNum int) (uint64, []byte, error) {
+	if typ != protowire.VarintType {
+		return 0, nil, fmt.Errorf("ws frame: field %d expects varint, got %v", fieldNum, typ)
+	}
+	v, m := protowire.ConsumeVarint(b)
+	if err := protowire.ParseError(m); err != nil {
+		return 0, nil, fmt.Errorf("ws frame: consume %s: %w", fieldName, err)
+	}
+	return v, b[m:], nil
+}
+
+func consumeStringField(b []byte, typ protowire.Type, fieldName string, fieldNum int) (string, []byte, error) {
+	if typ != protowire.BytesType {
+		return "", nil, fmt.Errorf("ws frame: field %d expects bytes, got %v", fieldNum, typ)
+	}
+	s, m := protowire.ConsumeString(b)
+	if err := protowire.ParseError(m); err != nil {
+		return "", nil, fmt.Errorf("ws frame: consume %s: %w", fieldName, err)
+	}
+	return s, b[m:], nil
+}
+
+func unmarshalFrameHeaderField(b []byte, typ protowire.Type, f *Frame) ([]byte, error) {
+	if typ != protowire.BytesType {
+		return nil, fmt.Errorf("ws frame: field 5 expects bytes, got %v", typ)
+	}
+	hb, m := protowire.ConsumeBytes(b)
+	if err := protowire.ParseError(m); err != nil {
+		return nil, fmt.Errorf("ws frame: consume header: %w", err)
+	}
+	h, herr := unmarshalHeader(hb)
+	if herr != nil {
+		return nil, herr
+	}
+	f.Headers = append(f.Headers, h)
+	return b[m:], nil
+}
+
+func unmarshalFramePayloadField(b []byte, typ protowire.Type, f *Frame) ([]byte, error) {
+	if typ != protowire.BytesType {
+		return nil, fmt.Errorf("ws frame: field 8 expects bytes, got %v", typ)
+	}
+	raw, m := protowire.ConsumeBytes(b)
+	if err := protowire.ParseError(m); err != nil {
+		return nil, fmt.Errorf("ws frame: consume payload: %w", err)
+	}
+	f.Payload = append([]byte(nil), raw...)
+	return b[m:], nil
 }
 
 func unmarshalHeader(b []byte) (FrameHeader, error) {
@@ -308,36 +323,49 @@ func unmarshalHeader(b []byte) (FrameHeader, error) {
 			return FrameHeader{}, fmt.Errorf("ws frame: header tag: %w", err)
 		}
 		b = b[n:]
-		switch num {
-		case 1:
-			if typ != protowire.BytesType {
-				return FrameHeader{}, fmt.Errorf("ws frame: header.key expects bytes, got %v", typ)
-			}
-			s, m := protowire.ConsumeString(b)
-			if err := protowire.ParseError(m); err != nil {
-				return FrameHeader{}, fmt.Errorf("ws frame: header.key: %w", err)
-			}
-			h.Key = s
-			b = b[m:]
-		case 2:
-			if typ != protowire.BytesType {
-				return FrameHeader{}, fmt.Errorf("ws frame: header.value expects bytes, got %v", typ)
-			}
-			s, m := protowire.ConsumeString(b)
-			if err := protowire.ParseError(m); err != nil {
-				return FrameHeader{}, fmt.Errorf("ws frame: header.value: %w", err)
-			}
-			h.Value = s
-			b = b[m:]
-		default:
-			m := protowire.ConsumeFieldValue(num, typ, b)
-			if err := protowire.ParseError(m); err != nil {
-				return FrameHeader{}, fmt.Errorf("ws frame: skip header field %d: %w", num, err)
-			}
-			b = b[m:]
+		rest, err := unmarshalHeaderField(num, typ, b, &h)
+		if err != nil {
+			return FrameHeader{}, err
 		}
+		b = rest
 	}
 	return h, nil
+}
+
+func unmarshalHeaderField(num protowire.Number, typ protowire.Type, b []byte, h *FrameHeader) ([]byte, error) {
+	switch num {
+	case 1:
+		s, rest, err := consumeHeaderStringField(b, typ, "key")
+		if err != nil {
+			return nil, err
+		}
+		h.Key = s
+		return rest, nil
+	case 2:
+		s, rest, err := consumeHeaderStringField(b, typ, "value")
+		if err != nil {
+			return nil, err
+		}
+		h.Value = s
+		return rest, nil
+	default:
+		m := protowire.ConsumeFieldValue(num, typ, b)
+		if err := protowire.ParseError(m); err != nil {
+			return nil, fmt.Errorf("ws frame: skip header field %d: %w", num, err)
+		}
+		return b[m:], nil
+	}
+}
+
+func consumeHeaderStringField(b []byte, typ protowire.Type, field string) (string, []byte, error) {
+	if typ != protowire.BytesType {
+		return "", nil, fmt.Errorf("ws frame: header.%s expects bytes, got %v", field, typ)
+	}
+	s, m := protowire.ConsumeString(b)
+	if err := protowire.ParseError(m); err != nil {
+		return "", nil, fmt.Errorf("ws frame: header.%s: %w", field, err)
+	}
+	return s, b[m:], nil
 }
 
 // NewPingFrame builds the client-side keepalive frame. Lark's long

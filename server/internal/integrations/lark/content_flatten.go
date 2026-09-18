@@ -127,44 +127,59 @@ func flattenPostContent(raw string) string {
 func flattenPostParagraph(spans []larkPostSpan) string {
 	parts := make([]string, 0, len(spans))
 	for _, s := range spans {
-		switch s.Tag {
-		case "text", "code_block":
-			if s.Text != "" {
-				parts = append(parts, s.Text)
-			}
-		case "a":
-			switch {
-			case s.Text != "" && s.Href != "":
-				parts = append(parts, s.Text+" ("+s.Href+")")
-			case s.Text != "":
-				parts = append(parts, s.Text)
-			case s.Href != "":
-				parts = append(parts, s.Href)
-			}
-		case "at":
-			// Prefer an already-resolved display name; otherwise emit
-			// the user_id, which on the receive side is the @_user_N
-			// placeholder a later resolveMentions pass maps to a name.
-			switch {
-			case s.UserName != "":
-				parts = append(parts, "@"+s.UserName)
-			case s.UserID != "":
-				parts = append(parts, s.UserID)
-			}
-		case "img":
-			parts = append(parts, "[Image]")
-		case "media":
-			parts = append(parts, "[Video]")
-		case "emotion":
-			// emoji_type is an enum key (e.g. "SMILE"), not display
-			// text — skip it rather than leak the key.
-		case "hr":
-			parts = append(parts, "---")
-		default:
-			if s.Text != "" {
-				parts = append(parts, s.Text)
-			}
+		if text := flattenPostSpan(s); text != "" {
+			parts = append(parts, text)
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func flattenPostSpan(s larkPostSpan) string {
+	switch s.Tag {
+	case "text", "code_block":
+		return s.Text
+	case "a":
+		return formatLinkSpan(s)
+	case "at":
+		return formatMentionSpan(s)
+	case "img":
+		return "[Image]"
+	case "media":
+		return "[Video]"
+	case "emotion":
+		// emoji_type is an enum key (e.g. "SMILE"), not display
+		// text — skip it rather than leak the key.
+		return ""
+	case "hr":
+		return "---"
+	default:
+		return s.Text
+	}
+}
+
+func formatLinkSpan(s larkPostSpan) string {
+	switch {
+	case s.Text != "" && s.Href != "":
+		return s.Text + " (" + s.Href + ")"
+	case s.Text != "":
+		return s.Text
+	case s.Href != "":
+		return s.Href
+	default:
+		return ""
+	}
+}
+
+func formatMentionSpan(s larkPostSpan) string {
+	// Prefer an already-resolved display name; otherwise emit
+	// the user_id, which on the receive side is the @_user_N
+	// placeholder a later resolveMentions pass maps to a name.
+	switch {
+	case s.UserName != "":
+		return "@" + s.UserName
+	case s.UserID != "":
+		return s.UserID
+	default:
+		return ""
+	}
 }

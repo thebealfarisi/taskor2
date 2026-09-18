@@ -192,61 +192,85 @@ type identityResolver struct{ q identityQueries }
 
 func (r *identityResolver) ResolveSender(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage) (engine.ResolvedIdentity, error) {
 	senderID := msg.Source.SenderID
+	binding, reused, err := r.findSenderBinding(ctx, inst, senderID)
+	if err != nil {
+		return engine.ResolvedIdentity{}, err
+	}
+
+	if err := r.checkBindingMembership(ctx, inst, binding, reused); err != nil {
+		return engine.ResolvedIdentity{}, err
+	}
+
+	if reused {
+		if err := r.materializeReusedBinding(ctx, inst, binding, senderID); err != nil {
+			return engine.ResolvedIdentity{}, err
+		}
+	}
+	return engine.ResolvedIdentity{UserID: binding.MulticaUserID}, nil
+}
+
+func (r *identityResolver) findSenderBinding(ctx context.Context, inst engine.ResolvedInstallation, senderID string) (db.ChannelUserBinding, bool, error) {
 	binding, err := r.q.GetChannelUserBindingByUserID(ctx, db.GetChannelUserBindingByUserIDParams{
 		InstallationID: inst.ID,
 		ChannelUserID:  senderID,
 	})
-	reused := false
-	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return engine.ResolvedIdentity{}, err
-		}
-		// Not linked to THIS installation. Before prompting, reuse a link the same
-		// Slack user already made to another installation of the same team in this
-		// workspace (MUL-3911): one link per Slack workspace, not per app.
-		cand, ok, ferr := r.reusableBinding(ctx, inst, senderID)
-		if ferr != nil {
-			return engine.ResolvedIdentity{}, ferr
-		}
-		if !ok {
-			return engine.ResolvedIdentity{}, engine.ErrSenderUnbound
-		}
-		binding, reused = cand, true
+	if err == nil {
+		return binding, false, nil
 	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return db.ChannelUserBinding{}, false, err
+	}
+	// Not linked to THIS installation. Before prompting, reuse a link the same
+	// Slack user already made to another installation of the same team in this
+	// workspace (MUL-3911): one link per Slack workspace, not per app.
+	cand, ok, ferr := r.reusableBinding(ctx, inst, senderID)
+	if ferr != nil {
+		return db.ChannelUserBinding{}, false, ferr
+	}
+	if !ok {
+		return db.ChannelUserBinding{}, false, engine.ErrSenderUnbound
+	}
+	return cand, true, nil
+}
+
+func (r *identityResolver) checkBindingMembership(ctx context.Context, inst engine.ResolvedInstallation, binding db.ChannelUserBinding, reused bool) error {
 	// Binding existence no longer proves membership (no FK); re-check. For a
 	// reused link this also gates materialization: we never persist a binding for
 	// a user who has since left the workspace.
-	if _, err := r.q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+	_, err := r.q.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
 		UserID:      binding.MulticaUserID,
 		WorkspaceID: inst.WorkspaceID,
-	}); err != nil {
+	})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			if reused {
 				// Same human, no longer a member: prompt a fresh link rather than
 				// surface "not a member" for an app they never linked.
-				return engine.ResolvedIdentity{}, engine.ErrSenderUnbound
+				return engine.ErrSenderUnbound
 			}
-			return engine.ResolvedIdentity{}, engine.ErrSenderNotMember
+			return engine.ErrSenderNotMember
 		}
-		return engine.ResolvedIdentity{}, err
+		return err
 	}
-	if reused {
-		// Materialize the reused link as a binding on THIS installation so later
-		// messages resolve on the fast per-installation path and are pruned with
-		// the member like any other. Idempotent via ON CONFLICT; a concurrent
-		// first message that already wrote it returns the same row.
-		if _, err := r.q.CreateChannelUserBinding(ctx, db.CreateChannelUserBindingParams{
-			WorkspaceID:    inst.WorkspaceID,
-			MulticaUserID:  binding.MulticaUserID,
-			InstallationID: inst.ID,
-			ChannelType:    string(TypeSlack),
-			ChannelUserID:  senderID,
-			Config:         []byte(`{}`),
-		}); err != nil {
-			return engine.ResolvedIdentity{}, fmt.Errorf("materialize reused slack binding: %w", err)
-		}
+	return nil
+}
+
+func (r *identityResolver) materializeReusedBinding(ctx context.Context, inst engine.ResolvedInstallation, binding db.ChannelUserBinding, senderID string) error {
+	// Materialize the reused link as a binding on THIS installation so later
+	// messages resolve on the fast per-installation path and are pruned with
+	// the member like any other. Idempotent via ON CONFLICT; a concurrent
+	// first message that already wrote it returns the same row.
+	if _, err := r.q.CreateChannelUserBinding(ctx, db.CreateChannelUserBindingParams{
+		WorkspaceID:    inst.WorkspaceID,
+		MulticaUserID:  binding.MulticaUserID,
+		InstallationID: inst.ID,
+		ChannelType:    string(TypeSlack),
+		ChannelUserID:  senderID,
+		Config:         []byte(`{}`),
+	}); err != nil {
+		return fmt.Errorf("materialize reused slack binding: %w", err)
 	}
-	return engine.ResolvedIdentity{UserID: binding.MulticaUserID}, nil
+	return nil
 }
 
 // reusableBinding looks for a link the same Slack user already made to ANOTHER

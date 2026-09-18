@@ -137,64 +137,10 @@ func inboundFromCallback(data *botCallbackData, appID string) (channel.InboundMe
 		return withDingTalkRaw(msg, rawEvent), true
 
 	case "picture":
-		var pc pictureContent
-		if len(data.Content) == 0 || json.Unmarshal(data.Content, &pc) != nil {
-			// Over-quota (errorCode 20001 strips content) or malformed payload:
-			// the sender is a real user who sent an image the bot cannot read.
-			// Route it into the engine so it gets identity-gated feedback.
-			return mediaUnreadableMsg(msg, rawEvent), true
-		}
-		ref, alt := refAlt(pc.DownloadCode, pc.PictureDownloadCode)
-		if ref == "" {
-			return mediaUnreadableMsg(msg, rawEvent), true
-		}
-		msg.Type = channel.MsgTypeImage
-		msg.Text = dingtalkImagePlaceholder
-		msg.CommandText = msg.Text
-		rawEvent.Media = []dingtalkMediaResource{dingtalkMediaResourceAt(ref, alt, 0)}
-		return withDingTalkRaw(msg, rawEvent), true
+		return parsePictureCallback(msg, rawEvent, data.Content)
 
 	case "richText":
-		var rc richTextContent
-		if len(data.Content) == 0 || json.Unmarshal(data.Content, &rc) != nil {
-			// Over-quota / malformed richText: surface it to the engine for
-			// identity-gated feedback rather than a silent adapter drop.
-			return mediaUnreadableMsg(msg, rawEvent), true
-		}
-		var (
-			text                   strings.Builder
-			commandText            strings.Builder
-			inlinePlaceholderCount int
-		)
-		for _, item := range rc.RichText {
-			// A single item may in principle carry BOTH a text run and a picture
-			// code; handle each independently (not a switch) so neither is
-			// silently dropped. Text first, then image, matching send order.
-			// Items with neither (undocumented kinds) contribute nothing.
-			if item.Text != "" {
-				text.WriteString(item.Text)
-				commandText.WriteString(item.Text)
-				inlinePlaceholderCount += strings.Count(item.Text, dingtalkImagePlaceholder)
-			}
-			if item.Type == "picture" || item.DownloadCode != "" || item.PictureDownloadCode != "" {
-				ref, alt := refAlt(item.DownloadCode, item.PictureDownloadCode)
-				if ref == "" {
-					continue // a picture item with no usable code
-				}
-				appendImagePlaceholder(&text)
-				rawEvent.Media = append(rawEvent.Media, dingtalkMediaResourceAt(ref, alt, inlinePlaceholderCount))
-				inlinePlaceholderCount++
-			}
-		}
-		if len(rawEvent.Media) == 0 {
-			msg.Type = channel.MsgTypeText
-		} else {
-			msg.Type = channel.MsgTypeImage
-		}
-		msg.Text = strings.TrimSpace(text.String())
-		msg.CommandText = strings.TrimSpace(commandText.String())
-		normalizeDingTalkRichTextFreshLayout(&msg, rc.RichText, len(rawEvent.Media) > 0)
-		return withDingTalkRaw(msg, rawEvent), true
+		return parseRichTextCallback(msg, rawEvent, data.Content)
 
 	case "audio":
 		msg.Type = channel.MsgTypeAudio
@@ -213,6 +159,68 @@ func inboundFromCallback(data *botCallbackData, appID string) (channel.InboundMe
 	return withDingTalkRaw(msg, rawEvent), true
 }
 
+func parsePictureCallback(msg channel.InboundMessage, rawEvent dingtalkRawEvent, content []byte) (channel.InboundMessage, bool) {
+	var pc pictureContent
+	if len(content) == 0 || json.Unmarshal(content, &pc) != nil {
+		// Over-quota (errorCode 20001 strips content) or malformed payload:
+		// the sender is a real user who sent an image the bot cannot read.
+		// Route it into the engine so it gets identity-gated feedback.
+		return mediaUnreadableMsg(msg, rawEvent), true
+	}
+	ref, alt := refAlt(pc.DownloadCode, pc.PictureDownloadCode)
+	if ref == "" {
+		return mediaUnreadableMsg(msg, rawEvent), true
+	}
+	msg.Type = channel.MsgTypeImage
+	msg.Text = dingtalkImagePlaceholder
+	msg.CommandText = msg.Text
+	rawEvent.Media = []dingtalkMediaResource{dingtalkMediaResourceAt(ref, alt, 0)}
+	return withDingTalkRaw(msg, rawEvent), true
+}
+
+func parseRichTextCallback(msg channel.InboundMessage, rawEvent dingtalkRawEvent, content []byte) (channel.InboundMessage, bool) {
+	var rc richTextContent
+	if len(content) == 0 || json.Unmarshal(content, &rc) != nil {
+		// Over-quota / malformed richText: surface it to the engine for
+		// identity-gated feedback rather than a silent adapter drop.
+		return mediaUnreadableMsg(msg, rawEvent), true
+	}
+	var (
+		text                   strings.Builder
+		commandText            strings.Builder
+		inlinePlaceholderCount int
+	)
+	for _, item := range rc.RichText {
+		// A single item may in principle carry BOTH a text run and a picture
+		// code; handle each independently (not a switch) so neither is
+		// silently dropped. Text first, then image, matching send order.
+		// Items with neither (undocumented kinds) contribute nothing.
+		if item.Text != "" {
+			text.WriteString(item.Text)
+			commandText.WriteString(item.Text)
+			inlinePlaceholderCount += strings.Count(item.Text, dingtalkImagePlaceholder)
+		}
+		if item.Type == "picture" || item.DownloadCode != "" || item.PictureDownloadCode != "" {
+			ref, alt := refAlt(item.DownloadCode, item.PictureDownloadCode)
+			if ref == "" {
+				continue // a picture item with no usable code
+			}
+			appendImagePlaceholder(&text)
+			rawEvent.Media = append(rawEvent.Media, dingtalkMediaResourceAt(ref, alt, inlinePlaceholderCount))
+			inlinePlaceholderCount++
+		}
+	}
+	if len(rawEvent.Media) == 0 {
+		msg.Type = channel.MsgTypeText
+	} else {
+		msg.Type = channel.MsgTypeImage
+	}
+	msg.Text = strings.TrimSpace(text.String())
+	msg.CommandText = strings.TrimSpace(commandText.String())
+	normalizeDingTalkRichTextFreshLayout(&msg, rc.RichText, len(rawEvent.Media) > 0)
+	return withDingTalkRaw(msg, rawEvent), true
+}
+
 // normalizeDingTalkRichTextFreshLayout strips /new from the visible rich-text
 // body before the shared Router handles it, preserving interleaved image
 // placeholders that Router cannot reconstruct from CommandText. It deliberately
@@ -225,13 +233,7 @@ func normalizeDingTalkRichTextFreshLayout(msg *channel.InboundMessage, items []r
 		return
 	}
 
-	firstText := -1
-	for i := range items {
-		if strings.TrimSpace(items[i].Text) != "" {
-			firstText = i
-			break
-		}
-	}
+	firstText := firstNonEmptyTextIndex(items)
 	if firstText < 0 {
 		return
 	}
@@ -242,6 +244,24 @@ func normalizeDingTalkRichTextFreshLayout(msg *channel.InboundMessage, items []r
 
 	msg.ForceFresh = true
 	items[firstText].Text = firstBody
+	msg.Text = renderRichTextVisible(items)
+	if body == "" {
+		// A media-bearing `/new` is a real turn, not the shared bare-command
+		// sentinel. ForceFresh carries the already-consumed directive.
+		msg.CommandText = msg.Text
+	}
+}
+
+func firstNonEmptyTextIndex(items []richTextItem) int {
+	for i := range items {
+		if strings.TrimSpace(items[i].Text) != "" {
+			return i
+		}
+	}
+	return -1
+}
+
+func renderRichTextVisible(items []richTextItem) string {
 	var visible strings.Builder
 	for _, item := range items {
 		visible.WriteString(item.Text)
@@ -252,12 +272,7 @@ func normalizeDingTalkRichTextFreshLayout(msg *channel.InboundMessage, items []r
 			}
 		}
 	}
-	msg.Text = strings.TrimSpace(visible.String())
-	if body == "" {
-		// A media-bearing `/new` is a real turn, not the shared bare-command
-		// sentinel. ForceFresh carries the already-consumed directive.
-		msg.CommandText = msg.Text
-	}
+	return strings.TrimSpace(visible.String())
 }
 
 func withDingTalkRaw(msg channel.InboundMessage, rawEvent dingtalkRawEvent) channel.InboundMessage {

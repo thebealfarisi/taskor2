@@ -439,6 +439,17 @@ func (s *Supervisor) sweep(ctx context.Context) {
 		s.cfg.Logger.Warn("channel engine: list active installations failed", "error", err)
 		return
 	}
+
+	active, candidates, candidateIDs, rotationWaits := s.collectSweepCandidates(rows)
+	s.reapInactiveSupervisors(active)
+
+	if len(candidates) == 0 {
+		return
+	}
+	s.processSweepCandidates(ctx, candidates, candidateIDs, rotationWaits)
+}
+
+func (s *Supervisor) collectSweepCandidates(rows []Installation) (map[string]struct{}, []leaseCandidate, []pgtype.UUID, []rotationWait) {
 	active := make(map[string]struct{}, len(rows))
 	candidates := make([]leaseCandidate, 0, len(rows))
 	candidateIDs := make([]pgtype.UUID, 0, len(rows))
@@ -465,6 +476,10 @@ func (s *Supervisor) sweep(ctx context.Context) {
 			candidateIDs = append(candidateIDs, row.ID)
 		}
 	}
+	return active, candidates, candidateIDs, rotationWaits
+}
+
+func (s *Supervisor) reapInactiveSupervisors(active map[string]struct{}) {
 	// Reap supervisors whose installation is no longer active (revoked
 	// since the last sweep). The supervisor exits on the next boundary,
 	// releases its lease, and the goroutine returns.
@@ -481,10 +496,9 @@ func (s *Supervisor) sweep(ctx context.Context) {
 		}
 	}
 	s.mu.Unlock()
+}
 
-	if len(candidates) == 0 {
-		return
-	}
+func (s *Supervisor) processSweepCandidates(ctx context.Context, candidates []leaseCandidate, candidateIDs []pgtype.UUID, rotationWaits []rotationWait) {
 	s.waitForRotations(ctx, rotationWaits)
 	held, err := s.leaseStore.ListHeldWSLeases(ctx, candidateIDs)
 	if err != nil {
@@ -669,16 +683,8 @@ func (s *Supervisor) supervise(ctx context.Context, inst Installation, id string
 
 		// Lease acquired. Build the platform channel via the registry,
 		// run it under a child context, and renew the lease in parallel.
-		ch, err := s.registry.Build(channel.Config{
-			Type:    inst.ChannelType,
-			ID:      inst.ID,
-			Raw:     inst.Config,
-			Handler: s.handler,
-		})
+		ch, err := s.buildChannel(inst, leaseTok, log)
 		if err != nil {
-			log.Error("channel engine: build channel failed", "error", err)
-			s.releaseLease(inst.ID, leaseTok)
-			s.adjustActiveOwners(-1)
 			if sleep(ctx, backoff) {
 				return
 			}
@@ -686,32 +692,13 @@ func (s *Supervisor) supervise(ctx context.Context, inst Installation, id string
 			continue
 		}
 
-		runCtx, runCancel := context.WithCancel(ctx)
-		renewDone := make(chan struct{})
-		go func() {
-			defer close(renewDone)
-			// renewLeaseUntil cancels runCtx itself on lease loss so the
-			// channel exits even if its wire I/O is blocked. This is what
-			// makes "at most one active connection per installation across
-			// replicas" hold under lease theft.
-			s.renewLeaseUntil(runCtx, runCancel, inst.ID, leaseTok, confirmedUntil)
-		}()
-
-		startedAt := s.cfg.Now()
-		runErr := ch.Connect(runCtx)
-		runCancel()
-		<-renewDone
-		s.disconnect(ch, id, log)
-		s.releaseLease(inst.ID, leaseTok)
-		s.adjustActiveOwners(-1)
-
+		uptime, runErr := s.runChannel(ctx, ch, inst, id, leaseTok, confirmedUntil, log)
 		if ctx.Err() != nil {
 			return
 		}
 
 		// If the connection lived long enough to be "stable", reset the
 		// backoff so a single late failure does not start us at the cap.
-		uptime := s.cfg.Now().Sub(startedAt)
 		if uptime >= s.cfg.ResetBackoffAfter {
 			backoff = s.cfg.MinBackoff
 		}
@@ -725,6 +712,46 @@ func (s *Supervisor) supervise(ctx context.Context, inst Installation, id string
 		}
 		backoff = nextBackoff(backoff, s.cfg.MaxBackoff)
 	}
+}
+
+func (s *Supervisor) buildChannel(inst Installation, leaseTok string, log *slog.Logger) (channel.Channel, error) {
+	ch, err := s.registry.Build(channel.Config{
+		Type:    inst.ChannelType,
+		ID:      inst.ID,
+		Raw:     inst.Config,
+		Handler: s.handler,
+	})
+	if err != nil {
+		log.Error("channel engine: build channel failed", "error", err)
+		s.releaseLease(inst.ID, leaseTok)
+		s.adjustActiveOwners(-1)
+		return nil, err
+	}
+	return ch, nil
+}
+
+func (s *Supervisor) runChannel(ctx context.Context, ch channel.Channel, inst Installation, id, leaseTok string, confirmedUntil time.Time, log *slog.Logger) (time.Duration, error) {
+	runCtx, runCancel := context.WithCancel(ctx)
+	renewDone := make(chan struct{})
+	go func() {
+		defer close(renewDone)
+		// renewLeaseUntil cancels runCtx itself on lease loss so the
+		// channel exits even if its wire I/O is blocked. This is what
+		// makes "at most one active connection per installation across
+		// replicas" hold under lease theft.
+		s.renewLeaseUntil(runCtx, runCancel, inst.ID, leaseTok, confirmedUntil)
+	}()
+
+	startedAt := s.cfg.Now()
+	runErr := ch.Connect(runCtx)
+	runCancel()
+	<-renewDone
+	s.disconnect(ch, id, log)
+	s.releaseLease(inst.ID, leaseTok)
+	s.adjustActiveOwners(-1)
+
+	uptime := s.cfg.Now().Sub(startedAt)
+	return uptime, runErr
 }
 
 // acquireLease tries to claim or renew the WS lease. Returns (true, nil)

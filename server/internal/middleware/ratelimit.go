@@ -94,21 +94,8 @@ func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
 		remoteHost = r.RemoteAddr
 	}
 
-	if len(trustedProxies) > 0 {
-		remoteIP := net.ParseIP(remoteHost)
-		if remoteIP != nil && isTrustedProxy(remoteIP, trustedProxies) {
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				// Walk right-to-left: the rightmost non-trusted entry is
-				// the last hop before the trusted proxy chain.
-				parts := strings.Split(xff, ",")
-				for i := len(parts) - 1; i >= 0; i-- {
-					candidate := net.ParseIP(strings.TrimSpace(parts[i]))
-					if candidate != nil && !isTrustedProxy(candidate, trustedProxies) {
-						return candidate.String()
-					}
-				}
-			}
-		}
+	if clientIP := extractTrustedForwardedIP(remoteHost, r.Header.Get("X-Forwarded-For"), trustedProxies); clientIP != "" {
+		return clientIP
 	}
 
 	// Default: use RemoteAddr in canonical form.
@@ -116,6 +103,26 @@ func extractIP(r *http.Request, trustedProxies []*net.IPNet) string {
 		return ip.String()
 	}
 	return remoteHost
+}
+
+func extractTrustedForwardedIP(remoteHost, xff string, trustedProxies []*net.IPNet) string {
+	if len(trustedProxies) == 0 || xff == "" {
+		return ""
+	}
+	remoteIP := net.ParseIP(remoteHost)
+	if remoteIP == nil || !isTrustedProxy(remoteIP, trustedProxies) {
+		return ""
+	}
+	// Walk right-to-left: the rightmost non-trusted entry is
+	// the last hop before the trusted proxy chain.
+	parts := strings.Split(xff, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := net.ParseIP(strings.TrimSpace(parts[i]))
+		if candidate != nil && !isTrustedProxy(candidate, trustedProxies) {
+			return candidate.String()
+		}
+	}
+	return ""
 }
 
 func isTrustedProxy(ip net.IP, cidrs []*net.IPNet) bool {

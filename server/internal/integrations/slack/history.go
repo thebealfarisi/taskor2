@@ -340,33 +340,45 @@ func flattenBlocks(blocks slack.Blocks) string {
 		}
 	}
 	for _, b := range blocks.BlockSet {
-		switch v := b.(type) {
-		case *slack.SectionBlock:
-			if v.Text != nil {
-				add(v.Text.Text)
-			}
-			for _, f := range v.Fields {
-				if f != nil {
-					add(f.Text)
-				}
-			}
-		case *slack.HeaderBlock:
-			if v.Text != nil {
-				add(v.Text.Text)
-			}
-		case *slack.MarkdownBlock:
-			add(v.Text)
-		case *slack.ContextBlock:
-			for _, el := range v.ContextElements.Elements {
-				if tb, ok := el.(*slack.TextBlockObject); ok {
-					add(tb.Text)
-				}
-			}
-		case *slack.RichTextBlock:
-			add(richTextBlockText(v))
-		}
+		appendBlockText(b, add)
 	}
 	return strings.Join(parts, "\n")
+}
+
+func appendBlockText(b slack.Block, add func(string)) {
+	switch v := b.(type) {
+	case *slack.SectionBlock:
+		appendSectionBlockText(v, add)
+	case *slack.HeaderBlock:
+		if v.Text != nil {
+			add(v.Text.Text)
+		}
+	case *slack.MarkdownBlock:
+		add(v.Text)
+	case *slack.ContextBlock:
+		appendContextBlockText(v, add)
+	case *slack.RichTextBlock:
+		add(richTextBlockText(v))
+	}
+}
+
+func appendSectionBlockText(v *slack.SectionBlock, add func(string)) {
+	if v.Text != nil {
+		add(v.Text.Text)
+	}
+	for _, f := range v.Fields {
+		if f != nil {
+			add(f.Text)
+		}
+	}
+}
+
+func appendContextBlockText(v *slack.ContextBlock, add func(string)) {
+	for _, el := range v.ContextElements.Elements {
+		if tb, ok := el.(*slack.TextBlockObject); ok {
+			add(tb.Text)
+		}
+	}
 }
 
 // richTextBlockText flattens a rich_text block to plain text, best-effort: it
@@ -380,20 +392,7 @@ func richTextBlockText(b *slack.RichTextBlock) string {
 	var lines []string
 	var writeElement func(el slack.RichTextElement)
 	writeSection := func(els []slack.RichTextSectionElement) {
-		var sb strings.Builder
-		for _, e := range els {
-			switch v := e.(type) {
-			case *slack.RichTextSectionTextElement:
-				sb.WriteString(v.Text)
-			case *slack.RichTextSectionLinkElement:
-				if v.Text != "" {
-					sb.WriteString(v.Text)
-				} else {
-					sb.WriteString(v.URL)
-				}
-			}
-		}
-		if s := strings.TrimSpace(sb.String()); s != "" {
+		if s := buildRichTextSectionString(els); s != "" {
 			lines = append(lines, s)
 		}
 	}
@@ -415,6 +414,23 @@ func richTextBlockText(b *slack.RichTextBlock) string {
 		writeElement(el)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func buildRichTextSectionString(els []slack.RichTextSectionElement) string {
+	var sb strings.Builder
+	for _, e := range els {
+		switch v := e.(type) {
+		case *slack.RichTextSectionTextElement:
+			sb.WriteString(v.Text)
+		case *slack.RichTextSectionLinkElement:
+			if v.Text != "" {
+				sb.WriteString(v.Text)
+			} else {
+				sb.WriteString(v.URL)
+			}
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // truncateRunes trims s to at most max runes, appending an ellipsis when cut.

@@ -58,55 +58,63 @@ func (a *dbScopeAuthorizer) AuthorizeScope(ctx context.Context, userID, workspac
 	}
 	switch scopeType {
 	case realtime.ScopeTask:
-		task, err := a.q.GetAgentTask(ctx, idUUID)
+		return a.authorizeTaskScope(ctx, userID, wsUUID, idUUID)
+	case realtime.ScopeChat:
+		return a.authorizeChatScope(ctx, userID, wsUUID, idUUID)
+	default:
+		return false, nil
+	}
+}
+
+func (a *dbScopeAuthorizer) authorizeTaskScope(ctx context.Context, userID string, wsUUID, idUUID pgtype.UUID) (bool, error) {
+	task, err := a.q.GetAgentTask(ctx, idUUID)
+	if err != nil {
+		return scopeLookupErr(err)
+	}
+	// Issue tasks: visible to any workspace member.
+	if task.IssueID.Valid {
+		issue, err := a.q.GetIssue(ctx, task.IssueID)
 		if err != nil {
 			return scopeLookupErr(err)
 		}
-		// Issue tasks: visible to any workspace member.
-		if task.IssueID.Valid {
-			issue, err := a.q.GetIssue(ctx, task.IssueID)
-			if err != nil {
-				return scopeLookupErr(err)
-			}
-			return issue.WorkspaceID == wsUUID, nil
-		}
-		// Chat tasks: only the chat session's creator may subscribe, mirroring
-		// the HTTP layer's creator-only access on chat resources.
-		if task.ChatSessionID.Valid {
-			sess, err := a.q.GetChatSession(ctx, task.ChatSessionID)
-			if err != nil {
-				return scopeLookupErr(err)
-			}
-			if sess.WorkspaceID != wsUUID {
-				return false, nil
-			}
-			uidUUID, err := util.ParseUUID(userID)
-			if err != nil || sess.CreatorID != uidUUID {
-				return false, nil
-			}
-			return true, nil
-		}
-		return false, nil
-	case realtime.ScopeChat:
-		sess, err := a.q.GetChatSession(ctx, idUUID)
+		return issue.WorkspaceID == wsUUID, nil
+	}
+	// Chat tasks: only the chat session's creator may subscribe, mirroring
+	// the HTTP layer's creator-only access on chat resources.
+	if task.ChatSessionID.Valid {
+		sess, err := a.q.GetChatSession(ctx, task.ChatSessionID)
 		if err != nil {
 			return scopeLookupErr(err)
 		}
 		if sess.WorkspaceID != wsUUID {
 			return false, nil
 		}
-		// Chat sessions are private to their creator (see handler/chat.go:
-		// GetChatSession / SendChatMessage / MarkChatSessionRead all enforce
-		// CreatorID == userID). The realtime layer must not weaken this:
-		// otherwise any workspace member who learns a session_id could
-		// subscribe to chat:message / chat:done / chat:session_read for a
-		// peer's private chat.
 		uidUUID, err := util.ParseUUID(userID)
 		if err != nil || sess.CreatorID != uidUUID {
 			return false, nil
 		}
 		return true, nil
-	default:
+	}
+	return false, nil
+}
+
+func (a *dbScopeAuthorizer) authorizeChatScope(ctx context.Context, userID string, wsUUID, idUUID pgtype.UUID) (bool, error) {
+	sess, err := a.q.GetChatSession(ctx, idUUID)
+	if err != nil {
+		return scopeLookupErr(err)
+	}
+	if sess.WorkspaceID != wsUUID {
 		return false, nil
 	}
+	// Chat sessions are private to their creator (see handler/chat.go:
+	// GetChatSession / SendChatMessage / MarkChatSessionRead all enforce
+	// CreatorID == userID). The realtime layer must not weaken this:
+	// otherwise any workspace member who learns a session_id could
+	// subscribe to chat:message / chat:done / chat:session_read for a
+	// peer's private chat.
+	uidUUID, err := util.ParseUUID(userID)
+	if err != nil || sess.CreatorID != uidUUID {
+		return false, nil
+	}
+	return true, nil
 }

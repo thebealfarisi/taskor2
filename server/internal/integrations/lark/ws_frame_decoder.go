@@ -207,8 +207,23 @@ func resolveMentions(text string, mentions []larkMention, botOpenID, botUnionID 
 	if text == "" || len(mentions) == 0 {
 		return text
 	}
-	// Filter empty keys and sort longest first so `@_user_10` is
-	// matched before `@_user_1` at any scan position.
+	sorted := prepareSortedMentions(mentions)
+
+	out := make([]byte, 0, len(text))
+	i := 0
+	for i < len(text) {
+		matched := findMatchingMention(text[i:], sorted)
+		if matched == nil {
+			out = append(out, text[i])
+			i++
+			continue
+		}
+		out, i = applyMentionReplacement(text, out, i, matched, botOpenID, botUnionID)
+	}
+	return string(out)
+}
+
+func prepareSortedMentions(mentions []larkMention) []larkMention {
 	sorted := make([]larkMention, 0, len(mentions))
 	for _, m := range mentions {
 		if m.Key != "" {
@@ -218,46 +233,41 @@ func resolveMentions(text string, mentions []larkMention, botOpenID, botUnionID 
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return len(sorted[i].Key) > len(sorted[j].Key)
 	})
+	return sorted
+}
 
-	out := make([]byte, 0, len(text))
-	i := 0
-	for i < len(text) {
-		var matched *larkMention
-		for idx := range sorted {
-			if strings.HasPrefix(text[i:], sorted[idx].Key) {
-				matched = &sorted[idx]
-				break
-			}
+func findMatchingMention(sub string, sorted []larkMention) *larkMention {
+	for idx := range sorted {
+		if strings.HasPrefix(sub, sorted[idx].Key) {
+			return &sorted[idx]
 		}
-		if matched == nil {
-			out = append(out, text[i])
-			i++
-			continue
-		}
-		end := i + len(matched.Key)
-		switch {
-		case isBotMention(*matched, botOpenID, botUnionID):
-			// Strip: eat one adjacent space (after the placeholder
-			// preferred; else backtrack one space we already emitted)
-			// so the seam is not left with a double space or a
-			// dangling leading space. Tabs / newlines / other chars
-			// are untouched.
-			if end < len(text) && text[end] == ' ' {
-				end++
-			} else if n := len(out); n > 0 && out[n-1] == ' ' {
-				out = out[:n-1]
-			}
-		case matched.Name != "":
-			out = append(out, '@')
-			out = append(out, matched.Name...)
-		default:
-			// Unknown mention — leave the placeholder intact so the
-			// agent at least sees a stable token.
-			out = append(out, matched.Key...)
-		}
-		i = end
 	}
-	return string(out)
+	return nil
+}
+
+func applyMentionReplacement(text string, out []byte, i int, matched *larkMention, botOpenID, botUnionID string) ([]byte, int) {
+	end := i + len(matched.Key)
+	switch {
+	case isBotMention(*matched, botOpenID, botUnionID):
+		// Strip: eat one adjacent space (after the placeholder
+		// preferred; else backtrack one space we already emitted)
+		// so the seam is not left with a double space or a
+		// dangling leading space. Tabs / newlines / other chars
+		// are untouched.
+		if end < len(text) && text[end] == ' ' {
+			end++
+		} else if n := len(out); n > 0 && out[n-1] == ' ' {
+			out = out[:n-1]
+		}
+	case matched.Name != "":
+		out = append(out, '@')
+		out = append(out, matched.Name...)
+	default:
+		// Unknown mention — leave the placeholder intact so the
+		// agent at least sees a stable token.
+		out = append(out, matched.Key...)
+	}
+	return out, end
 }
 
 // isBotMention identifies whether a payload mention refers to THIS

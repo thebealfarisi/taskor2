@@ -160,23 +160,31 @@ func taskAndSessionFromEvent(e events.Event) (taskID, sessionID pgtype.UUID, ok 
 	}
 	switch p := e.Payload.(type) {
 	case protocol.ChatDonePayload:
-		if !taskID.Valid {
-			_ = taskID.Scan(p.TaskID)
-		}
-		if !sessionID.Valid {
-			_ = sessionID.Scan(p.ChatSessionID)
-		}
+		scanFromChatDonePayload(p, &taskID, &sessionID)
 	case map[string]any:
-		if !taskID.Valid {
-			if raw, _ := p["task_id"].(string); raw != "" {
-				_ = taskID.Scan(raw)
-			}
-		}
-		if !sessionID.Valid {
-			if raw, _ := p["chat_session_id"].(string); raw != "" {
-				_ = sessionID.Scan(raw)
-			}
-		}
+		scanFromPayloadMap(p, &taskID, &sessionID)
 	}
 	return taskID, sessionID, taskID.Valid
+}
+
+func scanFromChatDonePayload(p protocol.ChatDonePayload, taskID, sessionID *pgtype.UUID) {
+	if !taskID.Valid {
+		_ = taskID.Scan(p.TaskID)
+	}
+	if !sessionID.Valid {
+		_ = sessionID.Scan(p.ChatSessionID)
+	}
+}
+
+func scanFromPayloadMap(p map[string]any, taskID, sessionID *pgtype.UUID) {
+	if !taskID.Valid {
+		if raw, _ := p["task_id"].(string); raw != "" {
+			_ = taskID.Scan(raw)
+		}
+	}
+	if !sessionID.Valid {
+		if raw, _ := p["chat_session_id"].(string); raw != "" {
+			_ = sessionID.Scan(raw)
+		}
+	}
 }

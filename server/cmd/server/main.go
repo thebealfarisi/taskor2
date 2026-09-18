@@ -268,10 +268,52 @@ func jwtSecretBootError(jwtSecret, appEnv string) error {
 	return auth.ValidateJWTSecret(jwtSecret)
 }
 
-func main() {
-	logger.Init()
+type redisInfra struct {
+	storeRedis        *redis.Client
+	channelLeaseRedis *redis.Client
+	relayWriteRedis   *redis.Client
+	relayReadRedis    *redis.Client
+	shardedReadRedis  *redis.Client
+	legacyReadRedis   *redis.Client
+	relay             realtime.ManagedRelay
+	broadcaster       realtime.Broadcaster
+	daemonWakeup      service.TaskWakeupNotifier
+}
 
-	// Warn about missing configuration
+func (r *redisInfra) close(cancel context.CancelFunc) {
+	if r.relay != nil {
+		r.relay.Stop()
+	}
+	cancel()
+	if r.relay != nil {
+		r.relay.Wait()
+	}
+	closeRedisClient("realtime-read-legacy", r.legacyReadRedis)
+	closeRedisClient("realtime-read-sharded", r.shardedReadRedis)
+	closeRedisClient(scopeRealtimeRead, r.relayReadRedis)
+	closeRedisClient("realtime-write", r.relayWriteRedis)
+	closeRedisClient("channel-lease", r.channelLeaseRedis)
+	closeRedisClient("store", r.storeRedis)
+}
+
+type serverMetrics struct {
+	server              *http.Server
+	httpMetrics         *obsmetrics.HTTPMetrics
+	businessMetrics     *obsmetrics.BusinessMetrics
+	channelMediaMetrics *obsmetrics.ChannelMediaReconcilerMetrics
+	channelLeaseMetrics *obsmetrics.ChannelLeaseMetrics
+	wecomMetrics        *obsmetrics.WecomMetrics
+	samplerPool         *pgxpool.Pool
+	addr                string
+}
+
+func (m *serverMetrics) close() {
+	if m.samplerPool != nil {
+		m.samplerPool.Close()
+	}
+}
+
+func validateStartupConfig() {
 	if err := jwtSecretBootError(os.Getenv("JWT_SECRET"), os.Getenv("APP_ENV")); err != nil {
 		slog.Error(
 			"refusing to start: "+err.Error()+
@@ -293,88 +335,29 @@ func main() {
 			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is enabled. Use it only for local development or private test instances.")
 		}
 	}
+}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	shutdownHoldDuration := envNonNegativeDuration("MULTICA_SHUTDOWN_HOLD_DURATION", 0)
-
-	// Feature flags: loaded once at startup from MULTICA_FEATURE_FLAGS_FILE
-	// (a YAML rule set) with FF_<KEY> env overrides layered on top.
-	// See server/pkg/featureflag for the schema and lifecycle rules.
-	//
-	// Booting the server without any flag config is intentional: when the
-	// env var is unset, every IsEnabled call falls through to the caller's
-	// default, so existing code paths are unchanged until someone adds a
-	// rule. A misconfigured (malformed / missing) file surfaces as a hard
-	// error so operators see misconfig the same way they do for any other
-	// MULTICA_*_FILE knob.
-	flags, err := featureflag.NewServiceFromEnv(featureflag.WithLogger(slog.Default()))
-	if err != nil {
-		slog.Error("feature flag configuration failed to load", "error", err)
-		os.Exit(1)
-	}
-	_ = flags // adopted by the router (opts.FeatureFlags) and server-side toggle points; see server/pkg/featureflag
-
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgres://multica:multica@localhost:5432/multica?sslmode=disable"
-	}
-
-	// Connect to database
-	ctx := context.Background()
+func initDatabase(ctx context.Context, dbURL string) *pgxpool.Pool {
 	pool, err := newDBPool(ctx, dbURL)
 	if err != nil {
 		slog.Error("unable to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
-
 	if err := pool.Ping(ctx); err != nil {
 		slog.Error("unable to ping database", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("connected to database")
 	logPoolConfig(pool)
+	return pool
+}
 
-	bus := events.New()
-	hub := realtime.NewHub()
-	go hub.Run()
-	daemonHub := daemonws.NewHub()
-	var daemonWakeup service.TaskWakeupNotifier = daemonHub
+func setupRedisRelay(relayCtx context.Context, hub *realtime.Hub, daemonHub *daemonws.Hub) *redisInfra {
+	infra := &redisInfra{
+		broadcaster:  hub,
+		daemonWakeup: daemonHub,
+	}
 
-	// MUL-1138: when REDIS_URL is set, route fanout through a Redis relay so
-	// multiple API nodes can deliver each other's events. Without it the hub
-	// is the sole broadcaster and the server stays single-node (legacy).
-	// Runtime local-skill stores and realtime relay traffic use separate Redis
-	// clients so blocking stream consumers cannot starve request-path Redis
-	// operations. Channel leases are initialized separately below so production
-	// can point them at a dedicated no-eviction Redis instance.
-	relayCtx, relayCancel := context.WithCancel(context.Background())
-	var broadcaster realtime.Broadcaster = hub
-	var storeRedis *redis.Client
-	var channelLeaseRedis *redis.Client
-	var relayWriteRedis *redis.Client
-	var relayReadRedis *redis.Client
-	var shardedReadRedis *redis.Client
-	var legacyReadRedis *redis.Client
-	var relay realtime.ManagedRelay
-	defer func() {
-		if relay != nil {
-			relay.Stop()
-		}
-		relayCancel()
-		if relay != nil {
-			relay.Wait()
-		}
-		closeRedisClient("realtime-read-legacy", legacyReadRedis)
-		closeRedisClient("realtime-read-sharded", shardedReadRedis)
-		closeRedisClient(scopeRealtimeRead, relayReadRedis)
-		closeRedisClient("realtime-write", relayWriteRedis)
-		closeRedisClient("channel-lease", channelLeaseRedis)
-		closeRedisClient("store", storeRedis)
-	}()
 	sharedRedisURL := strings.TrimSpace(os.Getenv("REDIS_URL"))
 	relayRedisURL := realtimeRelayRedisURLFromEnv()
 	if (sharedRedisURL != "" || relayRedisURL != "") && envBool("REDIS_DISABLE_CLIENT_NAME", false) {
@@ -384,62 +367,11 @@ func main() {
 		if opts, err := redis.ParseURL(sharedRedisURL); err != nil {
 			slog.Error("invalid REDIS_URL — request-path Redis features disabled", "error", err)
 		} else {
-			storeRedis = newNamedRedisClient(opts, "store")
+			infra.storeRedis = newNamedRedisClient(opts, "store")
 		}
 	}
 	if relayRedisURL != "" {
-		opts, err := redis.ParseURL(relayRedisURL)
-		if err != nil {
-			slog.Error("invalid realtime relay Redis URL — falling back to in-memory hub", "error", err)
-		} else {
-			relayWriteRedis = newNamedRedisClient(opts, "realtime-write")
-
-			relayMode := realtimeRelayModeFromEnv()
-			relayConfig := shardedRelayConfigFromEnv()
-			switch relayMode {
-			case "legacy":
-				relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
-				relay = realtime.NewRedisRelayWithClientsAndConfig(hub, relayWriteRedis, relayReadRedis, relayConfig.RetentionConfig())
-				slog.Info("daemon websocket wakeup: Redis fanout disabled in legacy realtime relay mode")
-			case "dual":
-				shardedReadRedis = newNamedRedisClient(opts, "realtime-read-sharded")
-				legacyReadRedis = newNamedRedisClient(opts, "realtime-read-legacy")
-				sharded := realtime.NewShardedStreamRelay(hub, relayWriteRedis, shardedReadRedis, relayConfig)
-				sharded.SetDaemonRuntimeDeliverer(daemonHub)
-				legacy := realtime.NewRedisRelayWithClientsAndConfig(hub, relayWriteRedis, legacyReadRedis, relayConfig.RetentionConfig())
-				relay = realtime.NewMirroredRelay(sharded, legacy)
-				daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
-			default:
-				relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
-				sharded := realtime.NewShardedStreamRelay(hub, relayWriteRedis, relayReadRedis, relayConfig)
-				sharded.SetDaemonRuntimeDeliverer(daemonHub)
-				relay = sharded
-				daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
-			}
-			relay.Start(relayCtx)
-			broadcaster = realtime.NewDualWriteBroadcaster(hub, relay)
-			storePoolSize := 0
-			if storeRedis != nil {
-				storePoolSize = storeRedis.Options().PoolSize
-			}
-			slog.Info(
-				"realtime: Redis relay enabled",
-				"node_id", relay.NodeID(),
-				"mode", relayMode,
-				"dedicated_instance", strings.TrimSpace(os.Getenv("REALTIME_RELAY_REDIS_URL")) != "",
-				"shards", relayConfig.Shards,
-				"stream_max_len", relayConfig.StreamMaxLen,
-				"replay_grace", relayConfig.ReplayGrace.String(),
-				"trim_horizon", relayConfig.TrimHorizon.String(),
-				"stream_ttl", relayConfig.StreamTTL.String(),
-				"stream_ttl_enabled", relayConfig.StreamTTLEnabled,
-				"xread_count", relayConfig.ReadCount,
-				"xread_block", relayConfig.ReadBlock.String(),
-				"store_pool_size", storePoolSize,
-				"realtime_write_pool_size", opts.PoolSize,
-				"realtime_read_pool_size", opts.PoolSize,
-			)
-		}
+		setupRealtimeRelay(relayCtx, hub, daemonHub, infra, relayRedisURL)
 	} else {
 		slog.Info("realtime: REDIS_URL and REALTIME_RELAY_REDIS_URL are unset — using in-memory hub (single-node mode)")
 	}
@@ -450,133 +382,135 @@ func main() {
 		} else if opts, err := redis.ParseURL(leaseRedisURL); err != nil {
 			slog.Error("channel leases: invalid Redis URL; supervisor will fail closed", "error", err)
 		} else {
-			channelLeaseRedis = newNamedRedisClient(opts, "channel-lease")
+			infra.channelLeaseRedis = newNamedRedisClient(opts, "channel-lease")
 		}
 	}
-	registerListeners(bus, broadcaster)
 
-	analyticsClient := analytics.NewFromEnv()
-	defer analyticsClient.Close()
+	return infra
+}
 
-	queries := db.New(pool)
-	hub.SetAuthorizer(newScopeAuthorizer(queries))
-	// Order matters: subscriber listeners must register BEFORE notification listeners.
-	// The notification listener queries the subscriber table to determine recipients,
-	// so subscribers must be written first within the same synchronous event dispatch.
-	registerSubscriberListeners(bus, pool)
-	registerActivityListeners(bus, queries)
-	registerNotificationListeners(bus, queries)
-
-	metricsConfig := obsmetrics.ConfigFromEnv()
-	var metricsServer *http.Server
-	var httpMetrics *obsmetrics.HTTPMetrics
-	var businessMetrics *obsmetrics.BusinessMetrics
-	var samplerPool *pgxpool.Pool
-	var channelMediaMetrics *obsmetrics.ChannelMediaReconcilerMetrics
-	var channelLeaseMetrics *obsmetrics.ChannelLeaseMetrics
-	var wecomMetrics *obsmetrics.WecomMetrics
-	if metricsConfig.Enabled() {
-		// Build a dedicated tiny pool for the BusinessSamplerCollector
-		// so a stalled scrape can never starve business traffic. If the
-		// pool fails to construct we log and continue without the
-		// sampler — the rest of /metrics is still useful.
-		var err error
-		samplerPool, err = newSamplerDBPool(ctx, dbURL)
-		if err != nil {
-			slog.Warn("metrics: failed to build sampler pgxpool; sampler disabled", "error", err)
-			samplerPool = nil
-		}
-
-		metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
-			Pool:     pool,
-			Realtime: realtime.M,
-			DaemonWS: daemonws.M,
-			Version:  version,
-			Commit:   commit,
-			BusinessSampler: func() *obsmetrics.BusinessSamplerOptions {
-				if samplerPool == nil {
-					return nil
-				}
-				return &obsmetrics.BusinessSamplerOptions{Pool: samplerPool}
-			}(),
-		})
-		httpMetrics = metricsRegistry.HTTP
-		businessMetrics = metricsRegistry.Business
-		channelMediaMetrics = metricsRegistry.ChannelMedia
-		channelLeaseMetrics = metricsRegistry.ChannelLease
-		wecomMetrics = metricsRegistry.Wecom
-		// Forward inbound daemon WS frames into the per-kind counter so
-		// dashboards can split heartbeat / unknown / invalid traffic.
-		if daemonHub != nil {
-			daemonHub.SetMessageKindRecorder(businessMetrics)
-		}
-		metricsServer = obsmetrics.NewServer(metricsConfig.Addr, metricsRegistry.Gatherer)
-		if !obsmetrics.IsLoopbackAddr(metricsConfig.Addr) {
-			slog.Warn(
-				"metrics listener is not loopback-only; restrict access with private networking, allowlists, or proxy auth",
-				"addr", metricsConfig.Addr,
-			)
-		}
-	}
-	if samplerPool != nil {
-		defer samplerPool.Close()
-	}
-
-	// Construct the BatchedHeartbeatScheduler before the router so it can
-	// be injected into the Handler. The Run goroutine starts below
-	// alongside the sweeper, and Stop is called explicitly during graceful
-	// shutdown so any pending bumps are flushed before we exit.
-	heartbeatScheduler := handler.NewBatchedHeartbeatScheduler(queries, handler.DefaultHeartbeatBatchInterval)
-
-	// Validate the LLM retry budget before the router exists: an operator who
-	// typed a value we cannot honor should see the boot stop, the same way a
-	// malformed feature-flag file does above.
-	llmMaxRetries, err := parseLLMMaxRetries(os.Getenv("MULTICA_LLM_MAX_RETRIES"))
+func setupRealtimeRelay(relayCtx context.Context, hub *realtime.Hub, daemonHub *daemonws.Hub, infra *redisInfra, relayRedisURL string) {
+	opts, err := redis.ParseURL(relayRedisURL)
 	if err != nil {
-		slog.Error("invalid MULTICA_LLM_MAX_RETRIES", "error", err)
-		os.Exit(1)
+		slog.Error("invalid realtime relay Redis URL — falling back to in-memory hub", "error", err)
+		return
 	}
 
-	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
-		HTTPMetrics:         httpMetrics,
-		BusinessMetrics:     businessMetrics,
-		ChannelLeaseMetrics: channelLeaseMetrics,
-		ChannelLeaseRedis:   channelLeaseRedis,
-		WecomMetrics:        wecomMetrics,
-		DaemonHub:           daemonHub,
-		DaemonWakeup:        daemonWakeup,
-		FeatureFlags:        flags,
-		HeartbeatScheduler:  heartbeatScheduler,
-		LLMMaxRetries:       llmMaxRetries,
+	infra.relayWriteRedis = newNamedRedisClient(opts, "realtime-write")
+	relayMode := realtimeRelayModeFromEnv()
+	relayConfig := shardedRelayConfigFromEnv()
+	switch relayMode {
+	case "legacy":
+		infra.relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
+		infra.relay = realtime.NewRedisRelayWithClientsAndConfig(hub, infra.relayWriteRedis, infra.relayReadRedis, relayConfig.RetentionConfig())
+		slog.Info("daemon websocket wakeup: Redis fanout disabled in legacy realtime relay mode")
+	case "dual":
+		infra.shardedReadRedis = newNamedRedisClient(opts, "realtime-read-sharded")
+		infra.legacyReadRedis = newNamedRedisClient(opts, "realtime-read-legacy")
+		sharded := realtime.NewShardedStreamRelay(hub, infra.relayWriteRedis, infra.shardedReadRedis, relayConfig)
+		sharded.SetDaemonRuntimeDeliverer(daemonHub)
+		legacy := realtime.NewRedisRelayWithClientsAndConfig(hub, infra.relayWriteRedis, infra.legacyReadRedis, relayConfig.RetentionConfig())
+		infra.relay = realtime.NewMirroredRelay(sharded, legacy)
+		infra.daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
+	default:
+		infra.relayReadRedis = newNamedRedisClient(opts, scopeRealtimeRead)
+		sharded := realtime.NewShardedStreamRelay(hub, infra.relayWriteRedis, infra.relayReadRedis, relayConfig)
+		sharded.SetDaemonRuntimeDeliverer(daemonHub)
+		infra.relay = sharded
+		infra.daemonWakeup = daemonws.NewRelayNotifier(daemonHub, sharded)
+	}
+	infra.relay.Start(relayCtx)
+	infra.broadcaster = realtime.NewDualWriteBroadcaster(hub, infra.relay)
+	storePoolSize := 0
+	if infra.storeRedis != nil {
+		storePoolSize = infra.storeRedis.Options().PoolSize
+	}
+	slog.Info(
+		"realtime: Redis relay enabled",
+		"node_id", infra.relay.NodeID(),
+		"mode", relayMode,
+		"dedicated_instance", strings.TrimSpace(os.Getenv("REALTIME_RELAY_REDIS_URL")) != "",
+		"shards", relayConfig.Shards,
+		"stream_max_len", relayConfig.StreamMaxLen,
+		"replay_grace", relayConfig.ReplayGrace.String(),
+		"trim_horizon", relayConfig.TrimHorizon.String(),
+		"stream_ttl", relayConfig.StreamTTL.String(),
+		"stream_ttl_enabled", relayConfig.StreamTTLEnabled,
+		"xread_count", relayConfig.ReadCount,
+		"xread_block", relayConfig.ReadBlock.String(),
+		"store_pool_size", storePoolSize,
+		"realtime_write_pool_size", opts.PoolSize,
+		"realtime_read_pool_size", opts.PoolSize,
+	)
+}
+
+func setupMetrics(ctx context.Context, pool *pgxpool.Pool, daemonHub *daemonws.Hub, dbURL string) *serverMetrics {
+	metricsConfig := obsmetrics.ConfigFromEnv()
+	if !metricsConfig.Enabled() {
+		return &serverMetrics{}
+	}
+
+	samplerPool, err := newSamplerDBPool(ctx, dbURL)
+	if err != nil {
+		slog.Warn("metrics: failed to build sampler pgxpool; sampler disabled", "error", err)
+		samplerPool = nil
+	}
+
+	metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
+		Pool:     pool,
+		Realtime: realtime.M,
+		DaemonWS: daemonws.M,
+		Version:  version,
+		Commit:   commit,
+		BusinessSampler: func() *obsmetrics.BusinessSamplerOptions {
+			if samplerPool == nil {
+				return nil
+			}
+			return &obsmetrics.BusinessSamplerOptions{Pool: samplerPool}
+		}(),
 	})
 
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
+	if daemonHub != nil {
+		daemonHub.SetMessageKindRecorder(metricsRegistry.Business)
 	}
-	profilingServer := profiling.NewServer()
+	metricsServer := obsmetrics.NewServer(metricsConfig.Addr, metricsRegistry.Gatherer)
+	if !obsmetrics.IsLoopbackAddr(metricsConfig.Addr) {
+		slog.Warn(
+			"metrics listener is not loopback-only; restrict access with private networking, allowlists, or proxy auth",
+			"addr", metricsConfig.Addr,
+		)
+	}
 
-	// Start background workers.
-	sweepCtx, sweepCancel := context.WithCancel(context.Background())
-	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
-	// Reuse the router's services here. In particular, the router wires the
-	// EmptyClaim cache into TaskService; constructing a second TaskService for
-	// scheduled Autopilot dispatch would send the daemon wakeup without bumping
-	// that cache's version, so an idle runtime could keep returning an empty
-	// claim until the cache TTL expires.
+	return &serverMetrics{
+		server:              metricsServer,
+		httpMetrics:         metricsRegistry.HTTP,
+		businessMetrics:     metricsRegistry.Business,
+		channelMediaMetrics: metricsRegistry.ChannelMedia,
+		channelLeaseMetrics: metricsRegistry.ChannelLease,
+		wecomMetrics:        metricsRegistry.Wecom,
+		samplerPool:         samplerPool,
+		addr:                metricsConfig.Addr,
+	}
+}
+
+func startBackgroundWorkers(
+	sweepCtx, autopilotCtx context.Context,
+	pool *pgxpool.Pool,
+	queries *db.Queries,
+	bus *events.Bus,
+	h *handler.Handler,
+	storeRedis *redis.Client,
+	heartbeatScheduler *handler.BatchedHeartbeatScheduler,
+	channelMediaMetrics *obsmetrics.ChannelMediaReconcilerMetrics,
+) {
 	taskSvc, autopilotSvc := backgroundServices(h)
 	registerAutopilotListeners(bus, autopilotSvc)
 
-	// Construct a LivenessStore that mirrors the one wired into the HTTP
-	// handler. Both the heartbeat write path (handler) and the sweeper read
-	// path (here) must agree on the same Redis-or-Noop choice; if they
-	// disagree, online runtimes get falsely marked offline.
 	var liveness handler.LivenessStore = handler.NewNoopLivenessStore()
 	if storeRedis != nil {
 		liveness = handler.NewRedisLivenessStore(storeRedis)
 	}
 
-	// Start background sweeper to mark stale runtimes as offline.
 	runtimeReconnectGrace := envDuration("MULTICA_RUNTIME_RECONNECT_GRACE", defaultRuntimeReconnectGrace)
 	if runtimeReconnectGrace < minimumRuntimeReconnectGrace {
 		slog.Warn("runtime reconnect grace is shorter than heartbeat freshness; clamping",
@@ -598,64 +532,183 @@ func main() {
 	if h.TelegramOutbound != nil {
 		h.TelegramOutbound.Start(sweepCtx)
 	}
-	// GitHub PR-card API snapshot pipeline (MUL-5265): worker pool + TTL sweeper.
-	// No-op when unconfigured (no App private key).
 	h.PRRefresh.Start(sweepCtx)
 
-	// Channel inbound supervisor (MUL-3620): holds the §4.4 WS lease per
-	// installation and drives each channel.Channel. It is channel-agnostic,
-	// not Lark-specific, but remains nil when lease startup validation fails
-	// (notably Redis fail-closed readiness). With no platform registered or no
-	// installation rows it simply idles. Lifecycle is bound to sweepCtx so it winds down
-	// alongside the other long-running workers, AFTER the HTTP server has
-	// drained.
 	if h.ChannelSupervisor != nil {
 		go h.ChannelSupervisor.Run(sweepCtx)
 	}
-
-	// Media intent-ledger reconciler (PR #5580): settles uploaded-but-unbound
-	// channel media objects. An independent worker so object-storage latency
-	// spikes cannot starve any other sweeper's cadence.
 	if h.ChannelMediaReconciler != nil {
 		h.ChannelMediaReconciler.Metrics = channelMediaMetrics
 		go h.ChannelMediaReconciler.Run(sweepCtx)
 	}
 
-	// MUL-2957: DB-backed execution scheduler. The scheduler turns the
-	// `sys_cron_executions` table into the distributed lease + audit
-	// log for internal periodic jobs. The first job is
-	// `rollup_task_usage_hourly`, which replaces the previously
-	// operator-registered `pg_cron` entry (still safe to run
-	// concurrently — the SQL function holds advisory lock 4246).
-	//
-	// A failure to register the job is treated as fatal here only at
-	// the registration step (a duplicate name is the only realistic
-	// cause and indicates a code bug). Once running, the manager
-	// surfaces transient errors — DB unreachable, sys_cron_executions
-	// missing because of an unusual partial-migration state — by
-	// logging them on the tick that fails and retrying on the next
-	// cycle, so a temporary outage does not crash the server.
 	schedulerMgr := scheduler.NewManager(pool, scheduler.Options{})
 	if err := schedulerMgr.Register(scheduler.TaskUsageHourlyJob(pool)); err != nil {
 		slog.Warn("scheduler: failed to register task_usage_hourly rollup job", "error", err)
 	}
-	// MUL-3551: scheduled-Autopilot dispatch runs on the same DB-backed
-	// scheduler. The job owns its plan_times via PlansForScope (each
-	// trigger has its own cron expression, so the Cadence planner does
-	// not fit). Crash recovery, occurrence-level idempotency, lease
-	// theft, and retry are all reused from the manager + sys_cron_executions
-	// — there is no separate goroutine for scheduled Autopilot anymore.
 	if err := schedulerMgr.Register(scheduler.AutopilotScheduleDispatchJob(pool, queries, autopilotSvc)); err != nil {
 		slog.Warn("scheduler: failed to register autopilot_schedule_dispatch job", "error", err)
 	}
 	go func() {
 		_ = schedulerMgr.Run(sweepCtx)
 	}()
+}
+
+func drainChannelSupervisor(h *handler.Handler) {
+	if h.ChannelSupervisor == nil {
+		return
+	}
+	if !h.ChannelSupervisor.WaitWithTimeout(h.ChannelSupervisor.ShutdownTimeout()) {
+		slog.Warn("channel supervisor: connections did not exit within shutdown timeout; proceeding",
+			"timeout", h.ChannelSupervisor.ShutdownTimeout().String(),
+		)
+	}
+	if h.ChannelRouter != nil {
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if !h.ChannelRouter.Drain(drainCtx) {
+			slog.Warn("channel router: drain deadline reached; deferred media fallback remains durable")
+		}
+		drainCancel()
+	}
+}
+
+func gracefulShutdown(
+	srv *http.Server,
+	metricsServer *http.Server,
+	profilingServer *http.Server,
+	h *handler.Handler,
+	heartbeatScheduler *handler.BatchedHeartbeatScheduler,
+	autopilotCancel context.CancelFunc,
+	sweepCancel context.CancelFunc,
+) {
+	slog.Info("shutting down server")
+	autopilotCancel()
+
+	apiShutdownCtx, apiShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := srv.Shutdown(apiShutdownCtx); err != nil {
+		apiShutdownCancel()
+		slog.Error("server forced to shutdown", "error", err)
+		os.Exit(1)
+	}
+	apiShutdownCancel()
+
+	sweepCancel()
+	heartbeatScheduler.Stop()
+	if h.WebhookDeliveryWorker != nil && !h.WebhookDeliveryWorker.WaitWithTimeout(5*time.Second) {
+		slog.Warn("webhook delivery worker did not exit within shutdown timeout")
+	}
+	if h.TelegramOutbound != nil && !h.TelegramOutbound.WaitWithTimeout(5*time.Second) {
+		slog.Warn("telegram outbound workers did not exit within shutdown timeout")
+	}
+
+	drainChannelSupervisor(h)
 
 	if metricsServer != nil {
+		metricsShutdownCtx, metricsShutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := metricsServer.Shutdown(metricsShutdownCtx); err != nil {
+			slog.Error("metrics server forced to shutdown", "error", err)
+		}
+		metricsShutdownCancel()
+	}
+	profilingShutdownCtx, profilingShutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	if err := profilingServer.Shutdown(profilingShutdownCtx); err != nil {
+		slog.Error("pprof server forced to shutdown", "error", err)
+	}
+	profilingShutdownCancel()
+	slog.Info("server stopped")
+}
+
+func main() {
+	logger.Init()
+	validateStartupConfig()
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	shutdownHoldDuration := envNonNegativeDuration("MULTICA_SHUTDOWN_HOLD_DURATION", 0)
+
+	flags, err := featureflag.NewServiceFromEnv(featureflag.WithLogger(slog.Default()))
+	if err != nil {
+		slog.Error("feature flag configuration failed to load", "error", err)
+		os.Exit(1)
+	}
+	_ = flags
+
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://multica:multica@localhost:5432/multica?sslmode=disable"
+	}
+
+	ctx := context.Background()
+	pool := initDatabase(ctx, dbURL)
+	defer pool.Close()
+
+	bus := events.New()
+	hub := realtime.NewHub()
+	go hub.Run()
+	daemonHub := daemonws.NewHub()
+
+	relayCtx, relayCancel := context.WithCancel(context.Background())
+	redisInfra := setupRedisRelay(relayCtx, hub, daemonHub)
+	defer redisInfra.close(relayCancel)
+
+	registerListeners(bus, redisInfra.broadcaster)
+
+	analyticsClient := analytics.NewFromEnv()
+	defer analyticsClient.Close()
+
+	queries := db.New(pool)
+	hub.SetAuthorizer(newScopeAuthorizer(queries))
+	registerSubscriberListeners(bus, pool)
+	registerActivityListeners(bus, queries)
+	registerNotificationListeners(bus, queries)
+
+	metrics := setupMetrics(ctx, pool, daemonHub, dbURL)
+	defer metrics.close()
+
+	heartbeatScheduler := handler.NewBatchedHeartbeatScheduler(queries, handler.DefaultHeartbeatBatchInterval)
+
+	llmMaxRetries, err := parseLLMMaxRetries(os.Getenv("MULTICA_LLM_MAX_RETRIES"))
+	if err != nil {
+		slog.Error("invalid MULTICA_LLM_MAX_RETRIES", "error", err)
+		os.Exit(1)
+	}
+
+	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, redisInfra.storeRedis, RouterOptions{
+		HTTPMetrics:         metrics.httpMetrics,
+		BusinessMetrics:     metrics.businessMetrics,
+		ChannelLeaseMetrics: metrics.channelLeaseMetrics,
+		ChannelLeaseRedis:   redisInfra.channelLeaseRedis,
+		WecomMetrics:        metrics.wecomMetrics,
+		DaemonHub:           daemonHub,
+		DaemonWakeup:        redisInfra.daemonWakeup,
+		FeatureFlags:        flags,
+		HeartbeatScheduler:  heartbeatScheduler,
+		LLMMaxRetries:       llmMaxRetries,
+	})
+
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+	profilingServer := profiling.NewServer()
+
+	sweepCtx, sweepCancel := context.WithCancel(context.Background())
+	autopilotCtx, autopilotCancel := context.WithCancel(context.Background())
+
+	startBackgroundWorkers(
+		sweepCtx, autopilotCtx,
+		pool, queries, bus, h,
+		redisInfra.storeRedis,
+		heartbeatScheduler,
+		metrics.channelMediaMetrics,
+	)
+
+	if metrics.server != nil {
 		go func() {
-			slog.Info("metrics server starting", "addr", metricsConfig.Addr)
-			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Info("metrics server starting", "addr", metrics.addr)
+			if err := metrics.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				slog.Error("metrics server disabled after startup error", "error", err)
 			}
 		}()
@@ -680,74 +733,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	holdBeforeShutdown(sig, quit, shutdownHoldDuration)
-	// Restore the default behavior so another signal during graceful shutdown
-	// can still terminate the process instead of being left unread in quit.
 	signal.Stop(quit)
 
-	slog.Info("shutting down server")
-	autopilotCancel()
-
-	// Order matters: drain in-flight HTTP first so any heartbeat handlers
-	// finish calling Schedule() before we stop the scheduler. Otherwise a
-	// late heartbeat could enqueue a pending ID after Run has already
-	// drained and exited, and Stop() would not flush it.
-	apiShutdownCtx, apiShutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := srv.Shutdown(apiShutdownCtx); err != nil {
-		apiShutdownCancel()
-		slog.Error("server forced to shutdown", "error", err)
-		os.Exit(1)
-	}
-	apiShutdownCancel()
-
-	// HTTP is fully drained — safe to stop the sweeper and flush the
-	// final batch of queued heartbeat bumps.
-	sweepCancel()
-	heartbeatScheduler.Stop()
-	if h.WebhookDeliveryWorker != nil && !h.WebhookDeliveryWorker.WaitWithTimeout(5*time.Second) {
-		slog.Warn("webhook delivery worker did not exit within shutdown timeout")
-	}
-	if h.TelegramOutbound != nil && !h.TelegramOutbound.WaitWithTimeout(5*time.Second) {
-		slog.Warn("telegram outbound workers did not exit within shutdown timeout")
-	}
-
-	// Join the channel supervisor's per-installation goroutines so the
-	// lease renewer can issue a final release before process exit;
-	// otherwise the next replica would have to wait the full LeaseTTL
-	// before picking up the installation on the other side of the
-	// redeploy. The wait is bounded — if a supervisor is wedged (DB
-	// pool stalled, a connector ignoring ctx, etc.) the fallback is the
-	// natural LeaseTTL expiry on the other side, which is strictly better
-	// than holding shutdown open forever. Then drain the Feishu runtime:
-	// the supervisors have stopped delivering inbound events, so flush the
-	// debounced run triggers and join any in-flight outbound replies
-	// (each bounded by ReplyTimeout) so a binding card / offline notice is
-	// not lost on shutdown.
-	if h.ChannelSupervisor != nil {
-		if !h.ChannelSupervisor.WaitWithTimeout(h.ChannelSupervisor.ShutdownTimeout()) {
-			slog.Warn("channel supervisor: connections did not exit within shutdown timeout; proceeding",
-				"timeout", h.ChannelSupervisor.ShutdownTimeout().String(),
-			)
-		}
-		if h.ChannelRouter != nil {
-			drainCtx, drainCancel := context.WithTimeout(context.Background(), 10*time.Second)
-			if !h.ChannelRouter.Drain(drainCtx) {
-				slog.Warn("channel router: drain deadline reached; deferred media fallback remains durable")
-			}
-			drainCancel()
-		}
-	}
-
-	if metricsServer != nil {
-		metricsShutdownCtx, metricsShutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
-		if err := metricsServer.Shutdown(metricsShutdownCtx); err != nil {
-			slog.Error("metrics server forced to shutdown", "error", err)
-		}
-		metricsShutdownCancel()
-	}
-	profilingShutdownCtx, profilingShutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
-	if err := profilingServer.Shutdown(profilingShutdownCtx); err != nil {
-		slog.Error("pprof server forced to shutdown", "error", err)
-	}
-	profilingShutdownCancel()
-	slog.Info("server stopped")
+	gracefulShutdown(srv, metrics.server, profilingServer, h, heartbeatScheduler, autopilotCancel, sweepCancel)
 }

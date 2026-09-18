@@ -141,18 +141,8 @@ func NewInstallationService(queries *db.Queries, tx engine.TxStarter, box *secre
 //     (LockChannelInstallationAppIDSlot, a transaction-level advisory lock). A
 //     pre-read outside the transaction would leave the TOCTOU window open.
 func (s *InstallationService) Upsert(ctx context.Context, p InstallationParams) (Installation, error) {
-	if err := validateInstallationParams(p); err != nil {
+	if err := s.validateUpsertPreconditions(p); err != nil {
 		return Installation{}, err
-	}
-	if s.probe == nil {
-		// Belt and braces for a service built by struct literal rather than
-		// NewInstallationService. Nothing may reach the reclaim unproven, so
-		// this is checked before anything else that could fail first and hide
-		// it.
-		return Installation{}, ErrProbeRequired
-	}
-	if s.tx == nil {
-		return Installation{}, errors.New("wecom: InstallationService requires a transaction starter")
 	}
 
 	tx, err := s.tx.Begin(ctx)
@@ -188,56 +178,59 @@ func (s *InstallationService) Upsert(ctx context.Context, p InstallationParams) 
 		return Installation{}, fmt.Errorf("wecom: encrypt secret: %w", err)
 	}
 
-	// Reclaim-then-upsert. UpsertChannelInstallation conflicts on
-	// (workspace_id, agent_id, channel_type), but the (channel_type, app_id)
-	// slot is guarded by idx_channel_installation_type_appid. Disconnect only
-	// flips status to 'revoked' — it does not free the row — so without a
-	// reclaim step a bot revoked from agent A can never be connected to agent
-	// B: the upsert misses its ON CONFLICT and trips the unique index, and the
-	// admin is told to "disconnect it there first" for a bot that is already
-	// disconnected and has no UI control to free it. ReclaimDeadChannelInstalla-
-	// tionByAppID deletes any DEAD owner of this bot's slot (a revoked row held
-	// by a DIFFERENT (workspace, agent), or an orphan whose workspace/agent was
-	// deleted) and clears its dependent rows in the same statement, while
-	// leaving a LIVE owner (active or archived agent) in place to trip the
-	// index below. botSlotConflictErr has already refused every live owner
-	// above, so reaching that unique violation now means the slot changed hands
-	// despite the lock; botOwnerConflictErr still turns it into an accurate 409
-	// rather than a raw Postgres string. Mirrors slack/install.go's
-	// persistInstall.
+	cfg, err := prepareUpsertConfig(ctx, qtx, p, sealed)
+	if err != nil {
+		return Installation{}, err
+	}
+
+	row, err := s.reclaimAndUpsertRow(ctx, qtx, p, cfg)
+	if err != nil {
+		return Installation{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return Installation{}, fmt.Errorf("wecom: commit install tx: %w", err)
+	}
+	return installationFromRow(row)
+}
+
+func (s *InstallationService) validateUpsertPreconditions(p InstallationParams) error {
+	if err := validateInstallationParams(p); err != nil {
+		return err
+	}
+	if s.probe == nil {
+		return ErrProbeRequired
+	}
+	if s.tx == nil {
+		return errors.New("wecom: InstallationService requires a transaction starter")
+	}
+	return nil
+}
+
+func prepareUpsertConfig(ctx context.Context, qtx *Store, p InstallationParams, sealed []byte) ([]byte, error) {
+	carried, err := currentInstallation(ctx, qtx.Queries, p.WorkspaceID, p.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	displayName := p.BotDisplayName
+	if displayName == "" && carried.BotID == p.BotID {
+		displayName = carried.BotDisplayName
+	}
+	return encodeInstallConfig(Installation{
+		BotID:           p.BotID,
+		SecretEncrypted: sealed,
+		BotDisplayName:  displayName,
+	})
+}
+
+func (s *InstallationService) reclaimAndUpsertRow(ctx context.Context, qtx *Store, p InstallationParams, cfg []byte) (db.ChannelInstallation, error) {
 	if _, err := qtx.Queries.ReclaimDeadChannelInstallationByAppID(ctx, db.ReclaimDeadChannelInstallationByAppIDParams{
 		ChannelType: channelTypeWecom,
 		AppID:       p.BotID,
 		WorkspaceID: p.WorkspaceID,
 		AgentID:     p.AgentID,
 	}); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		// pgx.ErrNoRows just means nothing was dead — a no-op, not a failure.
-		return Installation{}, fmt.Errorf("wecom: reclaim dead installation: %w", err)
-	}
-
-	// The row this upsert is about to overwrite, read on the tx handle so it is
-	// serialized with the write. Zero when this is a first install.
-	carried, err := currentInstallation(ctx, qtx.Queries, p.WorkspaceID, p.AgentID)
-	if err != nil {
-		return Installation{}, err
-	}
-	// The chat name is optional in the dialog, so an admin rotating a leaked
-	// secret leaves it blank — and blanking it would put group slash commands
-	// back to the whitespace guess that this field exists to replace. Keep what
-	// is on the row. A bot SWAP is different: the old name belongs to the old
-	// bot, and carrying it would make the new bot answer to a mention that is
-	// not its own.
-	displayName := p.BotDisplayName
-	if displayName == "" && carried.BotID == p.BotID {
-		displayName = carried.BotDisplayName
-	}
-	cfg, err := encodeInstallConfig(Installation{
-		BotID:           p.BotID,
-		SecretEncrypted: sealed,
-		BotDisplayName:  displayName,
-	})
-	if err != nil {
-		return Installation{}, err
+		return db.ChannelInstallation{}, fmt.Errorf("wecom: reclaim dead installation: %w", err)
 	}
 
 	row, err := qtx.Queries.UpsertChannelInstallation(ctx, db.UpsertChannelInstallationParams{
@@ -250,16 +243,11 @@ func (s *InstallationService) Upsert(ctx context.Context, p InstallationParams) 
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-			// A LIVE owner still holds the slot. Read the owner on the
-			// non-tx connection (this tx is now in aborted state) to name it.
-			return Installation{}, s.botOwnerConflictErr(ctx, p.WorkspaceID, p.BotID)
+			return db.ChannelInstallation{}, s.botOwnerConflictErr(ctx, p.WorkspaceID, p.BotID)
 		}
-		return Installation{}, fmt.Errorf("wecom: upsert installation: %w", err)
+		return db.ChannelInstallation{}, fmt.Errorf("wecom: upsert installation: %w", err)
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return Installation{}, fmt.Errorf("wecom: commit install tx: %w", err)
-	}
-	return installationFromRow(row)
+	return row, nil
 }
 
 // currentInstallation reads the (workspace, agent, wecom) row an upsert is

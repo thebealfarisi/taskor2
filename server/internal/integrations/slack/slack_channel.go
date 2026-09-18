@@ -98,65 +98,56 @@ func (c *slackChannel) Connect(ctx context.Context) error {
 	}()
 
 	mentionRe := compileMentionRe(c.botUserID)
+	return c.runEventLoop(ctx, sm, runErr, mentionRe)
+}
+
+func (c *slackChannel) runEventLoop(ctx context.Context, sm *socketmode.Client, runErr <-chan error, mentionRe *regexp.Regexp) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case err := <-runErr:
-			if ctx.Err() != nil {
-				return nil
-			}
-			if err != nil {
-				return err
-			}
-			return errors.New("slack: socket mode connection closed")
+			return handleRunErr(ctx, err)
 		case evt, ok := <-sm.Events:
-			if !ok {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return errors.New("slack: socket mode event stream closed")
-			}
-			if err := c.handleSocketEvent(ctx, sm, evt, mentionRe); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
+			if err := c.handleEventStream(ctx, sm, evt, ok, mentionRe); err != nil {
 				return err
 			}
 		}
 	}
 }
 
+func handleRunErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("slack: socket mode connection closed")
+}
+
+func (c *slackChannel) handleEventStream(ctx context.Context, sm *socketmode.Client, evt socketmode.Event, ok bool, mentionRe *regexp.Regexp) error {
+	if !ok {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return errors.New("slack: socket mode event stream closed")
+	}
+	if err := c.handleSocketEvent(ctx, sm, evt, mentionRe); err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
 func (c *slackChannel) handleSocketEvent(ctx context.Context, sm *socketmode.Client, evt socketmode.Event, mentionRe *regexp.Regexp) error {
 	switch evt.Type {
 	case socketmode.EventTypeEventsAPI:
-		eventsAPI, ok := evt.Data.(slackevents.EventsAPIEvent)
-		if !ok {
-			return nil
-		}
-		// ACK first: Slack expires un-ACKed envelopes in ~3s, far below the
-		// handler's DB work. The ACK is independent of the handler outcome.
-		if evt.Request != nil {
-			if err := sm.Ack(*evt.Request); err != nil {
-				c.logger.WarnContext(ctx, "slack: ack failed", "error", err)
-			}
-		}
-		return c.dispatchEventsAPI(ctx, eventsAPI, mentionRe)
+		return c.handleEventsAPIEvent(ctx, sm, evt, mentionRe)
 	case socketmode.EventTypeSlashCommand:
-		// ACK first: like Events API envelopes, Slack expires an un-ACKed slash
-		// command in ~3s, well under the DB + Slack HTTP work below. The reply is
-		// delivered out-of-band via the command's response_url, so an empty ACK
-		// is correct. Handling never fails the connection (product outcomes are
-		// ephemeral replies, not infra errors).
-		if evt.Request != nil {
-			if err := sm.Ack(*evt.Request); err != nil {
-				c.logger.WarnContext(ctx, "slack: ack slash command failed", "error", err)
-			}
-		}
-		cmd, ok := evt.Data.(slack.SlashCommand)
-		if ok {
-			c.dispatchSlashCommand(cmd)
-		}
+		c.handleSlashCommandEvent(ctx, sm, evt)
 		return nil
 	case socketmode.EventTypeConnecting, socketmode.EventTypeConnected, socketmode.EventTypeHello:
 		c.logger.DebugContext(ctx, "slack: socket mode", "event", evt.Type, "app_id", c.appID)
@@ -168,6 +159,38 @@ func (c *slackChannel) handleSocketEvent(ctx context.Context, sm *socketmode.Cli
 		}
 	}
 	return nil
+}
+
+func (c *slackChannel) handleEventsAPIEvent(ctx context.Context, sm *socketmode.Client, evt socketmode.Event, mentionRe *regexp.Regexp) error {
+	eventsAPI, ok := evt.Data.(slackevents.EventsAPIEvent)
+	if !ok {
+		return nil
+	}
+	// ACK first: Slack expires un-ACKed envelopes in ~3s, far below the
+	// handler's DB work. The ACK is independent of the handler outcome.
+	if evt.Request != nil {
+		if err := sm.Ack(*evt.Request); err != nil {
+			c.logger.WarnContext(ctx, "slack: ack failed", "error", err)
+		}
+	}
+	return c.dispatchEventsAPI(ctx, eventsAPI, mentionRe)
+}
+
+func (c *slackChannel) handleSlashCommandEvent(ctx context.Context, sm *socketmode.Client, evt socketmode.Event) {
+	// ACK first: like Events API envelopes, Slack expires an un-ACKed slash
+	// command in ~3s, well under the DB + Slack HTTP work below. The reply is
+	// delivered out-of-band via the command's response_url, so an empty ACK
+	// is correct. Handling never fails the connection (product outcomes are
+	// ephemeral replies, not infra errors).
+	if evt.Request != nil {
+		if err := sm.Ack(*evt.Request); err != nil {
+			c.logger.WarnContext(ctx, "slack: ack slash command failed", "error", err)
+		}
+	}
+	cmd, ok := evt.Data.(slack.SlashCommand)
+	if ok {
+		c.dispatchSlashCommand(cmd)
+	}
 }
 
 // dispatchEventsAPI translates one Events API envelope to a normalized inbound

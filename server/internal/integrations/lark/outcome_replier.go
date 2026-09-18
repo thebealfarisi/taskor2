@@ -156,67 +156,58 @@ func NewLarkOutcomeReplier(cfg OutcomeReplierConfig) OutcomeReplier {
 func (r *LarkOutcomeReplier) Reply(ctx context.Context, inst Installation, msg InboundMessage, res DispatchResult) {
 	switch res.Outcome {
 	case OutcomeNeedsBinding:
-		if err := r.sendBindingPrompt(ctx, inst, res); err != nil {
-			r.log.Warn("lark outcome replier: binding prompt failed",
-				"installation_id", uuidString(inst.ID),
-				"open_id", string(res.SenderOpenID),
-				"err", err.Error(),
-			)
-		}
+		r.postWithWarn("binding prompt", inst, []any{"open_id", string(res.SenderOpenID)}, func() error {
+			return r.sendBindingPrompt(ctx, inst, res)
+		})
 	case OutcomeAgentOffline:
-		if err := r.sendChatNotice(ctx, inst, msg, agentOfflineCopy); err != nil {
-			r.log.Warn("lark outcome replier: offline notice failed",
-				"installation_id", uuidString(inst.ID),
-				"chat_id", string(msg.ChatID),
-				"err", err.Error(),
-			)
-		}
+		r.postNotice(ctx, inst, msg, "offline notice", agentOfflineCopy)
 	case OutcomeAgentArchived:
-		if err := r.sendChatNotice(ctx, inst, msg, agentArchivedCopy); err != nil {
-			r.log.Warn("lark outcome replier: archived notice failed",
-				"installation_id", uuidString(inst.ID),
-				"chat_id", string(msg.ChatID),
-				"err", err.Error(),
-			)
-		}
+		r.postNotice(ctx, inst, msg, "archived notice", agentArchivedCopy)
 	case OutcomeFreshPending:
-		if err := r.sendChatNotice(ctx, inst, msg, freshPendingCopy); err != nil {
-			r.log.Warn("lark outcome replier: fresh-start confirmation failed",
-				"installation_id", uuidString(inst.ID),
-				"chat_id", string(msg.ChatID),
-				"err", err.Error(),
-			)
-		}
+		r.postNotice(ctx, inst, msg, "fresh-start confirmation", freshPendingCopy)
 	case OutcomeIssueUsage:
-		copy := issueUsageCopy
-		if res.IssueUsageHadMedia {
-			copy = issueUsageWithMediaCopy
-		}
-		if err := r.sendChatNotice(ctx, inst, msg, copy); err != nil {
-			r.log.Warn("lark outcome replier: issue usage reply failed",
-				"installation_id", uuidString(inst.ID),
-				"chat_id", string(msg.ChatID),
-				"err", err.Error(),
-			)
-		}
+		r.handleIssueUsage(ctx, inst, msg, res)
 	case OutcomeIngested:
-		// The agent's chat reply itself goes through the Patcher. An /issue
-		// command gets an immediate product result: either the newly created
-		// issue or the active duplicate that blocked it. Gate on IssueID.Valid
-		// so a plain chat message stays silent here.
-		if res.IssueID.Valid {
-			if err := r.sendIssueOutcome(ctx, inst, msg, res); err != nil {
-				r.log.Warn("lark outcome replier: issue outcome reply failed",
-					"installation_id", uuidString(inst.ID),
-					"chat_id", string(msg.ChatID),
-					"issue_id", uuidString(res.IssueID),
-					"err", err.Error(),
-				)
-			}
-		}
+		r.handleIngested(ctx, inst, msg, res)
 	case OutcomeDropped:
 		// OutcomeDropped is informational; no user-visible reply.
 	}
+}
+
+func (r *LarkOutcomeReplier) postWithWarn(action string, inst Installation, extra []any, fn func() error) {
+	if err := fn(); err != nil {
+		args := append([]any{
+			"installation_id", uuidString(inst.ID),
+			"err", err.Error(),
+		}, extra...)
+		r.log.Warn("lark outcome replier: "+action+" failed", args...)
+	}
+}
+
+func (r *LarkOutcomeReplier) postNotice(ctx context.Context, inst Installation, msg InboundMessage, action, copy string) {
+	r.postWithWarn(action, inst, []any{"chat_id", string(msg.ChatID)}, func() error {
+		return r.sendChatNotice(ctx, inst, msg, copy)
+	})
+}
+
+func (r *LarkOutcomeReplier) handleIssueUsage(ctx context.Context, inst Installation, msg InboundMessage, res DispatchResult) {
+	copy := issueUsageCopy
+	if res.IssueUsageHadMedia {
+		copy = issueUsageWithMediaCopy
+	}
+	r.postNotice(ctx, inst, msg, "issue usage reply", copy)
+}
+
+func (r *LarkOutcomeReplier) handleIngested(ctx context.Context, inst Installation, msg InboundMessage, res DispatchResult) {
+	if !res.IssueID.Valid {
+		return
+	}
+	r.postWithWarn("issue outcome reply", inst, []any{
+		"chat_id", string(msg.ChatID),
+		"issue_id", uuidString(res.IssueID),
+	}, func() error {
+		return r.sendIssueOutcome(ctx, inst, msg, res)
+	})
 }
 
 func (r *LarkOutcomeReplier) sendBindingPrompt(ctx context.Context, inst Installation, res DispatchResult) error {

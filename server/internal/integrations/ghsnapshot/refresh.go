@@ -211,26 +211,13 @@ func (m *Manager) worker(ctx context.Context) {
 func (m *Manager) process(ctx context.Context, addr address) {
 	// Per-request jitter smooths bursts. Installation-scoped rate-limit waits
 	// are handled before this point so they never consume a worker slot.
-	if j := m.jitter(); j > 0 {
-		if !sleepCtx(ctx, j) {
-			return
-		}
+	if j := m.jitter(); j > 0 && !sleepCtx(ctx, j) {
+		return
 	}
 
 	snap, err := m.fetch(ctx, m.client, addr.InstallationID, addr.Owner, addr.Repo, addr.Number)
 	if err != nil {
-		var rl *RateLimitError
-		if asRateLimit(err, &rl) {
-			m.extendRateLimit(addr.InstallationID, rl.RetryAfter)
-			// Do not create an unbounded retry loop for a persistently limited
-			// installation. The bounded TTL sweep (open/draft PRs only) or the
-			// next webhook/view event hands the address back after Retry-After.
-			return
-		}
-		// Transient/GitHub failure: keep the last-known snapshot (the row is
-		// untouched, so the card shows stale data, never wrong data). No secret
-		// is ever logged. The next trigger or the TTL sweep retries.
-		slog.Warn("ghsnapshot: fetch failed", "owner", addr.Owner, "repo", addr.Repo, "number", addr.Number, "err", err.Error())
+		m.handleFetchError(err, addr)
 		return
 	}
 
@@ -245,8 +232,26 @@ func (m *Manager) process(ctx context.Context, addr address) {
 		return
 	}
 
-	anyApplied := false
-	anyOpenApplied := false
+	anyApplied, anyOpenApplied := m.applySnapshotToRows(ctx, rows, snap)
+	m.decideChase(addr, snap, anyApplied, anyOpenApplied)
+}
+
+func (m *Manager) handleFetchError(err error, addr address) {
+	var rl *RateLimitError
+	if asRateLimit(err, &rl) {
+		m.extendRateLimit(addr.InstallationID, rl.RetryAfter)
+		// Do not create an unbounded retry loop for a persistently limited
+		// installation. The bounded TTL sweep (open/draft PRs only) or the
+		// next webhook/view event hands the address back after Retry-After.
+		return
+	}
+	// Transient/GitHub failure: keep the last-known snapshot (the row is
+	// untouched, so the card shows stale data, never wrong data). No secret
+	// is ever logged. The next trigger or the TTL sweep retries.
+	slog.Warn("ghsnapshot: fetch failed", "owner", addr.Owner, "repo", addr.Repo, "number", addr.Number, "err", err.Error())
+}
+
+func (m *Manager) applySnapshotToRows(ctx context.Context, rows []db.ListGitHubPRRowsByAddressRow, snap *PRSnapshot) (anyApplied, anyOpenApplied bool) {
 	for _, row := range rows {
 		applied, err := m.applySnapshot(ctx, row.ID, snap)
 		if err != nil {
@@ -264,7 +269,10 @@ func (m *Manager) process(ctx context.Context, addr address) {
 			m.onApplied(ctx, row.ID)
 		}
 	}
+	return anyApplied, anyOpenApplied
+}
 
+func (m *Manager) decideChase(addr address, snap *PRSnapshot, anyApplied, anyOpenApplied bool) {
 	// Chase decision. Chase only while the snapshot is undecided AND we still
 	// have an open PR row on this head. If nothing applied (head advanced past
 	// this response, or the PR is gone), the webhook that moved the head has

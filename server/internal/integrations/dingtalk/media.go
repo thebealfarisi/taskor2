@@ -216,22 +216,8 @@ func (m *mediaResolver) ResolveMedia(ctx context.Context, inst engine.ResolvedIn
 	if err != nil || len(raw.Media) == 0 {
 		return msg
 	}
-	if len(raw.Media) > maxImagesPerMessage {
-		m.logWarn(msg, fmt.Errorf("%d images exceed the limit of %d", len(raw.Media), maxImagesPerMessage))
-		return msg
-	}
-	if m.client == nil || m.store == nil || m.ledger == nil {
-		m.logWarn(msg, errors.New("media dependency missing"))
-		return msg
-	}
-	row, ok := inst.Platform.(db.ChannelInstallation)
+	creds, ok := m.validateResolveMedia(inst, msg, raw)
 	if !ok {
-		m.logWarn(msg, errors.New("installation platform row unavailable"))
-		return msg
-	}
-	creds, err := decodeCredentials(row.Config, m.decrypt)
-	if err != nil {
-		m.logWarn(msg, fmt.Errorf("decode credentials: %w", err))
 		return msg
 	}
 
@@ -241,45 +227,7 @@ func (m *mediaResolver) ResolveMedia(ctx context.Context, inst engine.ResolvedIn
 	g.SetLimit(mediaFetchConcurrency)
 	for i, resource := range raw.Media {
 		g.Go(func() error {
-			key := dingtalkMediaObjectKey(inst, chatMessageID, resource, i)
-			link := m.store.ObjectURL(key)
-			owned, err := m.ledger.RecordPendingMediaObject(gctx, engine.RecordPendingMediaObjectParams{
-				StorageKey:     key,
-				WorkspaceID:    inst.WorkspaceID,
-				ChatMessageID:  chatMessageID,
-				StorageURL:     link,
-				InstallationID: inst.ID,
-			})
-			if err != nil {
-				m.logWarn(msg, fmt.Errorf("record media intent: %w", err))
-				return nil
-			}
-			if !owned {
-				m.logWarn(msg, errors.New("media key owned by reconciler"))
-				return nil
-			}
-			data, contentType, err := m.fetchResource(gctx, creds, resource)
-			if err != nil {
-				m.logWarn(msg, err)
-				return nil
-			}
-			ext := allowedImageTypes[contentType]
-			filename := fmt.Sprintf("dingtalk-image-%d%s", i+1, ext)
-			if _, err := m.store.Upload(gctx, key, data, contentType, filename); err != nil {
-				m.logWarn(msg, fmt.Errorf("upload image: %w", err))
-				return nil
-			}
-			refs[i] = channel.MediaRef{
-				Type:              channel.MsgTypeImage,
-				StorageKey:        key,
-				StorageURL:        link,
-				Filename:          filename,
-				MimeType:          contentType,
-				SizeBytes:         int64(len(data)),
-				InlinePlaceholder: dingtalkImagePlaceholder,
-				InlineIndex:       resource.InlineIndex,
-			}
-			valid[i] = true
+			refs[i], valid[i] = m.processSingleMediaResource(gctx, inst, chatMessageID, msg, creds, resource, i)
 			return nil
 		})
 	}
@@ -290,6 +238,69 @@ func (m *mediaResolver) ResolveMedia(ctx context.Context, inst engine.ResolvedIn
 		}
 	}
 	return msg
+}
+
+func (m *mediaResolver) validateResolveMedia(inst engine.ResolvedInstallation, msg channel.InboundMessage, raw dingtalkRawEvent) (credentials, bool) {
+	if len(raw.Media) > maxImagesPerMessage {
+		m.logWarn(msg, fmt.Errorf("%d images exceed the limit of %d", len(raw.Media), maxImagesPerMessage))
+		return credentials{}, false
+	}
+	if m.client == nil || m.store == nil || m.ledger == nil {
+		m.logWarn(msg, errors.New("media dependency missing"))
+		return credentials{}, false
+	}
+	row, ok := inst.Platform.(db.ChannelInstallation)
+	if !ok {
+		m.logWarn(msg, errors.New("installation platform row unavailable"))
+		return credentials{}, false
+	}
+	creds, err := decodeCredentials(row.Config, m.decrypt)
+	if err != nil {
+		m.logWarn(msg, fmt.Errorf("decode credentials: %w", err))
+		return credentials{}, false
+	}
+	return creds, true
+}
+
+func (m *mediaResolver) processSingleMediaResource(ctx context.Context, inst engine.ResolvedInstallation, chatMessageID pgtype.UUID, msg channel.InboundMessage, creds credentials, resource dingtalkMediaResource, i int) (channel.MediaRef, bool) {
+	key := dingtalkMediaObjectKey(inst, chatMessageID, resource, i)
+	link := m.store.ObjectURL(key)
+	owned, err := m.ledger.RecordPendingMediaObject(ctx, engine.RecordPendingMediaObjectParams{
+		StorageKey:     key,
+		WorkspaceID:    inst.WorkspaceID,
+		ChatMessageID:  chatMessageID,
+		StorageURL:     link,
+		InstallationID: inst.ID,
+	})
+	if err != nil {
+		m.logWarn(msg, fmt.Errorf("record media intent: %w", err))
+		return channel.MediaRef{}, false
+	}
+	if !owned {
+		m.logWarn(msg, errors.New("media key owned by reconciler"))
+		return channel.MediaRef{}, false
+	}
+	data, contentType, err := m.fetchResource(ctx, creds, resource)
+	if err != nil {
+		m.logWarn(msg, err)
+		return channel.MediaRef{}, false
+	}
+	ext := allowedImageTypes[contentType]
+	filename := fmt.Sprintf("dingtalk-image-%d%s", i+1, ext)
+	if _, err := m.store.Upload(ctx, key, data, contentType, filename); err != nil {
+		m.logWarn(msg, fmt.Errorf("upload image: %w", err))
+		return channel.MediaRef{}, false
+	}
+	return channel.MediaRef{
+		Type:              channel.MsgTypeImage,
+		StorageKey:        key,
+		StorageURL:        link,
+		Filename:          filename,
+		MimeType:          contentType,
+		SizeBytes:         int64(len(data)),
+		InlinePlaceholder: dingtalkImagePlaceholder,
+		InlineIndex:       resource.InlineIndex,
+	}, true
 }
 
 func dingtalkMediaObjectKey(inst engine.ResolvedInstallation, chatMessageID pgtype.UUID, resource dingtalkMediaResource, index int) string {

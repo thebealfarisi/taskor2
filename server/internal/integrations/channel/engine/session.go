@@ -351,6 +351,23 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 	}
 	cmd, _ := ParseIssueCommand(commandSource)
 
+	msg, err := insertAppendedChatMessage(ctx, qtx, in, cmd)
+	if err != nil {
+		return AppendResult{}, err
+	}
+
+	markedInTx, err := markAppendDedup(ctx, qtx, in)
+	if err != nil {
+		return AppendResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return AppendResult{}, fmt.Errorf("commit: %w", err)
+	}
+	return AppendResult{MessageID: msg.ID, IssueCommand: cmd, DedupMarked: markedInTx}, nil
+}
+
+func insertAppendedChatMessage(ctx context.Context, qtx SessionQueries, in AppendInput, cmd *IssueCommand) (db.ChatMessage, error) {
 	// channel_ingested is the immutable provenance the cancel path gates on:
 	// it must be stamped in the same transaction as the message so no later
 	// binding deletion (archive, installation rebind) can strip it.
@@ -364,14 +381,14 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 		ChannelIngested:         pgtype.Bool{Bool: true, Valid: true},
 	})
 	if err != nil {
-		return AppendResult{}, fmt.Errorf("create chat message: %w", err)
+		return db.ChatMessage{}, fmt.Errorf("create chat message: %w", err)
 	}
 	if err := qtx.TouchChatSession(ctx, in.SessionID); err != nil {
-		return AppendResult{}, fmt.Errorf("touch chat session: %w", err)
+		return db.ChatMessage{}, fmt.Errorf("touch chat session: %w", err)
 	}
 	if in.ForceFresh {
 		if _, err := qtx.MarkChannelChatSessionPendingFresh(ctx, in.SessionID); err != nil {
-			return AppendResult{}, fmt.Errorf("mark pending fresh: %w", err)
+			return db.ChatMessage{}, fmt.Errorf("mark pending fresh: %w", err)
 		}
 	}
 
@@ -383,32 +400,30 @@ func (s *ChatSession) AppendUserMessage(ctx context.Context, in AppendInput) (Ap
 			LastMessageID: textOrNull(in.MessageID),
 			LastThreadID:  textOrNull(in.ThreadID),
 		}); err != nil {
-			return AppendResult{}, fmt.Errorf("update reply target: %w", err)
+			return db.ChatMessage{}, fmt.Errorf("update reply target: %w", err)
 		}
 	}
+	return msg, nil
+}
 
-	markedInTx := false
-	if in.ClaimToken.Valid && in.MessageID != "" {
-		rows, err := qtx.MarkChannelInboundDedupProcessed(ctx, db.MarkChannelInboundDedupProcessedParams{
-			InstallationID: in.InstallationID,
-			MessageID:      in.MessageID,
-			ClaimToken:     in.ClaimToken,
-		})
-		if err != nil {
-			return AppendResult{}, fmt.Errorf("mark dedup processed: %w", err)
-		}
-		if rows == 0 {
-			// Another worker re-claimed the dedup row; roll back via the
-			// deferred Rollback so no second chat_message lands.
-			return AppendResult{}, ErrClaimLost
-		}
-		markedInTx = true
+func markAppendDedup(ctx context.Context, qtx SessionQueries, in AppendInput) (bool, error) {
+	if !in.ClaimToken.Valid || in.MessageID == "" {
+		return false, nil
 	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return AppendResult{}, fmt.Errorf("commit: %w", err)
+	rows, err := qtx.MarkChannelInboundDedupProcessed(ctx, db.MarkChannelInboundDedupProcessedParams{
+		InstallationID: in.InstallationID,
+		MessageID:      in.MessageID,
+		ClaimToken:     in.ClaimToken,
+	})
+	if err != nil {
+		return false, fmt.Errorf("mark dedup processed: %w", err)
 	}
-	return AppendResult{MessageID: msg.ID, IssueCommand: cmd, DedupMarked: markedInTx}, nil
+	if rows == 0 {
+		// Another worker re-claimed the dedup row; roll back via the
+		// deferred Rollback so no second chat_message lands.
+		return false, ErrClaimLost
+	}
+	return true, nil
 }
 
 // MarkPendingFresh persists a bare `/new` command. Non-bare `/new` messages
@@ -463,22 +478,16 @@ func (s *ChatSession) clearMediaPending(ctx context.Context, q SessionQueries, i
 	return nil
 }
 
+type createdMedia struct {
+	id       pgtype.UUID
+	ref      channel.MediaRef
+	filename string
+}
+
 func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in BindMediaInput) error {
-	if !in.WorkspaceID.Valid {
-		return errors.New("bind media refs: workspace_id is required")
-	}
-	if !in.MessageID.Valid {
-		return errors.New("bind media refs: message_id is required")
-	}
-	keys := make([]string, 0, len(in.MediaRefs))
-	for _, ref := range in.MediaRefs {
-		if ref.StorageURL == "" {
-			return errors.New("bind media refs: storage_url is required")
-		}
-		if ref.StorageKey == "" {
-			return errors.New("bind media refs: storage_key is required")
-		}
-		keys = append(keys, ref.StorageKey)
+	keys, err := validateBindMediaInput(in)
+	if err != nil {
+		return err
 	}
 	if in.IssueID.Valid {
 		if _, err := qtx.LockIssueForChannelMediaBind(ctx, db.LockIssueForChannelMediaBindParams{
@@ -488,6 +497,39 @@ func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in 
 			return fmt.Errorf("validate issue media target: %w", err)
 		}
 	}
+
+	created, ids, err := createMediaAttachments(ctx, qtx, in, keys)
+	if err != nil || len(ids) == 0 {
+		return err
+	}
+
+	if in.IssueID.Valid {
+		return materializeIssueMedia(ctx, qtx, in, created)
+	}
+	return linkChatMedia(ctx, qtx, in, ids, created)
+}
+
+func validateBindMediaInput(in BindMediaInput) ([]string, error) {
+	if !in.WorkspaceID.Valid {
+		return nil, errors.New("bind media refs: workspace_id is required")
+	}
+	if !in.MessageID.Valid {
+		return nil, errors.New("bind media refs: message_id is required")
+	}
+	keys := make([]string, 0, len(in.MediaRefs))
+	for _, ref := range in.MediaRefs {
+		if ref.StorageURL == "" {
+			return nil, errors.New("bind media refs: storage_url is required")
+		}
+		if ref.StorageKey == "" {
+			return nil, errors.New("bind media refs: storage_key is required")
+		}
+		keys = append(keys, ref.StorageKey)
+	}
+	return keys, nil
+}
+
+func createMediaAttachments(ctx context.Context, qtx SessionQueries, in BindMediaInput, keys []string) ([]createdMedia, []pgtype.UUID, error) {
 	// Claim the intent-ledger rows inside this same transaction: commit
 	// landed <=> intents gone, atomically, so an ambiguous COMMIT never needs
 	// adjudication. A key the reconciler already moved to 'deleting' is not
@@ -498,16 +540,11 @@ func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in 
 		WorkspaceID: in.WorkspaceID,
 	})
 	if err != nil {
-		return fmt.Errorf("claim media intents: %w", err)
+		return nil, nil, fmt.Errorf("claim media intents: %w", err)
 	}
 	claimed := make(map[string]bool, len(claimedKeys))
 	for _, k := range claimedKeys {
 		claimed[k] = true
-	}
-	type createdMedia struct {
-		id       pgtype.UUID
-		ref      channel.MediaRef
-		filename string
 	}
 	created := make([]createdMedia, 0, len(in.MediaRefs))
 	ids := make([]pgtype.UUID, 0, len(in.MediaRefs))
@@ -519,7 +556,7 @@ func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in 
 		}
 		id, err := uuid.NewV7()
 		if err != nil {
-			return fmt.Errorf("create attachment id: %w", err)
+			return nil, nil, fmt.Errorf("create attachment id: %w", err)
 		}
 		contentType := ref.MimeType
 		if contentType == "" {
@@ -546,57 +583,59 @@ func (s *ChatSession) bindMediaRefs(ctx context.Context, qtx SessionQueries, in 
 			SizeBytes:     ref.SizeBytes,
 		})
 		if err != nil {
-			return fmt.Errorf("create channel attachment: %w", err)
+			return nil, nil, fmt.Errorf("create channel attachment: %w", err)
 		}
 		ids = append(ids, att.ID)
 		created = append(created, createdMedia{id: att.ID, ref: ref, filename: filename})
 	}
-	if len(ids) == 0 {
-		return nil
-	}
-	if in.IssueID.Valid {
-		issueMarkdown := make([]string, 0, len(created))
-		replacements := make([]inlineMediaReplacement, 0, len(created))
-		for _, media := range created {
-			block := channelmedia.Block(
-				uuid.UUID(media.id.Bytes).String(),
-				media.filename,
-				media.ref.Type == channel.MsgTypeImage,
-			)
-			issueMarkdown = append(issueMarkdown, block)
-			if media.ref.InlinePlaceholder != "" {
-				replacements = append(replacements, inlineMediaReplacement{
-					placeholder: media.ref.InlinePlaceholder,
-					index:       media.ref.InlineIndex,
-					markdown:    block,
-				})
-			}
-		}
+	return created, ids, nil
+}
 
-		base := pgtype.Text{}
-		description := pgtype.Text{}
-		if in.IssueDescriptionBase.Valid {
-			if composed, changed := composeIssueCommandMediaDescription(
-				in.Body,
-				in.IssueCommandText,
-				replacements,
-				in.IssueDescriptionBase.String,
-			); changed {
-				base = in.IssueDescriptionBase
-				description = pgtype.Text{String: composed, Valid: true}
-			}
+func materializeIssueMedia(ctx context.Context, qtx SessionQueries, in BindMediaInput, created []createdMedia) error {
+	issueMarkdown := make([]string, 0, len(created))
+	replacements := make([]inlineMediaReplacement, 0, len(created))
+	for _, media := range created {
+		block := channelmedia.Block(
+			uuid.UUID(media.id.Bytes).String(),
+			media.filename,
+			media.ref.Type == channel.MsgTypeImage,
+		)
+		issueMarkdown = append(issueMarkdown, block)
+		if media.ref.InlinePlaceholder != "" {
+			replacements = append(replacements, inlineMediaReplacement{
+				placeholder: media.ref.InlinePlaceholder,
+				index:       media.ref.InlineIndex,
+				markdown:    block,
+			})
 		}
-		if _, err := qtx.MaterializeIssueChannelMediaMarkdown(ctx, db.MaterializeIssueChannelMediaMarkdownParams{
-			ID:              in.IssueID,
-			WorkspaceID:     in.WorkspaceID,
-			BaseDescription: base,
-			Description:     description.String,
-			Markdown:        pgtype.Text{String: strings.Join(issueMarkdown, "\n\n"), Valid: true},
-		}); err != nil {
-			return fmt.Errorf("materialize issue channel media markdown: %w", err)
-		}
-		return nil
 	}
+
+	base := pgtype.Text{}
+	description := pgtype.Text{}
+	if in.IssueDescriptionBase.Valid {
+		if composed, changed := composeIssueCommandMediaDescription(
+			in.Body,
+			in.IssueCommandText,
+			replacements,
+			in.IssueDescriptionBase.String,
+		); changed {
+			base = in.IssueDescriptionBase
+			description = pgtype.Text{String: composed, Valid: true}
+		}
+	}
+	if _, err := qtx.MaterializeIssueChannelMediaMarkdown(ctx, db.MaterializeIssueChannelMediaMarkdownParams{
+		ID:              in.IssueID,
+		WorkspaceID:     in.WorkspaceID,
+		BaseDescription: base,
+		Description:     description.String,
+		Markdown:        pgtype.Text{String: strings.Join(issueMarkdown, "\n\n"), Valid: true},
+	}); err != nil {
+		return fmt.Errorf("materialize issue channel media markdown: %w", err)
+	}
+	return nil
+}
+
+func linkChatMedia(ctx context.Context, qtx SessionQueries, in BindMediaInput, ids []pgtype.UUID, created []createdMedia) error {
 	linkedIDs, err := qtx.LinkAttachmentsToChatMessage(ctx, db.LinkAttachmentsToChatMessageParams{
 		ChatMessageID: in.MessageID,
 		ChatSessionID: in.SessionID,

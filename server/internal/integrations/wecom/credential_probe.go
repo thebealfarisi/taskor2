@@ -163,6 +163,13 @@ func (p *handshakeProbe) Probe(ctx context.Context, botID, secret string) error 
 	}
 
 	reqID := newReqID()
+	if err := sendSubscribeProbe(conn, botID, secret, reqID); err != nil {
+		return err
+	}
+	return waitForSubscribeProbeAck(ctx, conn, reqID)
+}
+
+func sendSubscribeProbe(conn wsConn, botID, secret, reqID string) error {
 	frame, err := json.Marshal(map[string]any{
 		"cmd":     cmdSubscribe,
 		"headers": frameHeaders{ReqID: reqID},
@@ -174,7 +181,10 @@ func (p *handshakeProbe) Probe(ctx context.Context, botID, secret string) error 
 	if err := conn.WriteMessage(websocketTextMessage, frame); err != nil {
 		return fmt.Errorf("%w: send subscribe: %v", ErrCredentialsUnverifiable, err)
 	}
+	return nil
+}
 
+func waitForSubscribeProbeAck(ctx context.Context, conn wsConn, reqID string) error {
 	// Read until our own ack comes back. The server may push other frames
 	// first; anything that is not the answer to this req_id is not ours.
 	for {

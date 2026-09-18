@@ -131,51 +131,56 @@ func RequestLogger(next http.Handler) http.Handler {
 
 		next.ServeHTTP(ww, r)
 
-		duration := time.Since(start)
-		status := ww.Status()
-
-		attrs := []any{
-			"method", r.Method,
-			"path", redactWebhookPath(r.URL.Path),
-			"status", status,
-			"duration", duration.Round(time.Microsecond).String(),
-		}
-		if rid := chimw.GetReqID(r.Context()); rid != "" {
-			attrs = append(attrs, "request_id", rid)
-		}
-		if uid := r.Header.Get(headerXUserID); uid != "" {
-			attrs = append(attrs, "user_id", uid)
-		}
-		if tid := webhookTriggerIDFromContext(r.Context()); tid != "" {
-			attrs = append(attrs, "webhook_trigger_id", tid)
-		}
-		if platform, version, os := ClientMetadataFromContext(r.Context()); platform != "" || version != "" || os != "" {
-			if platform != "" {
-				attrs = append(attrs, "client_platform", platform)
-			}
-			if version != "" {
-				attrs = append(attrs, "client_version", version)
-			}
-			if os != "" {
-				attrs = append(attrs, "client_os", os)
-			}
-		}
-
-		switch {
-		case status >= 500:
-			slog.Error(msgHTTPRequest, attrs...)
-		case status == http.StatusNotFound && isSoftNotFound(bodyPrefix.Bytes()):
-			// Lifecycle 404 — runtime/task was deleted server-side. The daemon
-			// catches this exact body and triggers its own self-heal, so it is
-			// neither noise nor a bug; logging at Info keeps the signal in
-			// structured logs without flooding the warn channel.
-			slog.Info(msgHTTPRequest, attrs...)
-		case status >= 400:
-			slog.Warn(msgHTTPRequest, attrs...)
-		default:
-			slog.Info(msgHTTPRequest, attrs...)
-		}
+		attrs := buildRequestLogAttrs(r, ww.Status(), time.Since(start))
+		logRequestWithStatus(ww.Status(), bodyPrefix.Bytes(), attrs)
 	})
+}
+
+func buildRequestLogAttrs(r *http.Request, status int, duration time.Duration) []any {
+	attrs := []any{
+		"method", r.Method,
+		"path", redactWebhookPath(r.URL.Path),
+		"status", status,
+		"duration", duration.Round(time.Microsecond).String(),
+	}
+	if rid := chimw.GetReqID(r.Context()); rid != "" {
+		attrs = append(attrs, "request_id", rid)
+	}
+	if uid := r.Header.Get(headerXUserID); uid != "" {
+		attrs = append(attrs, "user_id", uid)
+	}
+	if tid := webhookTriggerIDFromContext(r.Context()); tid != "" {
+		attrs = append(attrs, "webhook_trigger_id", tid)
+	}
+	if platform, version, os := ClientMetadataFromContext(r.Context()); platform != "" || version != "" || os != "" {
+		if platform != "" {
+			attrs = append(attrs, "client_platform", platform)
+		}
+		if version != "" {
+			attrs = append(attrs, "client_version", version)
+		}
+		if os != "" {
+			attrs = append(attrs, "client_os", os)
+		}
+	}
+	return attrs
+}
+
+func logRequestWithStatus(status int, body []byte, attrs []any) {
+	switch {
+	case status >= 500:
+		slog.Error(msgHTTPRequest, attrs...)
+	case status == http.StatusNotFound && isSoftNotFound(body):
+		// Lifecycle 404 — runtime/task was deleted server-side. The daemon
+		// catches this exact body and triggers its own self-heal, so it is
+		// neither noise nor a bug; logging at Info keeps the signal in
+		// structured logs without flooding the warn channel.
+		slog.Info(msgHTTPRequest, attrs...)
+	case status >= 400:
+		slog.Warn(msgHTTPRequest, attrs...)
+	default:
+		slog.Info(msgHTTPRequest, attrs...)
+	}
 }
 
 // isSoftNotFound reports whether the captured response body matches one of

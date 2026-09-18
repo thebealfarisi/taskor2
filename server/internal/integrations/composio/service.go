@@ -519,35 +519,7 @@ func (s *Service) ListToolkits(ctx context.Context) ([]ToolkitView, error) {
 		if err != nil {
 			return nil, fmt.Errorf("composio: list toolkits: %w", err)
 		}
-		for _, tk := range resp.Items {
-			slug := strings.ToLower(strings.TrimSpace(tk.Slug))
-			if slug == "" {
-				continue
-			}
-			if _, dup := seen[slug]; dup {
-				continue
-			}
-			seen[slug] = struct{}{}
-			// Filter out toolkits with no enabled auth config: the user has no
-			// working action for them, so they are omitted from the catalog.
-			if _, canConnect := connectable[slug]; !canConnect {
-				continue
-			}
-			category := ""
-			if len(tk.Categories) > 0 {
-				category = tk.Categories[0]
-			}
-			out = append(out, ToolkitView{
-				Slug:     tk.Slug,
-				Name:     tk.Name,
-				LogoURL:  toolkitLogoURL(slug, tk.LogoURL),
-				Category: category,
-				// Every surfaced toolkit is connectable by construction. The
-				// wire field is kept (see ComposioToolkitResponse) for backward
-				// compatibility with older desktop clients that branch on it.
-				Connectable: true,
-			})
-		}
+		out = appendConnectableToolkits(resp.Items, connectable, seen, out)
 		if resp.NextCursor == "" {
 			break
 		}
@@ -555,6 +527,39 @@ func (s *Service) ListToolkits(ctx context.Context) ([]ToolkitView, error) {
 	}
 
 	return out, nil
+}
+
+func appendConnectableToolkits(items []sdk.Toolkit, connectable map[string]string, seen map[string]struct{}, out []ToolkitView) []ToolkitView {
+	for _, tk := range items {
+		slug := strings.ToLower(strings.TrimSpace(tk.Slug))
+		if slug == "" {
+			continue
+		}
+		if _, dup := seen[slug]; dup {
+			continue
+		}
+		seen[slug] = struct{}{}
+		// Filter out toolkits with no enabled auth config: the user has no
+		// working action for them, so they are omitted from the catalog.
+		if _, canConnect := connectable[slug]; !canConnect {
+			continue
+		}
+		category := ""
+		if len(tk.Categories) > 0 {
+			category = tk.Categories[0]
+		}
+		out = append(out, ToolkitView{
+			Slug:     tk.Slug,
+			Name:     tk.Name,
+			LogoURL:  toolkitLogoURL(slug, tk.LogoURL),
+			Category: category,
+			// Every surfaced toolkit is connectable by construction. The
+			// wire field is kept (see ComposioToolkitResponse) for backward
+			// compatibility with older desktop clients that branch on it.
+			Connectable: true,
+		})
+	}
+	return out
 }
 
 // authConfigForToolkit returns the chosen auth_config_id for a toolkit slug, or
@@ -622,19 +627,7 @@ func (s *Service) fetchAuthConfigMap(ctx context.Context) (map[string]string, er
 		if err != nil {
 			return nil, fmt.Errorf("composio: list auth configs: %w", err)
 		}
-		for _, ac := range resp.Items {
-			if ac.ID == "" || strings.EqualFold(ac.Status, "DISABLED") {
-				continue
-			}
-			slug := strings.ToLower(strings.TrimSpace(ac.Toolkit.Slug))
-			if slug == "" {
-				continue
-			}
-			cand := authCandidate{id: ac.ID, managed: ac.IsComposioManaged, updated: ac.LastUpdatedAt}
-			if cur, ok := best[slug]; !ok || betterAuthConfig(cand, cur) {
-				best[slug] = cand
-			}
-		}
+		processAuthConfigItems(resp.Items, best)
 		if resp.NextCursor == "" {
 			break
 		}
@@ -645,6 +638,22 @@ func (s *Service) fetchAuthConfigMap(ctx context.Context) (map[string]string, er
 		out[slug] = c.id
 	}
 	return out, nil
+}
+
+func processAuthConfigItems(items []sdk.AuthConfig, best map[string]authCandidate) {
+	for _, ac := range items {
+		if ac.ID == "" || strings.EqualFold(ac.Status, "DISABLED") {
+			continue
+		}
+		slug := strings.ToLower(strings.TrimSpace(ac.Toolkit.Slug))
+		if slug == "" {
+			continue
+		}
+		cand := authCandidate{id: ac.ID, managed: ac.IsComposioManaged, updated: ac.LastUpdatedAt}
+		if cur, ok := best[slug]; !ok || betterAuthConfig(cand, cur) {
+			best[slug] = cand
+		}
+	}
 }
 
 // betterAuthConfig reports whether candidate a should win over the currently

@@ -139,20 +139,9 @@ func (o *Outbound) handleEvent(e events.Event) {
 }
 
 func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
-	sessionID, err := util.ParseUUID(e.ChatSessionID)
-	if err != nil || !sessionID.Valid {
-		// Issue / autopilot tasks carry no chat_session.
-		return nil
-	}
-	binding, err := o.q.GetChannelChatSessionBindingBySession(ctx, db.GetChannelChatSessionBindingBySessionParams{
-		ChatSessionID: sessionID,
-		ChannelType:   channelTypeWecom,
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // not a wecom session (Slack / Lark / web-only)
-		}
-		return fmt.Errorf("wecom: lookup chat binding: %w", err)
+	binding, ok, err := o.resolveSessionBinding(ctx, e.ChatSessionID)
+	if err != nil || !ok {
+		return err
 	}
 	// An empty completion normally ends the turn here. It does not when the
 	// agent produced a file and said nothing about it: the platform writes an
@@ -162,64 +151,13 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	if content == "" && !o.mayCarryAttachments(e) {
 		return nil // nothing to say, nothing to send
 	}
-	// Only bound, non-empty completions reach here, so classify the task
-	// origin before loading credentials or sending. A question asked in the
-	// Multica web UI can reuse a session that originated in WeCom — and its
-	// answer belongs only in Multica. Without this gate that answer is pushed
-	// into the WeCom chat, which in a group means in front of everyone in the
-	// room. slack/outbound.go:118 and the lark and dingtalk equivalents all
-	// gate here; WeCom was the one that did not.
-	//
-	// Fails closed: an origin we cannot establish is not delivered.
-	//
-	// Everything above this point is a read. Keep it that way: the gate has to
-	// stay ahead of anything that consumes or mutates WeCom-side state for the
-	// turn, because an answer that must not reach the room must not take over
-	// the room's message either.
-	taskID, ok := chatDoneTaskID(e)
-	if !ok {
-		return nil
+	deliver, err := o.verifyTaskOrigin(ctx, e)
+	if err != nil || !deliver {
+		return err
 	}
-	task, err := o.q.GetAgentTask(ctx, taskID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Cancelled and deleted while its completion was in flight.
-			return nil
-		}
-		return fmt.Errorf("wecom: load agent task: %w", err)
-	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, o.q, task)
-	if err != nil {
-		return fmt.Errorf("wecom: classify task input origin: %w", err)
-	}
-	if !deliver {
-		return nil
-	}
-	inst, err := o.q.GetChannelInstallation(ctx, db.GetChannelInstallationParams{
-		ID:          binding.InstallationID,
-		ChannelType: channelTypeWecom,
-	})
-	if err != nil {
-		return fmt.Errorf("wecom: load installation: %w", err)
-	}
-	if inst.Status != string(InstallationActive) {
-		return nil // revoked between trigger and reply
-	}
-	if o.senders == nil {
-		return errors.New("wecom: sender registry not configured")
-	}
-	sender := o.senders.get(inst.ID)
-	if sender == nil {
-		// No live WS for this installation on this replica. Two causes:
-		// (1) the Supervisor lost the lease or is mid-reconnect — transient,
-		// and the user's next inbound message reaches the reconnected loop;
-		// (2) on a multi-replica deployment the lease is held by a DIFFERENT
-		// replica than the one that published this event, so it can never be
-		// delivered from here (see the single-replica constraint in this
-		// file's header). Either way, buffering is wrong — the reply is stale
-		// by the time a socket returns — so we surface it to the caller's WARN
-		// rather than drop it silently.
-		return errors.New("wecom: connection not ready on this replica")
+	sender, active, err := o.resolveActiveSender(ctx, binding.InstallationID)
+	if err != nil || !active {
+		return err
 	}
 	chatType := aibotChatTypeFromChannel(channel.ChatType(binding.ChatType))
 	// Words first. An empty completion reaches here only because a file is
@@ -238,6 +176,64 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 		ChatType:       chatType,
 	})
 	return nil
+}
+
+func (o *Outbound) resolveSessionBinding(ctx context.Context, rawSessionID string) (db.ChannelChatSessionBinding, bool, error) {
+	sessionID, err := util.ParseUUID(rawSessionID)
+	if err != nil || !sessionID.Valid {
+		return db.ChannelChatSessionBinding{}, false, nil
+	}
+	binding, err := o.q.GetChannelChatSessionBindingBySession(ctx, db.GetChannelChatSessionBindingBySessionParams{
+		ChatSessionID: sessionID,
+		ChannelType:   channelTypeWecom,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.ChannelChatSessionBinding{}, false, nil
+		}
+		return db.ChannelChatSessionBinding{}, false, fmt.Errorf("wecom: lookup chat binding: %w", err)
+	}
+	return binding, true, nil
+}
+
+func (o *Outbound) verifyTaskOrigin(ctx context.Context, e events.Event) (bool, error) {
+	taskID, ok := chatDoneTaskID(e)
+	if !ok {
+		return false, nil
+	}
+	task, err := o.q.GetAgentTask(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("wecom: load agent task: %w", err)
+	}
+	deliver, err := engine.TaskInputIsChannelIngested(ctx, o.q, task)
+	if err != nil {
+		return false, fmt.Errorf("wecom: classify task input origin: %w", err)
+	}
+	return deliver, nil
+}
+
+func (o *Outbound) resolveActiveSender(ctx context.Context, installationID pgtype.UUID) (*wsSender, bool, error) {
+	inst, err := o.q.GetChannelInstallation(ctx, db.GetChannelInstallationParams{
+		ID:          installationID,
+		ChannelType: channelTypeWecom,
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("wecom: load installation: %w", err)
+	}
+	if inst.Status != string(InstallationActive) {
+		return nil, false, nil
+	}
+	if o.senders == nil {
+		return nil, false, errors.New("wecom: sender registry not configured")
+	}
+	sender := o.senders.get(inst.ID)
+	if sender == nil {
+		return nil, false, errors.New("wecom: connection not ready on this replica")
+	}
+	return sender, true, nil
 }
 
 // chatDoneTaskID recovers the task id an EventChatDone belongs to. The

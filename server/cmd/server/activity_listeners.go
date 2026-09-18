@@ -20,244 +20,159 @@ import (
 func registerActivityListeners(bus *events.Bus, queries *db.Queries) {
 	ctx := context.Background()
 
-	// issue:created — record "created" activity
 	bus.Subscribe(protocol.EventIssueCreated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
-		if !ok {
-			return
-		}
-
-		activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-			ID:          dbid.NewV7(),
-			WorkspaceID: parseUUID(issue.WorkspaceID),
-			IssueID:     parseUUID(issue.ID),
-			ActorType:   util.StrToText(e.ActorType),
-			ActorID:     optionalUUID(e.ActorID),
-			Action:      "created",
-			Details:     []byte("{}"),
-		})
-		if err != nil {
-			slog.Error("activity: failed to record issue created",
-				"issue_id", issue.ID, "error", err)
-			return
-		}
-
-		publishActivityEvent(bus, e, activity)
+		handleIssueCreatedActivity(ctx, bus, queries, e)
 	})
 
-	// issue:updated — record specific changes as separate activities
 	bus.Subscribe(protocol.EventIssueUpdated, func(e events.Event) {
-		payload, ok := e.Payload.(map[string]any)
-		if !ok {
-			return
-		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
-		if !ok {
-			return
-		}
-
-		statusChanged, _ := payload["status_changed"].(bool)
-		priorityChanged, _ := payload["priority_changed"].(bool)
-		assigneeChanged, _ := payload["assignee_changed"].(bool)
-		descriptionChanged, _ := payload["description_changed"].(bool)
-
-		if statusChanged {
-			prevStatus, _ := payload["prev_status"].(string)
-			details, _ := json.Marshal(map[string]string{
-				"from": prevStatus,
-				"to":   issue.Status,
-			})
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "status_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record status change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if priorityChanged {
-			prevPriority, _ := payload["prev_priority"].(string)
-			details, _ := json.Marshal(map[string]string{
-				"from": prevPriority,
-				"to":   issue.Priority,
-			})
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "priority_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record priority change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if assigneeChanged {
-			prevAssigneeType, _ := payload["prev_assignee_type"].(*string)
-			prevAssigneeID, _ := payload["prev_assignee_id"].(*string)
-
-			detailsMap := map[string]string{}
-			if prevAssigneeType != nil {
-				detailsMap["from_type"] = *prevAssigneeType
-			}
-			if prevAssigneeID != nil {
-				detailsMap["from_id"] = *prevAssigneeID
-			}
-			if issue.AssigneeType != nil {
-				detailsMap["to_type"] = *issue.AssigneeType
-			}
-			if issue.AssigneeID != nil {
-				detailsMap["to_id"] = *issue.AssigneeID
-			}
-
-			details, _ := json.Marshal(detailsMap)
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "assignee_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record assignee change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if startDateChanged, _ := payload["start_date_changed"].(bool); startDateChanged {
-			prevStartDate := ""
-			if v, ok := payload["prev_start_date"].(*string); ok && v != nil {
-				prevStartDate = *v
-			}
-			newStartDate := ""
-			if issue.StartDate != nil {
-				newStartDate = *issue.StartDate
-			}
-			details, _ := json.Marshal(map[string]string{
-				"from": prevStartDate,
-				"to":   newStartDate,
-			})
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "start_date_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record start date change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if dueDateChanged, _ := payload["due_date_changed"].(bool); dueDateChanged {
-			prevDueDate := ""
-			if v, ok := payload["prev_due_date"].(*string); ok && v != nil {
-				prevDueDate = *v
-			}
-			newDueDate := ""
-			if issue.DueDate != nil {
-				newDueDate = *issue.DueDate
-			}
-			details, _ := json.Marshal(map[string]string{
-				"from": prevDueDate,
-				"to":   newDueDate,
-			})
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "due_date_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record due date change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if titleChanged, _ := payload["title_changed"].(bool); titleChanged {
-			prevTitle, _ := payload["prev_title"].(string)
-			details, _ := json.Marshal(map[string]string{
-				"from": prevTitle,
-				"to":   issue.Title,
-			})
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "title_changed",
-				Details:     details,
-			})
-			if err != nil {
-				slog.Error("activity: failed to record title change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
-
-		if descriptionChanged {
-			activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
-				ID:          dbid.NewV7(),
-				WorkspaceID: parseUUID(issue.WorkspaceID),
-				IssueID:     parseUUID(issue.ID),
-				ActorType:   util.StrToText(e.ActorType),
-				ActorID:     optionalUUID(e.ActorID),
-				Action:      "description_updated",
-				Details:     []byte("{}"),
-			})
-			if err != nil {
-				slog.Error("activity: failed to record description change",
-					"issue_id", issue.ID, "error", err)
-			} else {
-				publishActivityEvent(bus, e, activity)
-			}
-		}
+		handleIssueUpdatedActivity(ctx, bus, queries, e)
 	})
 
-	// task:completed — record "task_completed" activity
 	bus.Subscribe(protocol.EventTaskCompleted, func(e events.Event) {
 		handleTaskActivity(ctx, bus, queries, e, "task_completed")
 	})
 
-	// task:failed — record "task_failed" activity
 	bus.Subscribe(protocol.EventTaskFailed, func(e events.Event) {
 		handleTaskActivity(ctx, bus, queries, e, "task_failed")
 	})
+}
+
+func handleIssueCreatedActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := payload["issue"].(handler.IssueResponse)
+	if !ok {
+		return
+	}
+
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "created", []byte("{}"))
+}
+
+func handleIssueUpdatedActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event) {
+	payload, ok := e.Payload.(map[string]any)
+	if !ok {
+		return
+	}
+	issue, ok := payload["issue"].(handler.IssueResponse)
+	if !ok {
+		return
+	}
+
+	recordStatusChangeActivity(ctx, bus, queries, e, issue, payload)
+	recordPriorityChangeActivity(ctx, bus, queries, e, issue, payload)
+	recordAssigneeChangeActivity(ctx, bus, queries, e, issue, payload)
+	recordDateChangeActivity(ctx, bus, queries, e, issue, payload, "start_date_changed", "prev_start_date", issue.StartDate, "start_date_changed")
+	recordDateChangeActivity(ctx, bus, queries, e, issue, payload, "due_date_changed", "prev_due_date", issue.DueDate, "due_date_changed")
+	recordTitleChangeActivity(ctx, bus, queries, e, issue, payload)
+	recordDescriptionChangeActivity(ctx, bus, queries, e, issue, payload)
+}
+
+func recordStatusChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if statusChanged, _ := payload["status_changed"].(bool); !statusChanged {
+		return
+	}
+	prevStatus, _ := payload["prev_status"].(string)
+	details, _ := json.Marshal(map[string]string{
+		"from": prevStatus,
+		"to":   issue.Status,
+	})
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "status_changed", details)
+}
+
+func recordPriorityChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if priorityChanged, _ := payload["priority_changed"].(bool); !priorityChanged {
+		return
+	}
+	prevPriority, _ := payload["prev_priority"].(string)
+	details, _ := json.Marshal(map[string]string{
+		"from": prevPriority,
+		"to":   issue.Priority,
+	})
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "priority_changed", details)
+}
+
+func recordAssigneeChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if assigneeChanged, _ := payload["assignee_changed"].(bool); !assigneeChanged {
+		return
+	}
+	prevAssigneeType, _ := payload["prev_assignee_type"].(*string)
+	prevAssigneeID, _ := payload["prev_assignee_id"].(*string)
+
+	detailsMap := map[string]string{}
+	if prevAssigneeType != nil {
+		detailsMap["from_type"] = *prevAssigneeType
+	}
+	if prevAssigneeID != nil {
+		detailsMap["from_id"] = *prevAssigneeID
+	}
+	if issue.AssigneeType != nil {
+		detailsMap["to_type"] = *issue.AssigneeType
+	}
+	if issue.AssigneeID != nil {
+		detailsMap["to_id"] = *issue.AssigneeID
+	}
+
+	details, _ := json.Marshal(detailsMap)
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "assignee_changed", details)
+}
+
+func recordDateChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any, flagKey, prevKey string, newDate *string, action string) {
+	if changed, _ := payload[flagKey].(bool); !changed {
+		return
+	}
+	prevDate := ""
+	if v, ok := payload[prevKey].(*string); ok && v != nil {
+		prevDate = *v
+	}
+	newDateStr := ""
+	if newDate != nil {
+		newDateStr = *newDate
+	}
+	details, _ := json.Marshal(map[string]string{
+		"from": prevDate,
+		"to":   newDateStr,
+	})
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, action, details)
+}
+
+func recordTitleChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if titleChanged, _ := payload["title_changed"].(bool); !titleChanged {
+		return
+	}
+	prevTitle, _ := payload["prev_title"].(string)
+	details, _ := json.Marshal(map[string]string{
+		"from": prevTitle,
+		"to":   issue.Title,
+	})
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "title_changed", details)
+}
+
+func recordDescriptionChangeActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, issue handler.IssueResponse, payload map[string]any) {
+	if descriptionChanged, _ := payload["description_changed"].(bool); !descriptionChanged {
+		return
+	}
+	recordActivity(ctx, bus, queries, e, issue.WorkspaceID, issue.ID, "description_updated", []byte("{}"))
+}
+
+func recordActivity(ctx context.Context, bus *events.Bus, queries *db.Queries, e events.Event, workspaceID, issueID, action string, details []byte) {
+	activity, err := queries.CreateActivity(ctx, db.CreateActivityParams{
+		ID:          dbid.NewV7(),
+		WorkspaceID: parseUUID(workspaceID),
+		IssueID:     parseUUID(issueID),
+		ActorType:   util.StrToText(e.ActorType),
+		ActorID:     optionalUUID(e.ActorID),
+		Action:      action,
+		Details:     details,
+	})
+	if err != nil {
+		slog.Error("activity: failed to record activity",
+			"issue_id", issueID, "action", action, "error", err)
+		return
+	}
+
+	publishActivityEvent(bus, e, activity)
 }
 
 // handleTaskActivity records an activity for task:completed or task:failed events.

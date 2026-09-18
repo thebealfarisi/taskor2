@@ -209,41 +209,50 @@ func pinConnectedAccounts(rows []db.UserComposioConnection, allowSet map[string]
 	return pinned
 }
 
-// lowerTrim is the tiny inlined helper that keeps allowlist and connection
-// slug comparison consistent without dragging the unicode lib for what is
-// always an ASCII slug.
-func lowerTrim(s string) string {
-	// strings.ToLower + TrimSpace would do, but we avoid importing strings
-	// just for two ASCII transforms in a hot path. Manual loop is
-	// allocation-free for the common all-ASCII case.
+func isASCIISpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+func trimASCII(s string) (int, int) {
 	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\n' || s[start] == '\r') {
+	for start < end && isASCIISpace(s[start]) {
 		start++
 	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\n' || s[end-1] == '\r') {
+	for end > start && isASCIISpace(s[end-1]) {
 		end--
 	}
-	if start == end {
-		return ""
-	}
-	// Detect upper-case before allocating.
+	return start, end
+}
+
+func toLowerASCII(s string) string {
 	upper := false
-	for i := start; i < end; i++ {
+	for i := 0; i < len(s); i++ {
 		if s[i] >= 'A' && s[i] <= 'Z' {
 			upper = true
 			break
 		}
 	}
 	if !upper {
-		return s[start:end]
+		return s
 	}
-	b := make([]byte, end-start)
-	for i := start; i < end; i++ {
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if c >= 'A' && c <= 'Z' {
 			c += 'a' - 'A'
 		}
-		b[i-start] = c
+		b[i] = c
 	}
 	return string(b)
+}
+
+// lowerTrim is the tiny inlined helper that keeps allowlist and connection
+// slug comparison consistent without dragging the unicode lib for what is
+// always an ASCII slug.
+func lowerTrim(s string) string {
+	start, end := trimASCII(s)
+	if start == end {
+		return ""
+	}
+	return toLowerASCII(s[start:end])
 }

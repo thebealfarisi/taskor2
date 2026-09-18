@@ -215,16 +215,9 @@ func newDingTalkFactory(deps ChannelDeps) channel.Factory {
 	var dispatchMu sync.Mutex
 	dispatchByAppID := make(map[string]*dispatchSlot)
 	return func(cfg channel.Config) (channel.Channel, error) {
-		var ic installConfig
-		if err := json.Unmarshal(cfg.Raw, &ic); err != nil {
-			return nil, fmt.Errorf("dingtalk: decode installation config: %w", err)
-		}
-		appSecret, err := decryptToken(ic.AppSecretEncrypted, deps.Decrypt)
+		ic, appSecret, err := decodeInstallConfig(cfg.Raw, deps.Decrypt)
 		if err != nil {
-			return nil, fmt.Errorf("dingtalk: decrypt app secret: %w", err)
-		}
-		if appSecret == "" {
-			return nil, errors.New("dingtalk: installation has no app secret")
+			return nil, err
 		}
 		ch := &dingtalkChannel{
 			appID:     ic.AppID,
@@ -236,32 +229,49 @@ func newDingTalkFactory(deps ChannelDeps) channel.Factory {
 			logger:    logger,
 		}
 
-		// Supervisor.Build runs once per reconnect. Reusing the queue by the
-		// installation's unique AppKey prevents an old in-flight turn and the
-		// next turn received after reconnect from running concurrently.
-		dispatchMu.Lock()
-		slot := dispatchByAppID[ch.appID]
-		if slot != nil {
-			slot.mu.Lock()
-		}
-		if slot == nil || slot.queue.isClosed() {
-			if slot != nil {
-				slot.mu.Unlock()
-			}
-			slot = &dispatchSlot{}
-			slot.mu.Lock()
-			slot.queue = newDispatcher(func(ctx context.Context, msg channel.InboundMessage) {
-				if current := slot.current.Load(); current != nil {
-					current.runInbound(ctx, msg)
-				}
-			}, logger)
-			dispatchByAppID[ch.appID] = slot
-		}
+		slot := acquireDispatchSlot(&dispatchMu, dispatchByAppID, ch.appID, logger)
 		slot.current.Store(ch)
 		ch.dispatch = slot.queue
 		ch.slot = slot
 		slot.mu.Unlock()
-		dispatchMu.Unlock()
 		return ch, nil
 	}
+}
+
+func decodeInstallConfig(raw json.RawMessage, decrypt Decrypter) (installConfig, string, error) {
+	var ic installConfig
+	if err := json.Unmarshal(raw, &ic); err != nil {
+		return installConfig{}, "", fmt.Errorf("dingtalk: decode installation config: %w", err)
+	}
+	appSecret, err := decryptToken(ic.AppSecretEncrypted, decrypt)
+	if err != nil {
+		return installConfig{}, "", fmt.Errorf("dingtalk: decrypt app secret: %w", err)
+	}
+	if appSecret == "" {
+		return installConfig{}, "", errors.New("dingtalk: installation has no app secret")
+	}
+	return ic, appSecret, nil
+}
+
+func acquireDispatchSlot(dispatchMu *sync.Mutex, dispatchByAppID map[string]*dispatchSlot, appID string, logger *slog.Logger) *dispatchSlot {
+	dispatchMu.Lock()
+	defer dispatchMu.Unlock()
+	slot := dispatchByAppID[appID]
+	if slot != nil {
+		slot.mu.Lock()
+	}
+	if slot == nil || slot.queue.isClosed() {
+		if slot != nil {
+			slot.mu.Unlock()
+		}
+		slot = &dispatchSlot{}
+		slot.mu.Lock()
+		slot.queue = newDispatcher(func(ctx context.Context, msg channel.InboundMessage) {
+			if current := slot.current.Load(); current != nil {
+				current.runInbound(ctx, msg)
+			}
+		}, logger)
+		dispatchByAppID[appID] = slot
+	}
+	return slot
 }

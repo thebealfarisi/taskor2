@@ -185,13 +185,17 @@ func publicAddrOnly(a netip.Addr) bool {
 	// An IPv4-mapped IPv6 address (::ffff:127.0.0.1) reports none of the IPv4
 	// predicates until it is unmapped, which is the whole trick.
 	a = a.Unmap()
-	if !a.IsValid() {
+	if !a.IsValid() || isSpecialOrTranslationAddr(a) {
 		return false
 	}
+	return isReservedAddrAllowed(a)
+}
+
+func isSpecialOrTranslationAddr(a netip.Addr) bool {
 	if a.IsLoopback() || a.IsPrivate() || a.IsUnspecified() ||
 		a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
 		a.IsInterfaceLocalMulticast() || a.IsMulticast() {
-		return false
+		return true
 	}
 	// Translation space first, and before the allow-list is consulted at all.
 	// The address inside one of these is an IPv4 address the checks above
@@ -199,9 +203,13 @@ func publicAddrOnly(a netip.Addr) bool {
 	// spelling. Nothing an operator configures reopens it.
 	for _, p := range translationMediaPrefixes {
 		if p.Contains(a) {
-			return false
+			return true
 		}
 	}
+	return false
+}
+
+func isReservedAddrAllowed(a netip.Addr) bool {
 	for _, p := range reservedMediaPrefixes {
 		if p.Contains(a) {
 			// An operator may have declared this range theirs — a fake-IP

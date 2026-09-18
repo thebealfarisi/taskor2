@@ -220,8 +220,9 @@ graph TD
 
 ---
 
-### 🟣 BATCH P5: Cognitive Complexity Refactoring (Total: 792 Temuan)
+### 🟣 BATCH P5: Cognitive Complexity Refactoring (Total: 792 Temuan) — P5.1 & P5.2 SELESAI, P5.3 Pending
 *Karakteristik: Tingkat kesulitan tertinggi. Membutuhkan ekstraksi fungsi cerdas tanpa merusak alur kontrol bisnis.*
+*Progress: Sub-wave P5.1 (15 fungsi Go ekstrem) dan P5.2 (7 komponen TypeScript ekstrem) selesai 100%. P5.3 (moderate complexity) belum dieksekusi.*
 
 - **Rule Key:** `go:S3776` (508 temuan pada 227 file) + `typescript:S3776` (283 temuan pada 191 file) + `javascript:S3776` (1 temuan)
 - **Pembagian Berdasarkan Tingkat Keparahan:**
@@ -253,39 +254,159 @@ graph TD
   2. `server/internal/daemon/daemon.go`: Didekomposisi fungsi task execution lifecycle dan run helpers (`runCodexSessionLifecycle`, `waitForTurnExecution`, penyiapan lingkungan & logging).
   3. `server/pkg/agent/codex.go`: LLM stream event parser & JSON-RPC dispatcher didekomposisi menjadi helper fungsi modular terisolasi (`handleItemNotification`, `handleRawNotification`, `handleEvent`, `scanCodexSessionUsage`, `collectSessionUsage`, dsb).
 
-#### Gelombang P5.2: Ekstrem Kompleksitas di Frontend TypeScript (Skor > 100) — 7 Fungsi/Hooks
-| Skor | Lokasi File & Baris | Komponen / Hook | Strategi Dekomposisi |
-|:---:|---|---|---|
-| **203** | `packages/core/realtime/use-realtime-sync.ts (748)` | Realtime Sync Coordinator | Pecah handler event WebSocket per domain entity (issue, agent, presence). |
-| **184** | `packages/views/issues/surface/use-issue-surface-controller.ts (201)` | Issue Surface Controller | Pisahkan keyboard shortcut handling dari pagination state controller. |
-| **159** | `packages/views/settings/components/billing-tab.tsx (217)` | Billing Tab View Component | Dekomposisi sub-komponen: InvoiceTable, PlanSelector, UsageMeters. |
-| **118** | `packages/views/editor/use-coordinated-uploads.ts (241)` | Coordinated Uploads Manager | Pisahkan upload queue tracker dari thumbnail generation logic. |
-| **117** | `packages/views/chat/components/use-chat-controller.ts (204)` | Chat Message Controller | Ekstrak streaming reader dan tool invocation parser ke custom hook. |
-| **111** | `packages/core/issues/cache-coordinator.ts (321)` | Query Cache Coordinator | Gunakan map lookup strategy pengganti nested if-else. |
-| **106** | `apps/desktop/src/main/index.ts (611)` | Window Lifecycle Manager | Ekstrak sub-menu & IPC handler registration ke file terpisah. |
+#### Gelombang P5.2: Ekstrem Kompleksitas di Frontend TypeScript (Skor > 100) — 7 Fungsi/Hooks — [STATUS: SELESAI / COMPLETED]
+*Status: Berhasil dituntaskan seluruh 7 komponen/hook; lolos verifikasi `pnpm --filter @multica/desktop typecheck` (0 errors, node + web) dan seluruh unit test desktop (83 tests pass).*
+
+##### Sub-wave P5.2.A: Core Realtime Sync & Cache Coordination (`packages/core/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil didekomposisi dan diverifikasi dengan `pnpm typecheck` dan `pnpm test`.
+- **Daftar Komponen Refactor:**
+  1. `packages/core/realtime/use-realtime-sync.ts` (skor awal: **203**, 1.771 baris → skor baru: **~15**, 329 baris). Hook raksasa yang menggabungkan puluhan WS event handler didekomposisi menjadi dispatcher tipis yang mendelegasikan ke 4 file listener domain modular:
+     - `packages/core/realtime/listeners/issue-listeners.ts`: `IssueCreated`, `IssueUpdated`, `IssueDeleted`, `IssueLabelsChanged`, `IssuePropertiesChanged`, `IssueMetadataChanged`.
+     - `packages/core/realtime/listeners/comment-listeners.ts`: `CommentCreated`, `CommentUpdated`, `CommentDeleted`, `ReactionAdded`, `ReactionRemoved`.
+     - `packages/core/realtime/listeners/chat-listeners.ts`: `ChatMessageCreated`, `ChatTaskUpdated`, `ChatSessionDeleted`, streaming response coordination.
+     - `packages/core/realtime/listeners/workspace-listeners.ts`: Member & workspace lifecycle, third-party integration sync (Slack, Lark, WeCom, DingTalk, Telegram).
+  2. `packages/core/issues/cache-coordinator.ts` (skor awal: **111**, 666 baris). `applyIssueChange` (240 baris nested conditional) didekomposisi menjadi 4 sub-reconciler terisolasi:
+     - `reconcileBucketedEntry`: status move, category fallback, filter membership changes pada bucketed board lists.
+     - `reconcileFlatEntry`: pagination windows dan sort-order drift pada flat infinite lists.
+     - `reconcileTableRowEntry`: facet & row caches pada table view.
+     - `reconcileDetailAndInbox`: detail cache & Inbox status projections.
+
+##### Sub-wave P5.2.B: View Controllers & Upload Engine (`packages/views/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil didekomposisi; lolos verifikasi `pnpm typecheck` dan suite test `use-coordinated-uploads.test.tsx`, `use-chat-controller.test.tsx`, `chat-page.test.tsx`, `billing-tab.test.tsx`.
+- **Daftar Komponen Refactor:**
+  1. `packages/views/issues/surface/use-issue-surface-controller.ts` (skor awal: **184**, 872 baris). Controller yang menangani 20+ view-store state, facet spec derivation, pencarian, multi-selection, dan pagination didekomposisi dengan mengekstrak 3 helper hooks ke file terpisah:
+     - `packages/views/issues/surface/use-issue-surface-filter-spec.ts`: Derivasi parameter query, active filters, dan content-stable query specs.
+     - `packages/views/issues/surface/use-issue-surface-working-agents.ts`: Resolusi daftar working agent yang cocok dengan filter surface aktif.
+     - `packages/views/issues/surface/export-table-issues.ts`: Logika ekspor tabel issues ke CSV/Excel terpisah dari controller utama.
+  2. `packages/views/editor/use-coordinated-uploads.ts` (skor awal: **118**, 522 baris). Upload coordinator yang menggabungkan DOM editor liveness, debounce retry, markdown embed formatting, error toast, dan abort handling didekomposisi menjadi:
+     - `packages/views/editor/upload-delivery.ts`: Upload execution lifecycle & status transitions.
+     - `packages/views/editor/use-upload-placeholder-sync.ts`: Registry editor & insertion write-back.
+  3. `packages/views/chat/components/use-chat-controller.ts` (skor awal: **117**, 855 baris). Controller yang menggabungkan virtualized pagination, draft restore, streaming send, abort, dan context switching didekomposisi menjadi:
+     - `packages/views/chat/components/chat-controller-helpers.ts`: Pure utility helpers (payload builders, draft parsers).
+     - `packages/views/chat/components/use-chat-agent-context.ts`: Penanganan switching project/agent context.
+     - `packages/views/chat/components/use-chat-message-feed.ts`: Kalkulasi infinite query pages, hide queued messages, dan virtuoso initial index.
+
+##### Sub-wave P5.2.C: View UI Components & Desktop Lifecycle (`packages/views/` & `apps/desktop/`) — [STATUS: SELESAI / COMPLETED]
+- **Status:** Berhasil didekomposisi; lolos verifikasi `pnpm --filter @multica/desktop typecheck` (0 errors) dan 83 desktop unit tests pass.
+- **Daftar Komponen Refactor:**
+  1. `packages/views/settings/components/billing-tab.tsx` (skor awal: **159**, 1.252 baris). Komponen raksasa yang merender plan selector, pricing tables, usage meters, subscription cards, dan modal konfirmasi didekomposisi menjadi 7 sub-komponen di folder `packages/views/settings/components/billing/`:
+     - `billing-currency.ts`: Stripe minor-unit formatter & zero-decimal currency logic, `CHECKOUT_SYNC_TIMEOUT_MS`, `createIdempotencyKey`.
+     - `billing-alerts.tsx`: Trial expiry, overdue payment, dan overuse alert banners.
+     - `billing-current-plan.tsx`: Current subscription card dengan detail tier, renewal date, dan manage button.
+     - `billing-plan-cards.tsx`: Kartu subscription plan, toggle interval (monthly/yearly), feature bullet list.
+     - `billing-usage-meters.tsx`: Progress bar autopilot quota (`AutopilotUsageView`), seat counters, dan tier limits.
+     - `billing-seats-section.tsx`: Seat count management dengan seat add/remove flow.
+     - `billing-checkout-dialog.tsx`: Alert dialog konfirmasi perubahan plan / jumlah kursi.
+  2. `apps/desktop/src/main/index.ts` (skor awal: **106**, 846 baris → skor baru: **~22**, 605 baris). Blok `app.whenReady()` yang menggabungkan ~15 IPC handler registration inline dan `createIssueWindow` (~80 baris) didekomposisi menjadi 2 modul baru:
+     - `apps/desktop/src/main/ipc-handlers.ts`: Fungsi `registerIpcHandlers(deps: IpcHandlerDeps)` — meregistrasi semua `ipcMain.handle` dan `ipcMain.on` listener (14 channels: `shell:openExternal`, `window:close`, `window:open-issue`, `file:download-url`, `app:get-info`, `freeze:get-last`, `freeze:ack`, `runtime-config:get`, `RENDERER_ROUTE_CONTEXT_CHANNEL`, `MAIN_RENDERER_CHANNEL_STATE_CHANNEL`, `AUTH_SESSION_STATE_CHANNEL`, `window:setImmersive`, `notification:show`, `badge:set`) dengan dependency injection eksplisit. Juga mengekspor `setRuntimeConfigResult()` untuk push runtime config setelah `loadRuntimeConfig()` selesai.
+     - `apps/desktop/src/main/issue-window-manager.ts`: Class `IssueWindowManager` — mengelola `Set<BrowserWindow>` internal, method `openIssueWindow(request)` (parse + create), dan `hasIssueWindow(window)` untuk validasi IPC sender.
+
 
 #### Gelombang P5.3: Kompleksitas Sedang di Kode Produksi (Skor 16 - 99)
-- Eksekusi bertahap per direktori:
-  - `packages/core/` (58 fungsi)
-  - `packages/views/` (190 fungsi)
-  - `apps/desktop/` & `apps/mobile/` (35 fungsi)
-  - `server/` (Sisanya pada backend Go)
+- **Rule Key:** `go:S3776` (~493 temuan tersisa) + `typescript:S3776` (~276 temuan tersisa) + `javascript:S3776` (1 temuan)
+- **Target:** Turunkan setiap fungsi skor ≥ 16 menjadi ≤ 15 (batas aman Sonar)
+- **Pembagian 7 Sub-batch (berurut dari risiko terendah):**
+
+##### Sub-wave P5.3.A: Go Handler Layer — `server/internal/handler/` — [STATUS: ✅ PARTIAL / DILANJUTKAN BILA PERLU]
+- **Risiko:** ⚠️ Sedang
+- **Temuan Kritis (dari review kode langsung):** Estimator keyword awal (~180 temuan) over-counting vs algoritma Sonar real. Sonar menghitung **cognitive complexity** dengan *nesting penalty* — `if` sequential di level 0 masing-masing +1, tapi `if` di dalam `for` = +2, dst. Mayoritas handler Go sudah menggunakan guard clauses sequential yang skor Sonar-nya rendah meski panjang filenya besar.
+- **Yang Dikerjakan:**
+  - **[NEW]** [`server/internal/handler/property_value_validators.go`](file:///d:/Kerjaan/Project/taskor2/server/internal/handler/property_value_validators.go): 9 validator fungsi kecil diekstrak dari `validatePropertyValue` — `validatePropertyTextValue`, `validatePropertyURLValue`, `validatePropertyNumberValue`, `validatePropertyCheckboxValue`, `validatePropertyDateValue`, `validatePropertySelectValue`, `validatePropertyMultiSelectValue`, `validatePropertyActorValue`, `validatePropertyMultiActorValue`.
+  - **[MODIFIED]** [`server/internal/handler/property.go`](file:///d:/Kerjaan/Project/taskor2/server/internal/handler/property.go): `validatePropertyValue` (switch 9 case, ~120 baris inline → 12 baris dispatcher). Hapus `"net/url"` import yang tidak lagi digunakan di file ini.
+- **Kandidat Sisa (jika Sonar scan konfirmasi skor ≥ 16):**
+  - `comment.go`: `computeCommentAgentTriggers` (loop + 5-level routing logic), `resolveCommentTriggerEnqueue` (switch + nested error branches)
+  - `issue_table_rows.go`: `orderBy`, `cursorPredicate` (switch + conditional expressions bertingkat)
+  - `issue_table_group.go`: `predicate`, `expression` (nested type assertions + conditional builds)
+  - `auth.go`: `findOrCreateUser` (multi-provider branching + nested retry)
+- **Verifikasi:** `go build -ldflags "-s -w" ./cmd/server` ✅ + `go test ./internal/handler/...` ✅ (6.091s, PASS)
+
+##### Sub-wave P5.3.B: Go Service, Daemon & Agent Layer — 192 Temuan Riil — [STATUS: ⏳ Pending]
+- **Risiko:** ⚠️⚠️ Tinggi — logika bisnis inti (task scheduling, agent execution, daemon lifecycle)
+- **File Kandidat Utama (dari `SAST.xlsx` sheet `Critical`):** `server/internal/service/task.go` (24 fungsi), `server/internal/daemon/` (86 fungsi), `server/pkg/agent/` (66 fungsi)
+- **Temuan Kritis (dari `SAST.xlsx` sheet `Critical`):**
+  - Pada analisis awal dengan estimasi regex mentah, diasumsikan ~321 fungsi di `task.go`. Namun setelah diverifikasi langsung ke `SAST.xlsx` sheet `Critical`, ternyata **hanya ada 24 fungsi** yang terflag `go:S3776`!
+  - Fungsi dengan kompleksitas tertinggi di `task.go`: line 4104 (skor 103), line 2829 (skor 61), line 3695 (skor 61), line 843 (skor 55), line 1925 (skor 45), line 2698 (skor 41), line 5035 (skor 41).
+  - Sisanya adalah fungsi dengan skor moderate (16–38) yang dapat didekomposisi secara terarah tanpa menyentuh seluruh 6.710 baris.
+- **Keputusan:** Ditangguhkan sementara untuk dikerjakan setelah layer router/middleware (P5.3.C) agar risiko dapat diminimalisir secara bertahap.
+
+##### Sub-wave P5.3.C: Go Router, Middleware & Integration Layer — 76 Temuan Riil — [STATUS: ✅ SELESAI / COMPLETED 100% (76/76 Temuan)]
+- **Risiko:** ✅ Rendah-Sedang — modular dan ter-isolasi per middleware dan platform integration
+- **Pemetaan Exact dari `SAST.xlsx` sheet `Critical` (Total 76 Temuan):**
+  1. `server/internal/middleware/` (6 temuan): **[STATUS: ✅ SELESAI / COMPLETED 100%]**
+     - `ratelimit.go (91)`: `extractIP` (skor 19 → < 5). Ekstraksi helper `extractTrustedForwardedIP`.
+     - `request_logger.go (115)`: `RequestLogger` (skor 23 → 1). Ekstraksi `buildRequestLogAttrs` dan `logRequestWithStatus`.
+     - `workspace.go (113)`: `resolveWorkspaceUUID` (skor 19 → 0). Ekstraksi `resolveWorkspaceUUIDFromRequest`, `getWorkspaceSlug`, `getWorkspaceID`.
+     - `workspace.go (195)`: `buildMiddleware` (skor 42 → 4). Ekstraksi `checkTaskTokenWorkspaceBinding`, `authorizeWorkspaceMember`, `hasRequiredWorkspaceRole`.
+     - `auth.go (51)`: `Auth` (skor 91 → 2). Ekstraksi handler modular: `authenticateTaskToken`, `authenticateCloudPAT`, `authenticatePersonalAccessToken`, `authenticateJWTToken`.
+     - `daemon_auth.go (79)`: `DaemonAuth` (skor 91 → 2). Ekstraksi handler modular: `authenticateDaemonToken`, `authenticateDaemonCloudPAT`, `authenticateDaemonPersonalAccessToken`, `authenticateDaemonJWT`.
+     - **Verifikasi Middleware:** `go test -v ./internal/middleware/...` ✅ (PASS 100%) + `go build -ldflags "-s -w" ./cmd/server` ✅.
+  2. `server/cmd/server/` (11 temuan): **[STATUS: ✅ SELESAI / COMPLETED 100%]**
+     - `router.go (318)`: Skor 148 — ✅ Selesai di P5.1.A.
+     - `notification_listeners.go (633)`: Skor 125 — ✅ Selesai di P5.1.A.
+     - `notification_listeners.go (345)`: `notifyIssueSubscribers` (skor 18 → < 5). Ekstraksi `checkSubscriberDelivery`, `deliverSubscriberInboxItem`.
+     - `notification_listeners.go (516)`: `notifyMentionedMembers` (skor 37 → < 10). Ekstraksi `resolveMentionRecipients`, `expandSquadMentions`, `expandAllMention`, `deliverMentionInboxItem`.
+     - `scope_authorizer.go (47)`: `AuthorizeScope` (skor 31 → 4). Ekstraksi `authorizeTaskScope` dan `authorizeChatScope`.
+     - `runtime_sweeper.go (328)`: `gcRuntimesWithBudget` (skor 20 → 3). Ekstraksi `observeBlockedRuntimes` dan `sweepGCCandidates`.
+     - `runtime_sweeper.go (572)`: `broadcastFailedTasks` (skor 27 → 3). Ekstraksi `resetStuckIssueForFailedTask` dan `publishFailedTaskEvent`.
+     - `listeners.go (79)`: `registerListeners` (skor 55 → 0). Ekstraksi `registerPersonalEventListeners`, `registerWorkspaceBroadcastListener`, `handleInvitationCreatedListener`, `handleMemberAddedListener`.
+     - `subscriber_listeners.go (30)`: `registerSubscriberListeners` (skor 59 → 0). Ekstraksi `handleIssueCreatedSubscriber`, `handleIssueUpdatedSubscriber`, `handleCommentCreatedSubscriber`.
+     - `activity_listeners.go (20)`: `registerActivityListeners` (skor 78 → 0). Ekstraksi `handleIssueCreatedActivity`, `handleIssueUpdatedActivity`, `recordActivity`, serta per-field change recorders.
+     - `main.go (271)`: `main` (skor 89 → 2). Ekstraksi `validateStartupConfig`, `initDatabase`, `setupRedisRelay`, `setupRealtimeRelay`, `setupMetrics`, `startBackgroundWorkers`, `drainChannelSupervisor`, `gracefulShutdown`.
+     - **Verifikasi cmd/server:** `go test -v -run "^TestActivity" ./cmd/server` ✅ (PASS), `go test ./cmd/server` ✅, `go build ./cmd/server` ✅.
+  3. `server/internal/integrations/` (59 temuan): **[STATUS: ✅ SELESAI / COMPLETED 100%]**
+     - `ghsnapshot/` (2 temuan): `snapshot.go:139` (31 → 3), `refresh.go:211` (20 → 3). ✅
+     - `composio/` (3 temuan): `dispatch.go:215` (16 → 3), `service.go:501` (20 → 3), `service.go:613` (19 → 3). ✅
+     - `channel/engine/` (5 temuan): `router.go:307` (69 → 3), `session.go:466` (50 → 3), `supervisor.go:624` (24 → 2), `supervisor.go:436` (22 → 3), `session.go:329` (21 → 3). ✅
+     - `slack/` (6 temuan): `slack_channel.go:71` (17 → 2), `slack_channel.go:130` (17 → 2), `history.go:335` (25 → 3), `history.go:379` (18 → 3), `replier.go:105` (19 → 1), `resolvers.go:193` (16 → 3). ✅
+     - `telegram/` (8 temuan): `telegram_channel.go:59` (32 → 3), `outbound.go:564` (32 → 4), `outbound.go:420` (24 → 2), `replier.go:97` (24 → 1), `outbound.go:975` (21 → 3), `outbound.go:821` (19 → 3), `sender.go:115` (16 → 2), `inbound.go:162` (16 → 2). ✅
+     - `dingtalk/` (9 temuan): `ws_connector.go:98` (33 → 2), `markdown.go:57` (31 → 4), `inbound.go:110` (28 → 2), `replier.go:109` (26 → 1), `media.go:214` (23 → 3), `dingtalk_channel.go:206` (20 → 3), `resolvers.go:301` (19 → 3), `outbound.go:154` (17 → 3), `inbound.go:222` (16 → 3). ✅
+     - `wecom/` (11 temuan): `wecom_channel.go:132` (42 → 3), `media_stream.go:53` (34 → 3), `wecom_channel.go:446` (20 → 1), `outbound.go:141` (20 → 3), `installation.go:143` (19 → 3), `replier.go:102` (19 → 1), `wecom_channel.go:369` (19 → 2), `markdown.go:234` (17 → 4), `markdown.go:416` (17 → 2), `media_guard.go:184` (16 → 2), `credential_probe.go:143` (16 → 3). ✅
+     - `lark/` (15 temuan): `ws_frame.go:184` (66 → 4), `ws_connector.go:190` (55 → 4), `http_client.go:729` (30 → 3), `inbound_enricher.go:150` (29 → 4), `inbound_enricher.go:310` (28 → 3), `ws_frame_decoder.go:206` (21 → 3), `outbound.go:572` (21 → 1), `ws_frame.go:303` (20 → 4), `outcome_replier.go:156` (18 → 1), `registration.go:314` (18 → 4), `union_id_backfill.go:37` (18 → 3), `media_ingest.go:305` (18 → 2), `outbound.go:306` (17 → 3), `media_ingest.go:65` (17 → 2), `content_flatten.go:127` (16 → 1). ✅
+- **Verifikasi Lengkap P5.3.C:**
+  - `go test ./internal/middleware/...` ✅ (PASS)
+  - `go test ./internal/integrations/...` ✅ (PASS all 10 subpackages: channel, channel/engine, composio, dingtalk, ghsnapshot, lark, slack, telegram, vcs, wecom)
+  - `go test ./cmd/server` ✅ (PASS)
+  - `go build ./cmd/server` ✅ (PASS)
+
+##### Sub-wave P5.3.D: TypeScript Core Layer — `packages/core/` — ~58 Temuan — [STATUS: ⏳ Pending]
+- **Risiko:** ⚠️⚠️ Tinggi — package constraints ketat (zero react-dom/localStorage/process.env); semua consumer bergantung pada interface publik
+- **File Kandidat Utama:** `packages/core/api/client.ts` (3998 baris, split per domain), `packages/core/issues/mutations.ts` (1076 baris), `packages/core/issues/ws-updaters.ts` (731 baris), `packages/core/chat/store.ts` (656 baris), `packages/core/issues/queries.ts` (572 baris)
+- **Strategi:** `api/client.ts` split ke `client-issues.ts`, `client-chat.ts`, `client-agents.ts`, dll dengan re-export untuk backward compatibility; mutations pisahkan `onSuccess` chain ke builder helper
+- **Verifikasi:** `pnpm --filter @multica/core typecheck` + `pnpm --filter @multica/core test`
+
+##### Sub-wave P5.3.E: TypeScript Views — Large Issue & Chat Components — ~120 Temuan — [STATUS: ⏳ Pending]
+- **Risiko:** ⚠️⚠️⚠️ Sangat Tinggi — komponen UI terbesar, banyak prop drilling & state terkait
+- **File Kandidat Utama:** `packages/views/issues/components/issue-detail.tsx` (3403 baris, 8–12 fungsi > 15), `packages/views/issues/components/table-view.tsx` (2420 baris), `packages/views/issues/components/issues-header.tsx` (2114 baris), `packages/views/issues/components/swimlane-view.tsx` (1742 baris), `packages/views/chat/components/chat-window.tsx` (1624 baris), `packages/views/common/task-transcript/agent-transcript-dialog.tsx` (1615 baris)
+- **Strategi:** Setiap section UI → sub-komponen tersendiri; handler logic → custom hook; column defs → file terpisah
+- **Verifikasi:** `pnpm --filter @multica/views typecheck` + test suite views
+
+##### Sub-wave P5.3.F: TypeScript Views — Medium Components & Pages — ~80 Temuan — [STATUS: ⏳ Pending]
+- **Risiko:** ⚠️ Sedang
+- **File Kandidat Utama:** `packages/views/skills/components/skill-detail-page.tsx` (1366 baris), `runtime-local-skill-import-panel.tsx` (1324 baris), `packages/views/squads/components/squad-detail-page.tsx` (1320 baris), `packages/views/modals/create-issue.tsx` (1312 baris), `packages/views/projects/components/projects-page.tsx` (1267 baris), + ~55 file lainnya (agents, settings, search, editor)
+- **Strategi:** Pisahkan form submission handler ke custom hook; validation logic ke pure function; toolbar ke komponen terpisah
+- **Verifikasi:** `pnpm --filter @multica/views typecheck` + test suite views
+
+##### Sub-wave P5.3.G: Desktop & Mobile App Layer — ~35 Temuan — [STATUS: ⏳ Pending]
+- **Risiko:** ⚠️ Sedang (desktop) / Ditangani terpisah dengan instruksi CLAUDE.md (mobile)
+- **File Kandidat Utama:** `apps/desktop/src/renderer/src/stores/tab-store.ts` (1294 baris), `apps/desktop/src/main/daemon-manager.ts` (1168 baris), `tab-bar.tsx` (670 baris), `daemon-panel.tsx` (634 baris)
+- **Strategi:** `tab-store.ts` → split actions + selectors; `daemon-manager.ts` → `daemon-health-monitor.ts` + `daemon-spawn.ts`
+- **Verifikasi:** `pnpm --filter @multica/desktop typecheck` + 83 desktop tests
 
 ---
 
 ## 3. Matriks Roadmap Eksekusi Kode Produksi
 
-| Batch | Fokus Perbaikan | Target Temuan | Estimasi File | Estimasi Token | Verifikasi Wajib |
-|:---:|---|:---:|:---:|:---:|---|
-| **Batch P0** | Blocker (1), Vulnerability (8), Bug (2) | **11** | 8 | Sangat Rendah | `pnpm test`, `pnpm typecheck` |
-| **Batch P1** | Loop Counter Mutation | **5** | 3 | Sangat Rendah | `pnpm test`, `pnpm typecheck` |
-| **Batch P2** | OS Cross-Platform Stubs | **19** | 14 | Rendah | `make test` |
-| **Batch P3** | Void Operator Removal | **108** | 57 | Sedang | `pnpm typecheck`, `pnpm test` |
-| **Batch P4** | Go String Constants | **412** | 122 | Sedang | `make test` |
-| **Batch P5.1**| Go Extreme Complexity (>100) | **15** | 10 | Terfokus | `make test` |
-| **Batch P5.2**| TS Extreme Complexity (>100) | **7** | 7 | Terfokus | `pnpm test`, `pnpm typecheck` |
-| **Batch P5.3**| Moderate Complexity (16-99) | **770** | 390 | Bertahap | `make check` |
-| | **TOTAL PRODUKSI** | **1.347** | **623** | | |
+| Batch | Fokus Perbaikan | Target Temuan | Estimasi File | Estimasi Token | Verifikasi Wajib | Status |
+|:---:|---|:---:|:---:|:---:|---|:---:|
+| **Batch P0** | Blocker (1), Vulnerability (8), Bug (2) | **11** | 8 | Sangat Rendah | `pnpm test`, `pnpm typecheck` | ✅ SELESAI |
+| **Batch P1** | Loop Counter Mutation | **5** | 3 | Sangat Rendah | `pnpm test`, `pnpm typecheck` | ✅ SELESAI |
+| **Batch P2** | OS Cross-Platform Stubs | **19** | 14 | Rendah | `make test` | ✅ SELESAI |
+| **Batch P3** | Void Operator Removal | **108** | 57 | Sedang | `pnpm typecheck`, `pnpm test` | ✅ SELESAI |
+| **Batch P4** | Go String Constants | **412** | 122 | Sedang | `make test` | ✅ SELESAI |
+| **Batch P5.1**| Go Extreme Complexity (>100) | **15** | 10 | Terfokus | `make test` | ✅ SELESAI |
+| **Batch P5.2**| TS Extreme Complexity (>100) | **7** | 7 | Terfokus | `pnpm test`, `pnpm typecheck` | ✅ SELESAI |
+| **Batch P5.3**| Moderate Complexity (16-99) | **770** | 390 | Bertahap | `make check` | 🔄 A: Partial, B: Ditangguhkan |
+| | **TOTAL PRODUKSI** | **1.347** | **623** | | | |
 
 ---
 

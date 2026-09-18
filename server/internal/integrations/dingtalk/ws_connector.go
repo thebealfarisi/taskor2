@@ -137,6 +137,23 @@ func (c *wsConnector) run(ctx context.Context) error {
 		}
 	}()
 
+	pingDone := c.startPinger(runCtx, conn, &writeMu)
+
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(c.readDeadline))
+	})
+
+	defer func() {
+		cancel()
+		closeConn()
+		close(done)
+		<-pingDone
+	}()
+
+	return c.readLoop(runCtx, conn, writeResponse)
+}
+
+func (c *wsConnector) startPinger(runCtx context.Context, conn wsConn, writeMu *sync.Mutex) <-chan struct{} {
 	pingDone := make(chan struct{})
 	go func() {
 		defer close(pingDone)
@@ -156,18 +173,10 @@ func (c *wsConnector) run(ctx context.Context) error {
 			}
 		}
 	}()
+	return pingDone
+}
 
-	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(c.readDeadline))
-	})
-
-	defer func() {
-		cancel()
-		closeConn()
-		close(done)
-		<-pingDone
-	}()
-
+func (c *wsConnector) readLoop(runCtx context.Context, conn wsConn, writeResponse func(dataFrameResponse) error) error {
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(c.readDeadline)); err != nil {
 			return fmt.Errorf("dingtalk stream: set read deadline: %w", err)
@@ -188,24 +197,31 @@ func (c *wsConnector) run(ctx context.Context) error {
 			continue
 		}
 
-		switch {
-		case frame.Type == frameTypeSystem && frame.topic() == systemTopicPing:
-			if err := writeResponse(newPongResponse(frame.messageID(), frame.Data)); err != nil {
-				if runCtx.Err() != nil {
-					return nil
-				}
-				return fmt.Errorf("dingtalk stream: write pong: %w", err)
-			}
-		case frame.Type == frameTypeSystem && frame.topic() == systemTopicDisconnect:
-			// Gateway asks us to reconnect; return cleanly and let the supervisor redial.
-			return nil
-		case frame.Type == frameTypeCallback && frame.topic() == botMessageTopic:
-			c.dispatchCallback(runCtx, &frame, writeResponse)
-		default:
-			c.logger.WarnContext(runCtx, "dingtalk stream: unhandled frame",
-				"type", frame.Type, "topic", frame.topic())
+		if exit, err := c.handleFrame(runCtx, frame, writeResponse); exit || err != nil {
+			return err
 		}
 	}
+}
+
+func (c *wsConnector) handleFrame(runCtx context.Context, frame dataFrame, writeResponse func(dataFrameResponse) error) (shouldExit bool, err error) {
+	switch {
+	case frame.Type == frameTypeSystem && frame.topic() == systemTopicPing:
+		if err := writeResponse(newPongResponse(frame.messageID(), frame.Data)); err != nil {
+			if runCtx.Err() != nil {
+				return true, nil
+			}
+			return true, fmt.Errorf("dingtalk stream: write pong: %w", err)
+		}
+	case frame.Type == frameTypeSystem && frame.topic() == systemTopicDisconnect:
+		// Gateway asks us to reconnect; return cleanly and let the supervisor redial.
+		return true, nil
+	case frame.Type == frameTypeCallback && frame.topic() == botMessageTopic:
+		c.dispatchCallback(runCtx, &frame, writeResponse)
+	default:
+		c.logger.WarnContext(runCtx, "dingtalk stream: unhandled frame",
+			"type", frame.Type, "topic", frame.topic())
+	}
+	return false, nil
 }
 
 // dispatchCallback decodes a bot-message callback, hands it to onMessage, and

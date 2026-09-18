@@ -102,44 +102,38 @@ func (r *OutboundReplier) Reply(ctx context.Context, inst engine.ResolvedInstall
 				"installation_id", util.UUIDToString(inst.ID), "error", err)
 		}
 	case engine.OutcomeAgentOffline:
-		if err := r.post(ctx, inst, msg, msgAgentOffline); err != nil {
-			r.logger.WarnContext(ctx, "telegram replier: offline notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, msgAgentOffline, "telegram replier: offline notice failed")
 	case engine.OutcomeAgentArchived:
-		if err := r.post(ctx, inst, msg, msgAgentArchived); err != nil {
-			r.logger.WarnContext(ctx, "telegram replier: archived notice failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, msgAgentArchived, "telegram replier: archived notice failed")
 	case engine.OutcomeFreshPending:
-		if err := r.post(ctx, inst, msg, msgFreshPending); err != nil {
-			r.logger.WarnContext(ctx, "telegram replier: fresh-start confirmation failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, msgFreshPending, "telegram replier: fresh-start confirmation failed")
 	case engine.OutcomeIssueUsage:
-		if err := r.post(ctx, inst, msg, msgIssueUsage); err != nil {
-			r.logger.WarnContext(ctx, "telegram replier: issue usage reply failed",
-				"installation_id", util.UUIDToString(inst.ID), "error", err)
-		}
+		r.postWithWarn(ctx, inst, msg, msgIssueUsage, "telegram replier: issue usage reply failed")
 	case engine.OutcomeIngested:
-		if res.IssueID.Valid {
-			text := issueCreatedText(res)
-			if res.IssueDuplicate {
-				text = issueDuplicateText(res)
-			}
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "telegram replier: issue outcome reply failed",
-					"installation_id", util.UUIDToString(inst.ID), "error", err)
-			}
-		}
+		r.handleIngestedReply(ctx, inst, msg, res)
 	case engine.OutcomeDropped:
-		if text := droppedReplyText(res, msg); text != "" {
-			if err := r.post(ctx, inst, msg, text); err != nil {
-				r.logger.WarnContext(ctx, "telegram replier: drop refusal failed",
-					"installation_id", util.UUIDToString(inst.ID), "error", err)
-			}
-		}
+		r.postWithWarn(ctx, inst, msg, droppedReplyText(res, msg), "telegram replier: drop refusal failed")
 	}
+}
+
+func (r *OutboundReplier) postWithWarn(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, text, warnMsg string) {
+	if text == "" {
+		return
+	}
+	if err := r.post(ctx, inst, msg, text); err != nil {
+		r.logger.WarnContext(ctx, warnMsg, "installation_id", util.UUIDToString(inst.ID), "error", err)
+	}
+}
+
+func (r *OutboundReplier) handleIngestedReply(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) {
+	if !res.IssueID.Valid {
+		return
+	}
+	text := issueCreatedText(res)
+	if res.IssueDuplicate {
+		text = issueDuplicateText(res)
+	}
+	r.postWithWarn(ctx, inst, msg, text, "telegram replier: issue outcome reply failed")
 }
 
 func (r *OutboundReplier) sendBindingPrompt(ctx context.Context, inst engine.ResolvedInstallation, msg channel.InboundMessage, res engine.Result) error {

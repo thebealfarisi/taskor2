@@ -68,42 +68,57 @@ func (c *telegramChannel) Connect(ctx context.Context) error {
 	for {
 		updates, err := c.api.GetUpdates(ctx, offset)
 		if err != nil {
+			cont, pollErr := c.handlePollError(ctx, err)
+			if !cont {
+				return pollErr
+			}
+			continue
+		}
+		if err := c.processUpdates(ctx, updates, &offset); err != nil {
+			return err
+		}
+	}
+}
+
+func (c *telegramChannel) handlePollError(ctx context.Context, err error) (shouldContinue bool, retErr error) {
+	if ctx.Err() != nil {
+		return false, nil
+	}
+	if errors.Is(err, ErrConflict) {
+		c.logger.WarnContext(ctx, "telegram: getUpdates conflict — this bot token is polled by another instance; stop the other consumer or use a distinct bot per environment",
+			"bot_id", c.botID)
+		return false, err
+	}
+	if wait, ok := retryAfter(err); ok {
+		c.logger.WarnContext(ctx, "telegram: getUpdates rate limited", "bot_id", c.botID, "retry_after", wait)
+		if !sleepCtx(ctx, wait) {
+			return false, nil
+		}
+		return true, nil
+	}
+	// Transient network/API failure: one spaced retry loop inside the
+	// attempt keeps a momentary blip from churning the Supervisor's
+	// backoff; persistent failure still escalates via repeated errors.
+	c.logger.WarnContext(ctx, "telegram: getUpdates failed", "bot_id", c.botID, "error", err)
+	if !sleepCtx(ctx, pollRetryDelay) {
+		return false, nil
+	}
+	return false, fmt.Errorf("telegram: getUpdates: %w", err)
+}
+
+func (c *telegramChannel) processUpdates(ctx context.Context, updates []Update, offset *int64) error {
+	for _, u := range updates {
+		if u.UpdateID >= *offset {
+			*offset = u.UpdateID + 1
+		}
+		if err := c.dispatch(ctx, u); err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			if errors.Is(err, ErrConflict) {
-				c.logger.WarnContext(ctx, "telegram: getUpdates conflict — this bot token is polled by another instance; stop the other consumer or use a distinct bot per environment",
-					"bot_id", c.botID)
-				return err
-			}
-			if wait, ok := retryAfter(err); ok {
-				c.logger.WarnContext(ctx, "telegram: getUpdates rate limited", "bot_id", c.botID, "retry_after", wait)
-				if !sleepCtx(ctx, wait) {
-					return nil
-				}
-				continue
-			}
-			// Transient network/API failure: one spaced retry loop inside the
-			// attempt keeps a momentary blip from churning the Supervisor's
-			// backoff; persistent failure still escalates via repeated errors.
-			c.logger.WarnContext(ctx, "telegram: getUpdates failed", "bot_id", c.botID, "error", err)
-			if !sleepCtx(ctx, pollRetryDelay) {
-				return nil
-			}
-			return fmt.Errorf("telegram: getUpdates: %w", err)
-		}
-		for _, u := range updates {
-			if u.UpdateID >= offset {
-				offset = u.UpdateID + 1
-			}
-			if err := c.dispatch(ctx, u); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return err
-			}
+			return err
 		}
 	}
+	return nil
 }
 
 // dispatch translates one update and hands it to the engine. A non-nil
