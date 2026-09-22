@@ -34,6 +34,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -163,6 +164,7 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	req.WorkspaceID = uuidToString(wsUUID)
+	issueCountPolicy := service.ResolveIssueCountPolicy(r.Context(), h.Entitlements, wsUUID)
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
@@ -241,13 +243,16 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	)
 	if err != nil {
 		slog.Warn("bootstrap onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
+		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
 		return
 	}
 	issueCreated := false
 	if !foundIssue {
-		issueNumber, err := qtx.IncrementIssueCounter(r.Context(), wsUUID)
+		issueNumber, err := service.AllocateIssueNumber(r.Context(), qtx, wsUUID, issueCountPolicy)
 		if err != nil {
+			if writeIssueLimitReached(w, err) {
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to allocate issue number")
 			return
 		}
@@ -273,7 +278,7 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 		})
 		if err != nil {
 			slog.Warn("bootstrap onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
+			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
 			return
 		}
 		issueCreated = true
@@ -319,14 +324,11 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 		h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
 		platform, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
-			ActorID:     userID,
-			WorkspaceID: req.WorkspaceID,
-			IssueID:     uuidToString(issue.ID),
-			AgentID:     uuidToString(assistant.ID),
-			Source:      analytics.SourceOnboarding,
-			Platform:    platform,
-		}))
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
+			userID, req.WorkspaceID, uuidToString(issue.ID),
+			uuidToString(assistant.ID), "", "", analytics.SourceOnboarding,
+			platform,
+		))
 		if h.shouldEnqueueAgentTask(r.Context(), issue) {
 			h.TaskService.EnqueueTaskForIssue(r.Context(), issue)
 		}
@@ -375,6 +377,7 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		return
 	}
 	req.WorkspaceID = uuidToString(wsUUID)
+	issueCountPolicy := service.ResolveIssueCountPolicy(r.Context(), h.Entitlements, wsUUID)
 
 	tx, err := h.TxStarter.Begin(r.Context())
 	if err != nil {
@@ -404,7 +407,7 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 	)
 	if err != nil {
 		slog.Warn("bootstrap no-runtime onboarding (shim): duplicate issue check failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-		writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
+		writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
 		return
 	}
 
@@ -413,8 +416,11 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 	if foundIssue {
 		issue = existing
 	} else {
-		issueNumber, err := qtx.IncrementIssueCounter(r.Context(), wsUUID)
+		issueNumber, err := service.AllocateIssueNumber(r.Context(), qtx, wsUUID, issueCountPolicy)
 		if err != nil {
+			if writeIssueLimitReached(w, err) {
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to allocate issue number")
 			return
 		}
@@ -436,7 +442,7 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		})
 		if err != nil {
 			slog.Warn("bootstrap no-runtime onboarding (shim): create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", req.WorkspaceID)...)
-			writeError(w, http.StatusInternalServerError, errMsgFailedToCreateOnboardingIssue)
+			writeError(w, http.StatusInternalServerError, "failed to create onboarding issue")
 			return
 		}
 		issueCreated = true
@@ -464,13 +470,11 @@ func (h *Handler) BootstrapOnboardingNoRuntime(w http.ResponseWriter, r *http.Re
 		h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 		h.publish(protocol.EventIssueCreated, req.WorkspaceID, "member", userID, map[string]any{"issue": resp})
 		platform2, _, _ := middleware.ClientMetadataFromContext(r.Context())
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(analytics.IssueCreatedParams{
-			ActorID:     userID,
-			WorkspaceID: req.WorkspaceID,
-			IssueID:     uuidToString(issue.ID),
-			Source:      analytics.SourceOnboarding,
-			Platform:    platform2,
-		}))
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.IssueCreated(
+			userID, req.WorkspaceID, uuidToString(issue.ID),
+			"", "", "", analytics.SourceOnboarding,
+			platform2,
+		))
 	}
 	if firstCompletion {
 		onboardedAt := ""

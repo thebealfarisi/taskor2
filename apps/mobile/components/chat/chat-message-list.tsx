@@ -46,12 +46,14 @@ import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import type {
+  Agent,
   ChatMessage,
   ChatPendingTask,
   ChatQuickAction,
   TaskMessagePayload,
 } from "@multica/core/types";
 import type { AgentAvailability } from "@multica/core/agents";
+import { continuousCorners } from "@/lib/radius";
 import { taskMessagesOptions } from "@/data/queries/chat";
 import { Text } from "@/components/ui/text";
 import { Markdown } from "@/lib/markdown";
@@ -79,9 +81,9 @@ interface Props {
   loading: boolean;
   /** Has the workspace ever started a chat? Drives empty-state copy. */
   hasSessions: boolean;
-  /** Currently picked / inherited agent's display name. */
-  agentName?: string;
-  /** Receive a starter-prompt tap. Caller writes into the draft store
+  /** Currently picked / inherited agent. */
+  agent: Agent | null;
+  /** Receive a conversation-starter tap. Caller writes into the draft store
    *  (or focuses the composer with the text) — empty state stays neutral
    *  about send vs. preview. */
   onPickPrompt: (text: string) => void;
@@ -105,7 +107,7 @@ export function ChatMessageList({
   messages,
   loading,
   hasSessions,
-  agentName,
+  agent,
   onPickPrompt,
   onQuickAction,
   quickActionsDisabled = false,
@@ -151,7 +153,7 @@ export function ChatMessageList({
     return (
       <ChatEmptyState
         hasSessions={hasSessions}
-        agentName={agentName}
+        agent={agent}
         onPickPrompt={onPickPrompt}
       />
     );
@@ -296,20 +298,17 @@ function MessageRow({
     // `packages/views/chat/components/chat-message-list.tsx` user branch.
     // Width is capped at 80% so the bubble keeps the iMessage-style
     // trailing alignment instead of stretching across the column.
-    let bubbleTone: string;
-    if (isSelecting) {
-      bubbleTone = "bg-primary/5 border-primary/30";
-    } else if (longPress.isPressed) {
-      bubbleTone = "bg-muted border-primary/30";
-    } else {
-      bubbleTone = "bg-muted border-transparent";
-    }
     const body = (
       <View
         className={cn(
-          "self-end max-w-[80%] gap-1.5 rounded-2xl border-2 px-3.5 py-2 transition-colors",
-          bubbleTone,
+          "self-end max-w-[80%] gap-1.5 rounded-xl border-2 px-3.5 py-2 transition-colors",
+          isSelecting
+            ? "bg-primary/5 border-primary/30"
+            : longPress.isPressed
+              ? "bg-muted border-primary/30"
+              : "bg-muted border-transparent",
         )}
+        style={continuousCorners}
       >
         <Markdown
           content={message.content}
@@ -469,9 +468,9 @@ function QuickActions({
       className="flex-row flex-wrap gap-2 pt-0.5"
       accessibilityLabel="Suggested follow-ups"
     >
-      {actions.slice(0, 3).map((action) => (
+      {actions.slice(0, 3).map((action, index) => (
         <Pressable
-          key={`${action.label}-${action.prompt}`}
+          key={`${action.label}-${index}`}
           accessibilityRole="button"
           accessibilityState={{ disabled: blocked }}
           disabled={blocked}
@@ -512,14 +511,12 @@ function ElapsedCaption({
   variant: "replied" | "failed" | "finished";
   elapsedMs: number;
 }) {
-  let label: string;
-  if (variant === "replied") {
-    label = `Replied in ${formatElapsedMs(elapsedMs)}`;
-  } else if (variant === "finished") {
-    label = `Finished in ${formatElapsedMs(elapsedMs)}`;
-  } else {
-    label = `Failed after ${formatElapsedMs(elapsedMs)}`;
-  }
+  const label =
+    variant === "replied"
+      ? `Replied in ${formatElapsedMs(elapsedMs)}`
+      : variant === "finished"
+        ? `Finished in ${formatElapsedMs(elapsedMs)}`
+        : `Failed after ${formatElapsedMs(elapsedMs)}`;
   return (
     <Text className="text-xs text-muted-foreground/80 mt-1">{label}</Text>
   );
@@ -549,11 +546,12 @@ function FailureBubble({
     <View className="self-start max-w-[80%]">
       <View
         className={cn(
-          "rounded-2xl border-2 bg-destructive/10 px-3.5 py-2 transition-colors",
+          "rounded-xl border-2 bg-destructive/10 px-3.5 py-2 transition-colors",
           isSelecting || longPress.isPressed
             ? "border-primary/30"
             : "border-destructive/30",
         )}
+        style={continuousCorners}
       >
         <Text className="text-xs font-semibold text-destructive">
           {reasonLabel}
@@ -577,7 +575,7 @@ function FailureBubble({
               </View>
             </CollapsibleTrigger>
             <CollapsibleContent>
-              <View className="mt-1 rounded bg-muted/40 px-2 py-1.5">
+              <View className="mt-1 rounded-xs bg-muted/40 px-2 py-1.5">
                 <Text
                   className="text-xs text-muted-foreground"
                   selectable={isSelecting}

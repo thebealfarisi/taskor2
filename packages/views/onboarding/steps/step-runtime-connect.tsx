@@ -157,14 +157,12 @@ function FancyView({
     };
   }, [runtimes.length, scanEpoch]);
 
-  let phase: Phase;
-  if (runtimes.length > 0) {
-    phase = "found";
-  } else if (hardTimedOut || (softTimedOut && runtimesPending !== true)) {
-    phase = "empty";
-  } else {
-    phase = "scanning";
-  }
+  const phase: Phase =
+    runtimes.length > 0
+      ? "found"
+      : hardTimedOut || (softTimedOut && runtimesPending !== true)
+        ? "empty"
+        : "scanning";
 
   const onlineCount = runtimes.filter((r) => r.status === "online").length;
 
@@ -213,18 +211,16 @@ function FancyView({
     }
   };
 
-  let footerHint: string;
-  if (phase === "found" && selected) {
-    footerHint = t(($) => $.step_runtime.hint_selected, {
-      name: runtimeDisplayLabel(selected),
-    });
-  } else if (phase === "found") {
-    footerHint = t(($) => $.step_runtime.hint_pick);
-  } else if (phase === "scanning") {
-    footerHint = t(($) => $.step_runtime.hint_waiting);
-  } else {
-    footerHint = t(($) => $.step_runtime.hint_skip_or_refresh);
-  }
+  const footerHint =
+    phase === "found" && selected
+      ? t(($) => $.step_runtime.hint_selected, {
+          name: runtimeDisplayLabel(selected),
+        })
+      : phase === "found"
+        ? t(($) => $.step_runtime.hint_pick)
+        : phase === "scanning"
+          ? t(($) => $.step_runtime.hint_waiting)
+          : undefined;
 
   return (
     <>
@@ -347,14 +343,12 @@ function FoundView({
 }) {
   const { t } = useT("onboarding");
   const total = runtimes.length;
-  let statusLabel: string;
-  if (onlineCount === total) {
-    statusLabel = t(($) => $.step_runtime.status_all_online);
-  } else if (onlineCount === 0) {
-    statusLabel = t(($) => $.step_runtime.status_none_online);
-  } else {
-    statusLabel = t(($) => $.step_runtime.status_n_online, { count: onlineCount });
-  }
+  const statusLabel =
+    onlineCount === total
+      ? t(($) => $.step_runtime.status_all_online)
+      : onlineCount === 0
+        ? t(($) => $.step_runtime.status_none_online)
+        : t(($) => $.step_runtime.status_n_online, { count: onlineCount });
   const statusTone =
     onlineCount === 0 ? "text-muted-foreground" : "text-success";
 
@@ -363,9 +357,6 @@ function FoundView({
       <h2 className="text-title-sm font-medium tracking-tight text-foreground">
         {t(($) => $.step_runtime.found_headline)}
       </h2>
-      <p className="mt-2 text-body text-muted-foreground">
-        {t(($) => $.step_runtime.found_lede)}
-      </p>
 
       <div className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/60 px-4 py-2.5 text-caption">
         <span className="font-semibold text-foreground">
@@ -572,8 +563,8 @@ function SkeletonRuntimeCard() {
     >
       <div className="h-7 w-7 shrink-0 rounded-md bg-muted" />
       <div className="flex-1 space-y-2">
-        <div className="h-3 w-28 rounded bg-muted" />
-        <div className="h-2.5 w-16 rounded bg-muted/70" />
+        <div className="h-3 w-28 rounded-xs bg-muted" />
+        <div className="h-2.5 w-16 rounded-xs bg-muted/70" />
       </div>
       <div className="h-4 w-4 shrink-0 rounded-full border-[1.5px] border-muted" />
     </div>

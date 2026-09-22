@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -17,7 +18,7 @@ func TestBusinessMetricsLifecycleCountersAndGauge(t *testing.T) {
 
 	m.RecordTaskEnqueued("issue", "local")
 	for i := 0; i < 100; i++ {
-		m.RecordTaskDispatched("task-"+strconv.Itoa(i), "issue", "local", 2.5)
+		m.RecordTaskDispatched("task-"+strconv.Itoa(i), "issue", "local", 2.5, 0.5)
 	}
 	m.RecordTaskStarted("issue", "local", "codex")
 	m.RecordTaskTerminal("task-0", "issue", "local", "completed", 10, 20, 1)
@@ -42,6 +43,9 @@ func TestBusinessMetricsLifecycleCountersAndGauge(t *testing.T) {
 	}
 	if got := testutil.CollectAndCount(m.taskQueueWait); got != 1 {
 		t.Fatalf("queue wait series count = %d, want 1", got)
+	}
+	if got := testutil.CollectAndCount(m.taskClaimableWait); got != 1 {
+		t.Fatalf("claimable wait series count = %d, want 1", got)
 	}
 	if got := testutil.CollectAndCount(m.taskRunSeconds); got != 1 {
 		t.Fatalf("run seconds series count = %d, want 1", got)
@@ -92,17 +96,7 @@ func TestBusinessMetricsChatClaimResumeObservations(t *testing.T) {
 func TestBusinessMetricsLLMPricingAndUnpricedTokens(t *testing.T) {
 	m := NewBusinessMetrics()
 
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "chat",
-		RuntimeMode:      "cloud",
-		RawProvider:      "codex",
-		ModelAlias:       "gpt-5.4",
-		InputTokens:      1_000_000,
-		OutputTokens:     2_000_000,
-		CacheReadTokens:  3_000_000,
-		CacheWriteTokens: 4_000_000,
-		CostUSDTicks:     0,
-	})
+	m.RecordLLMUsage("chat", "cloud", "codex", "gpt-5.4", 1_000_000, 2_000_000, 3_000_000, 4_000_000, 0)
 
 	if got := testutil.ToFloat64(m.llmTokens.WithLabelValues("openai", "gpt-5.4", "input", "cloud", "chat")); got != 1_000_000 {
 		t.Fatalf("priced input tokens = %v, want 1000000", got)
@@ -120,17 +114,7 @@ func TestBusinessMetricsLLMPricingAndUnpricedTokens(t *testing.T) {
 		t.Fatalf("priced request counter = %v, want 1", got)
 	}
 
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "custom-provider",
-		ModelAlias:       "Free Model!!",
-		InputTokens:      7,
-		OutputTokens:     0,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     0,
-	})
+	m.RecordLLMUsage("issue", "local", "custom-provider", "Free Model!!", 7, 0, 0, 0, 0)
 	if got := testutil.ToFloat64(m.llmUnpricedTokens.WithLabelValues("other", "free_model_", "input")); got != 7 {
 		t.Fatalf("unpriced input tokens = %v, want 7", got)
 	}
@@ -145,7 +129,7 @@ func TestBusinessMetricsRegistryExposesAllFamilies(t *testing.T) {
 	registry.MustRegister(m.Collectors()...)
 
 	m.RecordTaskEnqueued("issue", "local")
-	m.RecordTaskDispatched("task-1", "issue", "local", 1)
+	m.RecordTaskDispatched("task-1", "issue", "local", 1, 0.25)
 	m.RecordTaskStarted("issue", "local", "codex")
 	m.RecordTaskTerminal("task-1", "issue", "local", "completed", 2, 3, 1)
 	m.RecordTaskFailed("issue", "local", taskfailure.ReasonTimeout.String())
@@ -155,28 +139,9 @@ func TestBusinessMetricsRegistryExposesAllFamilies(t *testing.T) {
 	m.RecordChatClaimSessionFallbackHit()
 	m.ObserveChatClaimLastSessionQuery(0.01)
 	m.ObserveChatClaimRolloutMissingQuery(0.01)
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "codex",
-		ModelAlias:       "gpt-5.4",
-		InputTokens:      1,
-		OutputTokens:     1,
-		CacheReadTokens:  1,
-		CacheWriteTokens: 1,
-		CostUSDTicks:     0,
-	})
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "custom-provider",
-		ModelAlias:       "custom-model",
-		InputTokens:      1,
-		OutputTokens:     0,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     0,
-	})
+	m.RecordIssueMetadataMutation("set", "changed", 10*time.Millisecond)
+	m.RecordLLMUsage("issue", "local", "codex", "gpt-5.4", 1, 1, 1, 1, 0)
+	m.RecordLLMUsage("issue", "local", "custom-provider", "custom-model", 1, 0, 0, 0, 0)
 
 	// PR3 funnel / community / commercial events. Drive every counter
 	// with one synthetic value so the gather loop below sees the family.
@@ -220,8 +185,9 @@ func TestBusinessMetricsRegistryExposesAllFamilies(t *testing.T) {
 	m.RecordEntitlementCache("hit")
 	m.RecordEntitlementRefresh("success", 0.01)
 	m.RecordEntitlementDecision("autopilot_runs", "observe", "cache_fresh")
-	m.RecordEntitlementVersionRegression("refresh")
+	m.RecordEntitlementVersionRegression()
 	m.RecordAutopilotQuotaDecision("observe", "manual", "admitted")
+	m.ObserveRuntimeSweepStage(RuntimeSweepStageLiveness, time.Second, 2, 1)
 
 	families, err := registry.Gather()
 	if err != nil {
@@ -245,8 +211,7 @@ func TestBusinessMetricsRuntimeGC(t *testing.T) {
 	m := NewBusinessMetrics()
 	m.RecordRuntimeGCDeleted()
 	m.RecordRuntimeGCFailed()
-	m.SetRuntimeGCBlocked(3)
-	m.RecordRuntimeGCBlockedObservationFailed()
+	m.RecordRuntimeGCSkipped(RuntimeGCSkipNonTerminalTask)
 
 	if got := testutil.ToFloat64(m.runtimeGCDeleted); got != 1 {
 		t.Fatalf("runtime GC deleted = %v, want 1", got)
@@ -254,11 +219,27 @@ func TestBusinessMetricsRuntimeGC(t *testing.T) {
 	if got := testutil.ToFloat64(m.runtimeGCFailed); got != 1 {
 		t.Fatalf("runtime GC failed = %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(m.runtimeGCBlocked); got != 3 {
-		t.Fatalf("runtime GC blocked = %v, want 3", got)
+	if got := testutil.ToFloat64(m.runtimeGCSkipped.WithLabelValues(RuntimeGCSkipNonTerminalTask)); got != 1 {
+		t.Fatalf("runtime GC skipped = %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(m.runtimeGCBlockedObservationFailed); got != 1 {
-		t.Fatalf("runtime GC blocked observation failures = %v, want 1", got)
+}
+
+func TestBusinessMetricsRuntimeSweepStage(t *testing.T) {
+	m := NewBusinessMetrics()
+	m.ObserveRuntimeSweepStage(RuntimeSweepStageLiveness, 250*time.Millisecond, 3, 1)
+	m.ObserveRuntimeSweepStage("unbounded-user-value", time.Second, -1, -1)
+
+	if got := testutil.ToFloat64(m.runtimeSweepCandidateRows.WithLabelValues(RuntimeSweepStageLiveness)); got != 3 {
+		t.Fatalf("runtime liveness candidate rows = %v, want 3", got)
+	}
+	if got := testutil.ToFloat64(m.runtimeSweepRowsChanged.WithLabelValues(RuntimeSweepStageLiveness)); got != 1 {
+		t.Fatalf("runtime liveness changed rows = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.runtimeSweepCandidateRows.WithLabelValues("other")); got != 0 {
+		t.Fatalf("normalized other candidate rows = %v, want 0", got)
+	}
+	if got := testutil.CollectAndCount(m.runtimeSweepStageDuration); got != 2 {
+		t.Fatalf("runtime sweep duration series = %d, want 2", got)
 	}
 }
 
@@ -280,17 +261,8 @@ func TestBusinessMetricsPrefersProviderReportedCost(t *testing.T) {
 	// 1M input + 1M output on grok-4.5 estimates to $2 + $6 = $8 from the
 	// table. The provider says the turn cost $16 — the long-context tier.
 	const actualUSD = 16.0
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "grok",
-		ModelAlias:       "grok-4.5",
-		InputTokens:      1_000_000,
-		OutputTokens:     1_000_000,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     int64(actualUSD*CostUSDTicksPerUSD),
-	})
+	m.RecordLLMUsage("issue", "local", "grok", "grok-4.5",
+		1_000_000, 1_000_000, 0, 0, int64(actualUSD*CostUSDTicksPerUSD))
 
 	input := testutil.ToFloat64(m.llmCostUSD.WithLabelValues("xai", "grok-4.5", "input", "local", "issue"))
 	output := testutil.ToFloat64(m.llmCostUSD.WithLabelValues("xai", "grok-4.5", "output", "local", "issue"))
@@ -316,22 +288,65 @@ func TestBusinessMetricsPrefersProviderReportedCost(t *testing.T) {
 func TestBusinessMetricsFallsBackToRateTableWithoutProviderCost(t *testing.T) {
 	m := NewBusinessMetrics()
 
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "grok",
-		ModelAlias:       "grok-4.5",
-		InputTokens:      1_000_000,
-		OutputTokens:     1_000_000,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     0,
-	})
+	m.RecordLLMUsage("issue", "local", "grok", "grok-4.5", 1_000_000, 1_000_000, 0, 0, 0)
 
 	input := testutil.ToFloat64(m.llmCostUSD.WithLabelValues("xai", "grok-4.5", "input", "local", "issue"))
 	output := testutil.ToFloat64(m.llmCostUSD.WithLabelValues("xai", "grok-4.5", "output", "local", "issue"))
 	if math.Abs(input-2) > 1e-9 || math.Abs(output-6) > 1e-9 {
 		t.Fatalf("estimated cost = (%v, %v), want (2, 6) from the rate table", input, output)
+	}
+}
+
+func TestBusinessMetricsCostOnlyUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		provider     string
+		requestModel string
+	}{
+		{"priced", "grok-4.6", "xai", "grok-4.6"},
+		{"unpriced", "grok-composer-2.5-fast", "grok", "unknown"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewBusinessMetrics()
+			const actualUSD = 0.01
+			m.RecordLLMUsage("issue", "local", "grok", tc.model,
+				0, 0, 0, 0, int64(actualUSD*CostUSDTicksPerUSD))
+
+			// Inspect collectors without creating zero-token series in the test.
+			if got := testutil.CollectAndCount(m.llmTokens); got != 0 {
+				t.Errorf("priced token series = %d, want 0", got)
+			}
+			if got := testutil.CollectAndCount(m.llmUnpricedTokens); got != 0 {
+				t.Errorf("unpriced token series = %d, want 0", got)
+			}
+			if got := testutil.CollectAndCount(m.llmCostUSD); got != 1 {
+				t.Errorf("cost series = %d, want 1", got)
+			}
+			got := testutil.ToFloat64(m.llmCostUSD.WithLabelValues(
+				tc.provider, tc.model, "input", "local", "issue"))
+			if math.Abs(got-actualUSD) > 1e-9 {
+				t.Errorf("recorded cost = %v, want %v", got, actualUSD)
+			}
+			if got := testutil.ToFloat64(m.llmRequests.WithLabelValues(tc.provider, tc.requestModel, "local")); got != 1 {
+				t.Errorf("request counter = %v, want 1", got)
+			}
+		})
+	}
+}
+
+func TestBusinessMetricsEmptyPricedUsage(t *testing.T) {
+	m := NewBusinessMetrics()
+	m.RecordLLMUsage("issue", "local", "grok", "grok-4.6", 0, 0, 0, 0, 0)
+
+	if got := testutil.CollectAndCount(m.llmTokens); got != 0 {
+		t.Errorf("token series = %d, want 0", got)
+	}
+	if got := testutil.CollectAndCount(m.llmCostUSD); got != 0 {
+		t.Errorf("cost series = %d, want 0", got)
+	}
+	if got := testutil.ToFloat64(m.llmRequests.WithLabelValues("xai", "grok-4.6", "local")); got != 1 {
+		t.Errorf("request counter = %v, want 1", got)
 	}
 }
 
@@ -391,17 +406,8 @@ func TestBusinessMetricsRecordsProviderCostForUnpricedModel(t *testing.T) {
 	m := NewBusinessMetrics()
 
 	const actualUSD = 1.23456789
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "grok",
-		ModelAlias:       "grok-composer-2.5-fast",
-		InputTokens:      500,
-		OutputTokens:     100,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     int64(actualUSD*CostUSDTicksPerUSD),
-	})
+	m.RecordLLMUsage("issue", "local", "grok", "grok-composer-2.5-fast",
+		500, 100, 0, 0, int64(actualUSD*CostUSDTicksPerUSD))
 
 	// No rates means no way to split by token type, so the whole charge lands
 	// in one bucket — but it must be the whole charge.
@@ -422,17 +428,7 @@ func TestBusinessMetricsRecordsProviderCostForUnpricedModel(t *testing.T) {
 func TestBusinessMetricsUnpricedModelWithoutCostStaysAtZero(t *testing.T) {
 	m := NewBusinessMetrics()
 
-	m.RecordLLMUsage(RecordLLMUsageParams{
-		Source:           "issue",
-		RuntimeMode:      "local",
-		RawProvider:      "grok",
-		ModelAlias:       "grok-composer-2.5-fast",
-		InputTokens:      500,
-		OutputTokens:     100,
-		CacheReadTokens:  0,
-		CacheWriteTokens: 0,
-		CostUSDTicks:     0,
-	})
+	m.RecordLLMUsage("issue", "local", "grok", "grok-composer-2.5-fast", 500, 100, 0, 0, 0)
 
 	if got := testutil.ToFloat64(m.llmCostUSD.WithLabelValues(
 		"grok", "grok-composer-2.5-fast", "input", "local", "issue")); got != 0 {

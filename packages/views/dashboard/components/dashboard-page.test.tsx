@@ -23,6 +23,12 @@ const manyAgentsRef = vi.hoisted(() => ({ current: false }));
 // — what a plain member actually receives once the backend folds the agents
 // they may not view (MUL-5409).
 const restrictedBucketRef = vi.hoisted(() => ({ current: false }));
+// Simulates the real-time task_usage coverage field independently from the
+// delayed by-agent aggregate. Undefined keeps the default fixture on the old
+// server compatibility path.
+const runtimeMeteredCountRef = vi.hoisted(() => ({
+  current: undefined as number | undefined,
+}));
 
 // Kept out of the fixture ternary so the sentinel's shape reads at a glance.
 // Unlike the deleted-agents bucket this one carries real seconds / tasks: the
@@ -90,124 +96,112 @@ vi.mock("@tanstack/react-query", async () => {
         // rank without the ties an equal-valued fixture would create. The
         // date-bucketed series stay on the small fixture below — the caps are
         // a property of the per-agent lists only.
-        let bulkRows: unknown[] | null = null;
-        if (manyAgentsRef.current) {
-          switch (kind) {
-            case "by-agent":
-              bulkRows = Array.from({ length: 12 }, (_, i) => ({
-                agent_id: `bulk-${i}`,
-                provider: "anthropic",
-                model: "claude-sonnet-4-6",
-                input_tokens: (12 - i) * 1_000,
-                output_tokens: 0,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                task_count: 12 - i,
-              }));
-              break;
-            case "agent-runtime":
-              bulkRows = Array.from({ length: 12 }, (_, i) => ({
-                agent_id: `bulk-${i}`,
-                total_seconds: (12 - i) * 600,
-                task_count: 12 - i,
-                failed_count: 12 - i,
-              }));
-              break;
-            case "failures-by-agent":
-              bulkRows = Array.from({ length: 12 }, (_, i) => [
-                {
+        const bulkRows =
+          !manyAgentsRef.current
+            ? null
+            : kind === "by-agent"
+              ? Array.from({ length: 12 }, (_, i) => ({
                   agent_id: `bulk-${i}`,
-                  failure_reason: "",
-                  task_count: 100,
-                },
-                {
-                  agent_id: `bulk-${i}`,
-                  failure_reason: "timeout",
+                  provider: "anthropic",
+                  model: "claude-sonnet-4-6",
+                  input_tokens: (12 - i) * 1_000,
+                  output_tokens: 0,
+                  cache_read_tokens: 0,
+                  cache_write_tokens: 0,
                   task_count: 12 - i,
-                },
-              ]).flat();
-              break;
-            default:
-              bulkRows = null;
-          }
-        }
+                }))
+              : kind === "agent-runtime"
+                ? Array.from({ length: 12 }, (_, i) => ({
+                    agent_id: `bulk-${i}`,
+                    total_seconds: (12 - i) * 600,
+                    task_count: 12 - i,
+                    failed_count: 12 - i,
+                  }))
+                : kind === "failures-by-agent"
+                  ? Array.from({ length: 12 }, (_, i) => [
+                      {
+                        agent_id: `bulk-${i}`,
+                        failure_reason: "",
+                        task_count: 100,
+                      },
+                      {
+                        agent_id: `bulk-${i}`,
+                        failure_reason: "timeout",
+                        task_count: 12 - i,
+                      },
+                    ]).flat()
+                  : null;
         if (bulkRows) {
           return { data: bulkRows, isLoading: false, isSuccess: true };
         }
-        let data: unknown[];
-        switch (kind) {
-          case "daily":
-            data = [
-              {
-                date: todayIso(),
-                provider: "anthropic",
-                model: "claude-sonnet-4-6",
-                input_tokens: 1_000,
-                output_tokens: 2_000,
-                cache_read_tokens: 0,
-                cache_write_tokens: 0,
-                task_count: 2,
-              },
-            ];
-            break;
-          case "agent-runtime":
-            data = [
-              {
-                agent_id: "agent-1",
-                total_seconds: 3 * 3_600 + 17 * 60,
-                task_count: 12,
-                failed_count: 1,
-              },
-            ];
-            break;
-          case "runtime-daily":
-            data = [
-              {
-                date: todayIso(),
-                total_seconds: 3 * 3_600 + 17 * 60,
-                task_count: 12,
-                failed_count: 1,
-              },
-            ];
-            break;
-          // `failure_reason: ""` is the succeeded bucket — the denominator
-          // behind every rate the Errors surface shows.
-          case "failures-daily":
-            data = [
-              { date: todayIso(), failure_reason: "", task_count: 6 },
-              {
-                date: todayIso(),
-                failure_reason: "agent_error.provider_auth_or_access",
-                task_count: 3,
-              },
-              { date: todayIso(), failure_reason: "timeout", task_count: 1 },
-            ];
-            break;
-          case "failures-by-agent":
-            data = [
-              { agent_id: "agent-1", failure_reason: "", task_count: 6 },
-              {
-                agent_id: "agent-1",
-                failure_reason: "agent_error.provider_auth_or_access",
-                task_count: 3,
-              },
-              {
-                agent_id: "agent-1",
-                failure_reason: "timeout",
-                task_count: 1,
-              },
-              // Not in the agent list below — a private agent this member
-              // cannot see, or a deleted one. The rollup still returns it.
-              {
-                agent_id: "0f9d1c2e-private-agent-uuid",
-                failure_reason: "agent_error.provider_auth_or_access",
-                task_count: 2,
-              },
-            ];
-            break;
-          default:
-            data = [];
-        }
+        const data =
+          kind === "daily"
+            ? [
+                {
+                  date: todayIso(),
+                  provider: "anthropic",
+                  model: "claude-sonnet-4-6",
+                  input_tokens: 1_000,
+                  output_tokens: 2_000,
+                  cache_read_tokens: 0,
+                  cache_write_tokens: 0,
+                  task_count: 2,
+                },
+              ]
+            : kind === "agent-runtime"
+              ? [
+                  {
+                    agent_id: "agent-1",
+                    total_seconds: 3 * 3_600 + 17 * 60,
+                    task_count: 12,
+                    metered_task_count: runtimeMeteredCountRef.current,
+                    failed_count: 1,
+                  },
+                ]
+              : kind === "runtime-daily"
+                ? [
+                    {
+                      date: todayIso(),
+                      total_seconds: 3 * 3_600 + 17 * 60,
+                      task_count: 12,
+                      failed_count: 1,
+                    },
+                  ]
+                : // `failure_reason: ""` is the succeeded bucket — the
+                  // denominator behind every rate the Errors surface shows.
+                  kind === "failures-daily"
+                  ? [
+                      { date: todayIso(), failure_reason: "", task_count: 6 },
+                      {
+                        date: todayIso(),
+                        failure_reason: "agent_error.provider_auth_or_access",
+                        task_count: 3,
+                      },
+                      { date: todayIso(), failure_reason: "timeout", task_count: 1 },
+                    ]
+                  : kind === "failures-by-agent"
+                    ? [
+                        { agent_id: "agent-1", failure_reason: "", task_count: 6 },
+                        {
+                          agent_id: "agent-1",
+                          failure_reason: "agent_error.provider_auth_or_access",
+                          task_count: 3,
+                        },
+                        {
+                          agent_id: "agent-1",
+                          failure_reason: "timeout",
+                          task_count: 1,
+                        },
+                        // Not in the agent list below — a private agent this
+                        // member cannot see, or a deleted one. The rollup
+                        // still returns it.
+                        {
+                          agent_id: "0f9d1c2e-private-agent-uuid",
+                          failure_reason: "agent_error.provider_auth_or_access",
+                          task_count: 2,
+                        },
+                      ]
+                    : [];
         return {
           data: restrictedBucketRef.current
             ? [...data, ...(RESTRICTED_BUCKET_ROWS[kind as string] ?? [])]
@@ -287,6 +281,7 @@ function DashboardHarness({ initialSearch = "" }: { initialSearch?: string }) {
       back: vi.fn(),
       pathname: "/acme/usage",
       searchParams: new URLSearchParams(search),
+      hash: "",
       getShareableUrl: (path: string) => `https://example.test${path}`,
     }),
     [search],
@@ -391,6 +386,69 @@ describe("DashboardPage — viewing timezone drives the query key", () => {
             .respectMotionPreference === true,
       ),
     ).toBe(true);
+  });
+});
+
+describe("DashboardPage — unreported usage", () => {
+  beforeEach(() => {
+    queryKeys.length = 0;
+    dashboardDataRef.current = true;
+    manyAgentsRef.current = false;
+    restrictedBucketRef.current = false;
+    runtimeMeteredCountRef.current = undefined;
+    tzRef.current = "UTC";
+    cleanup();
+  });
+
+  it("keeps the run visible while replacing invented token and cost zeroes", () => {
+    runtimeMeteredCountRef.current = 0;
+    renderDashboard();
+
+    const list = within(screen.getByRole("list", { name: "Leaderboard" }));
+    const row = list.getAllByRole("listitem")[0] as HTMLElement;
+    expect(row).toHaveTextContent("Agent One");
+    expect(row).toHaveTextContent("12 runs did not report usage");
+    expect(within(row).getAllByText("—")).toHaveLength(2);
+    expect(row).toHaveTextContent("3h 17m");
+    expect(row).toHaveTextContent("12");
+  });
+
+  it("shows rollup lag as pending without inventing zero or an unreported run", () => {
+    runtimeMeteredCountRef.current = 12;
+    renderDashboard();
+
+    const list = within(screen.getByRole("list", { name: "Leaderboard" }));
+    const row = list.getAllByRole("listitem")[0] as HTMLElement;
+    expect(row).toHaveTextContent("Usage totals are still being processed");
+    expect(row).not.toHaveTextContent("did not report usage");
+    expect(within(row).getAllByText("—")).toHaveLength(2);
+  });
+
+  it("keeps old-server coverage unknown without claiming unreported usage", () => {
+    runtimeMeteredCountRef.current = undefined;
+    renderDashboard();
+
+    const list = within(screen.getByRole("list", { name: "Leaderboard" }));
+    const row = list.getAllByRole("listitem")[0] as HTMLElement;
+    expect(row).not.toHaveTextContent("did not report usage");
+    expect(row).not.toHaveTextContent("still being processed");
+    expect(within(row).getAllByText("—")).toHaveLength(2);
+  });
+
+  it("shows both missing coverage and delayed totals", () => {
+    runtimeMeteredCountRef.current = 6;
+    renderDashboard();
+
+    const list = within(screen.getByRole("list", { name: "Leaderboard" }));
+    const row = list.getAllByRole("listitem")[0] as HTMLElement;
+    const coverageText =
+      "6 runs did not report usage · totals are still being processed";
+    expect(row).toHaveTextContent(coverageText);
+    expect(within(row).getByText(coverageText)).toHaveAttribute(
+      "title",
+      coverageText,
+    );
+    expect(within(row).getAllByText("—")).toHaveLength(2);
   });
 });
 
@@ -754,13 +812,12 @@ describe("DashboardPage — leaderboard density", () => {
     const user = userEvent.setup();
     renderDashboard();
 
-    // Scoped to the leaderboard card — the trend chart's metric toggle owns
-    // a "Time" button too.
-    const card = screen.getByRole("list", { name: "Leaderboard" })
-      .parentElement as HTMLElement;
     // Re-ranking must not quietly reveal the tail: the cap belongs to the
     // list, not to one metric.
-    await user.click(within(card).getByRole("button", { name: "Time" }));
+    const sortControls = within(
+      screen.getByRole("group", { name: "Rank agents by" }),
+    );
+    await user.click(sortControls.getByRole("button", { name: "Time" }));
 
     const list = within(screen.getByRole("list", { name: "Leaderboard" }));
     expect(list.getAllByRole("listitem")).toHaveLength(10);
@@ -774,5 +831,27 @@ describe("DashboardPage — leaderboard density", () => {
     expect(
       screen.queryByRole("button", { name: "Show all" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("exposes wide columns through a named keyboard-focusable local scroller", () => {
+    renderDashboard();
+
+    const scroller = screen.getByRole("region", { name: "Leaderboard" });
+    const list = within(scroller).getByRole("list", { name: "Leaderboard" });
+    const row = within(list).getByRole("listitem");
+
+    expect(scroller).toHaveAttribute("tabindex", "0");
+    scroller.focus();
+    expect(scroller).toHaveFocus();
+    expect(scroller).toHaveClass(
+      "overflow-x-auto",
+      "overscroll-x-contain",
+      "[-webkit-overflow-scrolling:touch]",
+    );
+    expect(row).toHaveStyle({
+      minWidth: "fit-content",
+      gridTemplateColumns:
+        "minmax(10rem, 1.6fr) minmax(6rem, 1fr) 5rem 5rem 5rem 4rem",
+    });
   });
 });

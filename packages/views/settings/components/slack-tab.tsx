@@ -36,7 +36,7 @@ import { api } from "@multica/core/api";
 import type { SlackInstallation } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { openExternal } from "../../platform";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 // SlackTab is the workspace settings panel for Slack bot installations.
 // Listing is member-visible; the disconnect action is admin-only (the backend
@@ -64,9 +64,9 @@ export function SlackTab() {
   const installations = data?.installations ?? [];
   const configured = data?.configured === true;
   // install_supported tracks whether the OAuth client credentials are wired on
-  // the server. When false, "Connect Slack" would 503, so we hide the connect
-  // entry points and surface a "coming soon" notice. Already-installed bots
-  // still appear below and remain manageable.
+  // the server. When false, "Connect Slack" would be rejected, so we hide the
+  // connect entry points and surface a "coming soon" notice. Already-installed
+  // bots still appear below and remain manageable.
   const installSupported = data?.install_supported === true;
 
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
@@ -89,85 +89,67 @@ export function SlackTab() {
     }
   }
 
-  let connectedBotsBody: React.ReactNode;
-  if (isLoading) {
-    connectedBotsBody = (
-      <Card>
-        <CardContent>
-          <p className="text-body text-muted-foreground">{t(($) => $.slack.loading)}</p>
-        </CardContent>
-      </Card>
-    );
-  } else if (installations.length === 0) {
-    connectedBotsBody = (
-      <Card>
-        <CardContent className="space-y-2">
-          <p className="text-body font-medium">{t(($) => $.slack.empty_title)}</p>
-          <p className="text-caption text-muted-foreground">
-            {t(($) => $.slack.empty_description_prefix)}{" "}
-            <strong>{t(($) => $.slack.empty_description_cta)}</strong>{" "}
-            {t(($) => $.slack.empty_description_suffix)}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  } else {
-    connectedBotsBody = (
-      <Card>
-        <CardContent className="divide-y">
-          {installations.map((inst) => (
-            <InstallationRow
-              key={inst.id}
-              installation={inst}
-              canManage={canManage}
-              onDisconnect={() => setDisconnectTarget(inst.id)}
-            />
-          ))}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  let mainBody: React.ReactNode;
-  if (!configured) {
-    mainBody = (
-      <Card>
-        <CardContent className="space-y-2">
-          <p className="text-body font-medium">{t(($) => $.slack.not_enabled_title)}</p>
-          <p className="text-caption text-muted-foreground">
-            {t(($) => $.slack.not_enabled_description_prefix)}{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-micro">
-              MULTICA_SLACK_SECRET_KEY
-            </code>{" "}
-            {t(($) => $.slack.not_enabled_description_suffix)}{" "}
-            {t(($) => $.slack.not_enabled_self_host_hint)}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  } else if (!installSupported && installations.length === 0) {
-    mainBody = (
-      <Card>
-        <CardContent className="space-y-2">
-          <p className="text-body font-medium">{t(($) => $.slack.preview_title)}</p>
-          <p className="text-caption text-muted-foreground">
-            {t(($) => $.slack.preview_description)}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  } else {
-    mainBody = (
-      <section className="space-y-3">
-        <h2 className="text-body font-semibold">{t(($) => $.slack.connected_bots)}</h2>
-        {connectedBotsBody}
-      </section>
-    );
-  }
-
   return (
     <div className="space-y-8">
-      {mainBody}
+      {!configured ? (
+        <Card>
+          <CardContent className="space-y-2">
+            <p className="text-body font-medium">{t(($) => $.slack.not_enabled_title)}</p>
+            <p className="text-caption text-muted-foreground">
+              {t(($) => $.slack.not_enabled_description_prefix)}{" "}
+              <code className="rounded-xs bg-muted px-1 py-0.5 text-micro">
+                MULTICA_SLACK_SECRET_KEY
+              </code>{" "}
+              {t(($) => $.slack.not_enabled_description_suffix)}{" "}
+              {t(($) => $.slack.not_enabled_self_host_hint)}
+            </p>
+          </CardContent>
+        </Card>
+      ) : !installSupported && installations.length === 0 ? (
+        <Card>
+          <CardContent className="space-y-2">
+            <p className="text-body font-medium">{t(($) => $.slack.preview_title)}</p>
+            <p className="text-caption text-muted-foreground">
+              {t(($) => $.slack.preview_description)}
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <section className="space-y-3">
+          <h2 className="text-body font-semibold">{t(($) => $.slack.connected_bots)}</h2>
+          {isLoading ? (
+            <Card>
+              <CardContent>
+                <p className="text-body text-muted-foreground">{t(($) => $.slack.loading)}</p>
+              </CardContent>
+            </Card>
+          ) : installations.length === 0 ? (
+            <Card>
+              <CardContent className="space-y-2">
+                <p className="text-body font-medium">{t(($) => $.slack.empty_title)}</p>
+                <p className="text-caption text-muted-foreground">
+                  {t(($) => $.slack.empty_description_prefix)}{" "}
+                  <strong>{t(($) => $.slack.empty_description_cta)}</strong>{" "}
+                  {t(($) => $.slack.empty_description_suffix)}
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="divide-y">
+                {installations.map((inst) => (
+                  <InstallationRow
+                    key={inst.id}
+                    installation={inst}
+                    canManage={canManage}
+                    onDisconnect={() => setDisconnectTarget(inst.id)}
+                  />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </section>
+      )}
 
       <AlertDialog
         open={!!disconnectTarget}
@@ -210,6 +192,7 @@ function InstallationRow({
   onDisconnect: () => void;
 }) {
   const { t } = useT("settings");
+  const locale = useLocale();
   const { getAgentName } = useActorName();
   const isActive = installation.status === "active";
   const agentName = getAgentName(installation.agent_id);
@@ -227,14 +210,14 @@ function InstallationRow({
           <p className="text-body font-medium">
             {agentName}
             {!isActive && (
-              <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-micro text-muted-foreground">
+              <span className="ml-2 rounded-xs bg-muted px-1.5 py-0.5 text-micro text-muted-foreground">
                 {t(($) => $.slack.revoked_badge)}
               </span>
             )}
           </p>
           <p className="text-micro text-muted-foreground">
             {t(($) => $.slack.installed_at_label, {
-              when: new Date(installation.installed_at).toLocaleString(),
+              when: new Date(installation.installed_at).toLocaleString(locale),
             })}
           </p>
         </div>
@@ -259,16 +242,13 @@ const SLACK_BYO_VIDEO_URL = "";
 // prefixes (English has none), matching the convention used elsewhere in the
 // app for doc links (e.g. the autopilots webhook docs link).
 function slackDocsUrl(lang: string | undefined): string {
-  let prefix: string;
-  if (lang?.startsWith("zh")) {
-    prefix = "/zh";
-  } else if (lang?.startsWith("ja")) {
-    prefix = "/ja";
-  } else if (lang?.startsWith("ko")) {
-    prefix = "/ko";
-  } else {
-    prefix = "";
-  }
+  const prefix = lang?.startsWith("zh")
+    ? "/zh"
+    : lang?.startsWith("ja")
+      ? "/ja"
+      : lang?.startsWith("ko")
+        ? "/ko"
+        : "";
   return `https://multica.ai/docs${prefix}/slack-bot-integration`;
 }
 
@@ -433,6 +413,8 @@ export function SlackAgentBindButton({
                 data-testid="slack-byo-bot-token"
                 value={botToken}
                 onChange={(e) => setBotToken(e.target.value)}
+                // Slack token prefix: a format hint, not copy.
+                // eslint-disable-next-line no-restricted-syntax
                 placeholder="xoxb-…"
                 autoComplete="off"
                 spellCheck={false}
@@ -449,6 +431,8 @@ export function SlackAgentBindButton({
                 data-testid="slack-byo-app-token"
                 value={appToken}
                 onChange={(e) => setAppToken(e.target.value)}
+                // Slack token prefix: a format hint, not copy.
+                // eslint-disable-next-line no-restricted-syntax
                 placeholder="xapp-…"
                 autoComplete="off"
                 spellCheck={false}

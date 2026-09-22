@@ -35,7 +35,7 @@ import { AppLink } from "../../../navigation";
 import { TranscriptButton } from "../../../common/task-transcript";
 import { AttributionBadge } from "../../../issues/components/attribution-badge";
 import { taskStatusConfig } from "../../config";
-import { cancelReasonLabel, failureReasonLabel } from "./task-failure";
+import { cancellationActorLabel, cancelReasonLabel, failureReasonLabel } from "./task-failure";
 import { Sparkline } from "../sparkline";
 import { useT, useTimeAgo } from "../../../i18n";
 
@@ -207,13 +207,6 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
     () => deriveAvgDurationLast30d(agentTasks, Date.now()),
     [agentTasks],
   );
-  const successPct =
-    summary.totalRuns > 0
-      ? Math.round(
-          ((summary.totalRuns - summary.totalFailed) / summary.totalRuns) *
-            100,
-        )
-      : 100;
 
   return (
     <section className="mt-5 border-t pt-5">
@@ -234,7 +227,7 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
               })}
             />
             <Metric
-              value={`${successPct}%`}
+              value={<SuccessRate rate={summary.successRate} />}
               label={t(($) => $.tab_body.activity.success_label)}
             />
             <Metric
@@ -247,6 +240,13 @@ export function AgentPerformanceSummary({ agent }: { agent: Agent }) {
               destructive={summary.totalFailed > 0}
             />
           </div>
+          {summary.totalCancelled > 0 && (
+            <p className="mt-2 text-caption text-muted-foreground">
+              {t(($) => $.tab_body.activity.cancelled_count, {
+                count: summary.totalCancelled,
+              })}
+            </p>
+          )}
           <Sparkline
             buckets={summary.buckets}
             width={250}
@@ -264,7 +264,7 @@ function Metric({
   label,
   destructive = false,
 }: {
-  value: string;
+  value: ReactNode;
   label: string;
   destructive?: boolean;
 }) {
@@ -279,6 +279,32 @@ function Metric({
       </div>
       <div className="truncate text-micro text-muted-foreground">{label}</div>
     </div>
+  );
+}
+
+function SuccessRate({
+  rate,
+  labelled = false,
+}: {
+  rate: number | null;
+  labelled?: boolean;
+}) {
+  const { t } = useT("agents");
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span tabIndex={0} />}>
+        {rate === null
+          ? "—"
+          : labelled
+            ? t(($) => $.tab_body.activity.success_pct, { percent: rate })
+            : `${rate}%`}
+      </TooltipTrigger>
+      <TooltipContent>
+        {rate === null
+          ? t(($) => $.tab_body.activity.success_unavailable)
+          : t(($) => $.tab_body.activity.success_hint)}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -326,10 +352,6 @@ function Last30dSection({
   const summary = summarizeActivityWindow(activity, 30);
   const { totalRuns, totalFailed } = summary;
   const locales = i18n.resolvedLanguage ?? i18n.language;
-  const successPct =
-    totalRuns > 0
-      ? Math.round(((totalRuns - totalFailed) / totalRuns) * 100)
-      : 100;
 
   return (
     <Section title={t(($) => $.tab_body.activity.section_last_30d)} subtitle={t(($) => $.tab_body.activity.subtitle_performance)}>
@@ -351,7 +373,7 @@ function Last30dSection({
               </span>
             </div>
             <div className="text-caption text-muted-foreground">
-              {t(($) => $.tab_body.activity.success_pct, { percent: successPct })}
+              <SuccessRate rate={summary.successRate} labelled />
               {avgDurationMs > 0 && (
                 <>
                   <Sep />
@@ -363,6 +385,16 @@ function Last30dSection({
                   <Sep />
                   <span className="text-destructive">
                     {t(($) => $.tab_body.activity.failed_count, { count: totalFailed })}
+                  </span>
+                </>
+              )}
+              {summary.totalCancelled > 0 && (
+                <>
+                  <Sep />
+                  <span>
+                    {t(($) => $.tab_body.activity.cancelled_count, {
+                      count: summary.totalCancelled,
+                    })}
                   </span>
                 </>
               )}
@@ -404,45 +436,38 @@ function RecentWorkSection({
   const { t } = useT("agents");
   // While the first fetch is in flight we have no counts to summarise, so
   // the subtitle stays blank rather than claiming "nothing finished yet".
-  let subtitle: string;
-  if (loading) {
-    subtitle = "";
-  } else if (tasks.length === 0) {
-    subtitle = t(($) => $.tab_body.activity.subtitle_no_recent);
-  } else if (totalCount > tasks.length) {
-    subtitle = t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount });
-  } else {
-    subtitle = t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
-  }
-  let sectionBody: ReactNode;
-  if (loading) {
-    sectionBody = <RecentWorkSkeleton />;
-  } else if (tasks.length === 0) {
-    sectionBody = <EmptyText>{t(($) => $.tab_body.activity.empty_recent)}</EmptyText>;
-  } else {
-    sectionBody = (
-      <>
-        <TaskList
-          tasks={tasks}
-          issueMap={issueMap}
-          timeMode="completed"
-          agent={agent}
-        />
-        {hasMore && (
-          <button
-            type="button"
-            onClick={onShowMore}
-            className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {t(($) => $.tab_body.activity.show_more)}
-          </button>
-        )}
-      </>
-    );
-  }
+  const subtitle = loading
+    ? ""
+    : tasks.length === 0
+      ? t(($) => $.tab_body.activity.subtitle_no_recent)
+      : totalCount > tasks.length
+        ? t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount })
+        : t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
   return (
     <Section title={t(($) => $.tab_body.activity.section_recent)} subtitle={subtitle}>
-      {sectionBody}
+      {loading ? (
+        <RecentWorkSkeleton />
+      ) : tasks.length === 0 ? (
+        <EmptyText>{t(($) => $.tab_body.activity.empty_recent)}</EmptyText>
+      ) : (
+        <>
+          <TaskList
+            tasks={tasks}
+            issueMap={issueMap}
+            timeMode="completed"
+            agent={agent}
+          />
+          {hasMore && (
+            <button
+              type="button"
+              onClick={onShowMore}
+              className="mt-2 self-start rounded-xs text-caption text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t(($) => $.tab_body.activity.show_more)}
+            </button>
+          )}
+        </>
+      )}
     </Section>
   );
 }
@@ -463,7 +488,7 @@ function RecentWorkSkeleton() {
       aria-hidden="true"
     >
       {Array.from({ length: RECENT_SKELETON_ROWS }).map((_, i) => (
-        <div key={`skeleton-row-${i}`} className="flex items-center gap-3 px-3 py-3">
+        <div key={i} className="flex items-center gap-3 px-3 py-3">
           <Skeleton className="h-4 w-4 shrink-0 rounded-full" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className={`h-3.5 ${titleWidths[i % titleWidths.length]}`} />
@@ -556,69 +581,52 @@ function TaskRow({
     task.status === "completed" ||
     task.status === "failed" ||
     task.status === "cancelled";
-  let sourceFallback: string | null;
-  if (hasIssue) {
-    sourceFallback = null;
-  } else if (task.kind === "quick_create") {
-    sourceFallback = isTerminalStatus
-      ? t(($) => $.tab_body.activity.source_quick_create)
-      : t(($) => $.tab_body.activity.source_creating_issue);
-  } else if (task.chat_session_id) {
-    sourceFallback = t(($) => $.tab_body.activity.source_chat_session);
-  } else if (task.autopilot_run_id) {
-    sourceFallback = t(($) => $.tab_body.activity.source_autopilot_run);
-  } else {
-    sourceFallback = t(($) => $.tab_body.activity.source_untracked);
-  }
+  const sourceFallback = !hasIssue
+    ? task.kind === "quick_create"
+      ? isTerminalStatus
+        ? t(($) => $.tab_body.activity.source_quick_create)
+        : t(($) => $.tab_body.activity.source_creating_issue)
+      : task.chat_session_id
+        ? t(($) => $.tab_body.activity.source_chat_session)
+        : task.autopilot_run_id
+          ? t(($) => $.tab_body.activity.source_autopilot_run)
+          : t(($) => $.tab_body.activity.source_untracked)
+    : null;
 
-  let SourceIcon: typeof Hash;
-  if (hasIssue) {
-    SourceIcon = Hash;
-  } else if (task.chat_session_id) {
-    SourceIcon = MessageSquare;
-  } else if (task.autopilot_run_id) {
-    SourceIcon = Workflow;
-  } else {
-    SourceIcon = CircleHelp;
-  }
+  const SourceIcon = hasIssue
+    ? Hash
+    : task.chat_session_id
+      ? MessageSquare
+      : task.autopilot_run_id
+        ? Workflow
+        : CircleHelp;
+  const sourceLabel = hasIssue
+    ? t(($) => $.tab_body.activity.source_issue)
+    : task.chat_session_id
+      ? t(($) => $.tab_body.activity.source_chat)
+      : task.autopilot_run_id
+        ? t(($) => $.tab_body.activity.source_autopilot)
+        : t(($) => $.tab_body.activity.source_untracked);
 
-  let sourceLabel: string;
-  if (hasIssue) {
-    sourceLabel = t(($) => $.tab_body.activity.source_issue);
-  } else if (task.chat_session_id) {
-    sourceLabel = t(($) => $.tab_body.activity.source_chat);
-  } else if (task.autopilot_run_id) {
-    sourceLabel = t(($) => $.tab_body.activity.source_autopilot);
-  } else {
-    sourceLabel = t(($) => $.tab_body.activity.source_untracked);
-  }
-
-  let timeText: string;
-  if (timeMode === "active") {
-    timeText = activeTaskTimeText(task, t, timeAgo);
-  } else if (task.completed_at) {
-    timeText = timeAgo(task.completed_at);
-  } else {
-    timeText = "—";
-  }
-
-  const titleText =
-    issue?.title ??
-    (hasIssue
-      ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
-      : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)));
+  const timeText =
+    timeMode === "active"
+      ? activeTaskTimeText(task, t, timeAgo)
+      : task.completed_at
+        ? timeAgo(task.completed_at)
+        : "—";
 
   // Failure reason. The back-end emits "" on non-failed tasks (omitempty
   // strips it on the wire) so the truthy guard is the right shape.
-  // failureReasonLabel takes the raw open string — the taxonomy has 21
-  // values and grows, so there is no enum to cast to. Cancelled rows get a
+  // failureReasonLabel takes the raw open string because the taxonomy grows,
+  // so there is no enum to cast to. Cancelled rows get a
   // label only when the SERVER cancelled them for a persisted reason
   // (worktree claim gate, preserved-work delivery); a user's own cancel
   // stays a plain "Cancelled".
   const failureLabel =
     task.status === "failed"
-      ? failureReasonLabel(task.failure_reason)
-      : cancelReasonLabel(task);
+      ? failureReasonLabel(task.failure_reason, t)
+      : cancelReasonLabel(task, t);
+  const statusLabel = cancellationActorLabel(task, t) ?? taskStatusLabel(task.status, t);
 
   // Only show duration for terminal rows. An active row's duration is
   // inferred from the timeText already ("Started 2m ago") and adding a
@@ -667,7 +675,10 @@ function TaskRow({
               <TooltipTrigger
                 render={
                   <span className="truncate text-body">
-                    {titleText}
+                    {issue?.title ??
+                      (hasIssue
+                        ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
+                        : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
                   </span>
                 }
               />
@@ -682,13 +693,16 @@ function TaskRow({
             </Tooltip>
           ) : (
             <span className="truncate text-body">
-              {titleText}
+              {issue?.title ??
+                (hasIssue
+                  ? t(($) => $.tab_body.activity.issue_short_fallback, { prefix: task.issue_id.slice(0, 8) })
+                  : (sourceFallback ?? t(($) => $.tab_body.activity.source_untracked)))}
             </span>
           )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-caption text-muted-foreground">
           <span className={cfg.color}>
-            {taskStatusLabel(task.status, t)}
+            {statusLabel}
           </span>
           <Sep />
           <span>{timeText}</span>
@@ -701,11 +715,13 @@ function TaskRow({
           {failureLabel && (
             <>
               <Sep />
-              {/* Hover reveals the actionable text ("upgrade the daemon on
-                  that machine", "work preserved at …"), not just the bucket. */}
-              <span className="text-destructive" title={task.error ?? undefined}>
-                {failureLabel}
-              </span>
+              {/* The localized reason is the whole user-facing explanation
+                  here. The raw `task.error` used to ride along as this
+                  element's `title`, which put untranslated English (and
+                  absolute paths) in front of every non-English workspace
+                  (#7411); the full diagnostic lives in the transcript's Run
+                  details instead. */}
+              <span className="text-destructive">{failureLabel}</span>
             </>
           )}
           {/* Accountable member (MUL-4302 §9): whose behalf this run is on.
@@ -736,7 +752,7 @@ function TaskRow({
             <TooltipTrigger
               render={<AppLink href={paths.issueDetail(task.issue_id)} />}
               aria-label={t(($) => $.tab_body.activity.open_issue_aria)}
-              className="flex items-center justify-center rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              className="flex items-center justify-center rounded-xs p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
             </TooltipTrigger>
@@ -762,7 +778,7 @@ function TaskRow({
                   aria-label={t(($) => $.tab_body.activity.cancel_task_aria)}
                 />
               }
-              className="flex items-center justify-center rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center justify-center rounded-xs p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </TooltipTrigger>
@@ -815,6 +831,7 @@ type TimeAgoFn = (dateStr: string) => string;
 function taskStatusLabel(status: AgentTask["status"], t: AgentsT): string {
   switch (status) {
     case "queued":
+    case "deferred":
       return t(($) => $.tab_body.activity.status.queued);
     case "dispatched":
       return t(($) => $.tab_body.activity.status.dispatched);

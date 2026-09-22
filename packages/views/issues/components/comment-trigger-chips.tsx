@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { TriangleAlert } from "lucide-react";
+import { useMemo, useState } from "react";
+import { TriangleAlert, Users } from "lucide-react";
 import type { CommentTriggerPreviewAgent, CommentTriggerOutcome } from "@multica/core/types";
 import { useAgentPresenceDetail } from "@multica/core/agents";
 import { mentionLabelsByTarget } from "@multica/core/issues/comment-trigger-outcomes";
@@ -38,6 +38,8 @@ interface CommentTriggerChipsProps {
   // (MUL-4525 §2). Each renders as a named warning chip so the user sees WHICH
   // target won't run and why, not a silent no-op after sending.
   blocked?: CommentTriggerOutcome[];
+  /** Whether the draft contains the structured @all member broadcast. */
+  hasAllMembersMention?: boolean;
   // The draft markdown, used only to label each blocked target with the name the
   // user typed in its mention markup. The server omits blocked target names
   // (enumeration-safety); this is the user's own text, so it discloses nothing new.
@@ -126,6 +128,7 @@ function TriggerAgentTooltipBody({
 export function CommentTriggerChips({
   agents,
   blocked = [],
+  hasAllMembersMention = false,
   draftContent = "",
   suppressedAgentIds,
   onToggle,
@@ -137,33 +140,35 @@ export function CommentTriggerChips({
 
   // Loading and errors render nothing: the preview is an enhancement, and
   // any interim chrome here reads as composer noise.
-  if (agents.length === 0 && blocked.length === 0) return null;
+  if (agents.length === 0 && blocked.length === 0 && !hasAllMembersMention) return null;
 
-  let allowed: ReactNode = null;
-  if (agents.length === 1) {
-    allowed = (
+  const allowed =
+    agents.length === 1 ? (
       <SingleTriggerChip
         agent={agents[0]!}
         suppressed={suppressedAgentIds.has(agents[0]!.id)}
         onToggle={onToggle}
         t={t}
       />
-    );
-  } else if (agents.length > 1) {
-    allowed = (
+    ) : agents.length > 1 ? (
       <MultiTriggerChip
         agents={agents}
         suppressedAgentIds={suppressedAgentIds}
         onToggle={onToggle}
         t={t}
       />
-    );
-  }
+    ) : null;
 
-  if (blocked.length === 0) return allowed;
+  if (blocked.length === 0 && !hasAllMembersMention) return allowed;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {hasAllMembersMention && (
+        <span className="inline-flex h-6 min-w-0 max-w-full animate-in fade-in items-center gap-1.5 rounded-md px-1.5 text-micro font-medium text-muted-foreground">
+          <Users className="size-3 shrink-0" />
+          <span className="truncate">{t(($) => $.comment.all_members_notice)}</span>
+        </span>
+      )}
       {allowed}
       {blocked.map((outcome) => (
         <BlockedTriggerChip

@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect, useRef, memo, type ReactNode } from "react";
+import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
+
+import { useState, useCallback, useMemo, useEffect, useRef, memo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   DndContext,
@@ -17,7 +19,7 @@ import { toast } from "sonner";
 import type {
   Issue,
   IssueAssigneeType,
-  IssueStatusCategory,
+  IssueStatus,
   Project,
   IssueProperty,
 } from "@multica/core/types";
@@ -58,29 +60,96 @@ import {
   issueMatchesGroup,
   getMoveUpdates,
   propertyGroupId,
+  projectGroupId,
 } from "../utils/drag-utils";
 
 function isStatusGroup(
   group: BoardColumnGroup,
-): group is BoardColumnGroup & { status: IssueStatusCategory } {
+): group is BoardColumnGroup & { status: IssueStatus } {
   return group.status !== undefined;
+}
+
+interface ProjectColumnLabels {
+  noProject: string;
+  /** A project id the projects query cannot resolve — deleted, or not visible
+   *  to this member. Shares the Table's wording so one board column and one
+   *  table group row never describe the same project differently. */
+  unavailableProject: string;
+}
+
+interface BuildGroupsContext extends ProjectColumnLabels {
+  getActorName: (type: string, id: string) => string;
+  groupingProperty: IssueProperty | null;
+  projectMap: Map<string, Project> | undefined;
+  noAssigneeLabel: string;
+  noValueLabel: string;
+}
+
+/**
+ * One project column. Shared by the client fallback (columns derived from
+ * loaded cards) and the server path (columns derived from group descriptors)
+ * so the two can never describe the same project differently.
+ */
+function projectColumn(
+  id: string,
+  projectId: string | null,
+  projectMap: Map<string, Project> | undefined,
+  labels: ProjectColumnLabels,
+  totalCount?: number,
+): BoardColumnGroup {
+  const project = projectId ? projectMap?.get(projectId) ?? null : null;
+  return {
+    id,
+    title: projectId
+      ? project?.title ?? labels.unavailableProject
+      : labels.noProject,
+    projectId,
+    project,
+    totalCount,
+    createData: { project_id: projectId },
+  };
+}
+
+/**
+ * Keep the "No project" column present as a drop target — clearing a card's
+ * project by dragging has to stay possible even in a workspace where every
+ * card currently has one. A board with no columns at all is left alone: that
+ * is the surface's empty state, not a board missing one column.
+ */
+function withNoProjectColumn(
+  columns: BoardColumnGroup[],
+  projectMap: Map<string, Project> | undefined,
+  labels: ProjectColumnLabels,
+): BoardColumnGroup[] {
+  if (columns.length === 0) return columns;
+  if (columns.some((column) => column.projectId === null)) return columns;
+  // No-project sorts first server-side, so it is always in the first page of
+  // descriptors when it exists — an absent one cannot arrive with a later page.
+  return [
+    projectColumn(projectGroupId(null), null, projectMap, labels, 0),
+    ...columns,
+  ];
 }
 
 function buildGroups(
   issues: Issue[],
-  visibleStatuses: IssueStatusCategory[],
+  visibleStatuses: IssueStatus[],
   grouping: IssueGrouping,
-  getActorName: (type: string, id: string) => string,
-  noAssigneeLabel: string,
-  groupingProperty: IssueProperty | null,
-  noValueLabel: string,
+  {
+    getActorName,
+    groupingProperty,
+    projectMap,
+    noAssigneeLabel,
+    noValueLabel,
+    ...projectLabels
+  }: BuildGroupsContext,
 ): BoardColumnGroup[] {
   if (grouping === "status") {
     return visibleStatuses.map((status) => ({
       id: statusGroupId(status),
       title: status,
       status,
-      createData: { status },
+      createData: { status: status },
     }));
   }
 
@@ -104,6 +173,26 @@ function buildGroups(
       propertyOptionId: null,
     });
     return columns;
+  }
+
+  // Project board: one column per project the loaded cards reference, plus the
+  // "No project" column. Ordering mirrors the server's group order (no-project
+  // first, then project title) so the client fallback and the paged server
+  // columns cannot disagree.
+  if (grouping === "project") {
+    const columns = new Map<string, BoardColumnGroup>();
+    for (const issue of issues) {
+      const projectId = issue.project_id ?? null;
+      const id = projectGroupId(projectId);
+      if (columns.has(id)) continue;
+      columns.set(id, projectColumn(id, projectId, projectMap, projectLabels));
+    }
+    const ordered = Array.from(columns.values()).toSorted((a, b) => {
+      if (a.projectId === null) return b.projectId === null ? 0 : -1;
+      if (b.projectId === null) return 1;
+      return a.title.localeCompare(b.title);
+    });
+    return withNoProjectColumn(ordered, projectMap, projectLabels);
   }
 
   const groups = new Map<string, BoardColumnGroup>();
@@ -168,8 +257,8 @@ function BoardViewImpl({
   groupBranches,
 }: {
   issues: Issue[];
-  visibleStatuses: IssueStatusCategory[];
-  hiddenStatuses: IssueStatusCategory[];
+  visibleStatuses: IssueStatus[];
+  hiddenStatuses: IssueStatus[];
   onMoveIssue: (issueId: string, updates: DragMoveUpdates, onSettled?: () => void) => void;
   childProgressMap?: Map<string, ChildProgress>;
   projectMap?: Map<string, Project>;
@@ -183,6 +272,7 @@ function BoardViewImpl({
   const storeGrouping = useViewStore((s) => s.grouping);
   const sortBy = useViewStore((s) => s.sortBy);
   const boardWsId = useWorkspaceId();
+  const catalog = useIssueStatuses(boardWsId);
   const { data: workspaceProperties = [] } = useQuery(propertyListOptions(boardWsId));
   const groupingPropertyId = propertyIdFromViewKey(storeGrouping);
   const groupingProperty = groupingPropertyId
@@ -275,6 +365,34 @@ function BoardViewImpl({
     }
     return undefined;
   }, [getActorName, groupBranches, grouping, t]);
+  const projectColumnLabels = useMemo<ProjectColumnLabels>(
+    () => ({
+      noProject: t(($) => $.swimlane.no_project),
+      unavailableProject: t(($) => $.table.value_unavailable),
+    }),
+    [t],
+  );
+  const hydratedProjectGroups = useMemo<BoardColumnGroup[] | undefined>(() => {
+    if (grouping !== "project" || !groupBranches?.enabled) return undefined;
+    const columns = groupBranches.descriptors.flatMap(
+      (descriptor): BoardColumnGroup[] =>
+        descriptor.value.kind === "project"
+          ? [
+              projectColumn(
+                // The descriptor key, not our own: it is what `groupPagination`
+                // is keyed by. `projectGroupId` reproduces it exactly, which is
+                // what lets cards bucket into these columns at all.
+                descriptor.key,
+                descriptor.value.project_id ?? null,
+                projectMap,
+                projectColumnLabels,
+                descriptor.count,
+              ),
+            ]
+          : [],
+    );
+    return withNoProjectColumn(columns, projectMap, projectColumnLabels);
+  }, [groupBranches, grouping, projectColumnLabels, projectMap]);
   const groupPagination = useMemo(() => {
     if (!groupBranches?.enabled) return undefined;
     const grouped = new Map<string, IssueGroupPageState[]>();
@@ -321,21 +439,21 @@ function BoardViewImpl({
     () => {
       const built =
         hydratedAssigneeGroups ??
-        buildGroups(
-        issues,
-        visibleStatuses,
-        grouping,
-        getActorName,
-        t(($) => $.filters.no_assignee),
-        groupingProperty,
-        t(($) => $.board.no_value),
-        );
+        hydratedProjectGroups ??
+        buildGroups(issues, visibleStatuses, grouping, {
+          getActorName,
+          groupingProperty,
+          projectMap,
+          noAssigneeLabel: t(($) => $.filters.no_assignee),
+          noValueLabel: t(($) => $.board.no_value),
+          ...projectColumnLabels,
+        });
       return built.map((group) => ({
         ...group,
         totalCount: groupPagination?.[group.id]?.total ?? group.totalCount,
       }));
     },
-    [hydratedAssigneeGroups, issues, visibleStatuses, grouping, getActorName, groupingProperty, groupPagination, t],
+    [hydratedAssigneeGroups, hydratedProjectGroups, issues, visibleStatuses, grouping, getActorName, groupingProperty, projectMap, projectColumnLabels, groupPagination, t],
   );
   const groupIds = useMemo(
     () => new Set(groups.map((group) => group.id)),
@@ -419,6 +537,8 @@ function BoardViewImpl({
         const activeCol = findColumn(prev, activeId, groupIds);
         const overCol = findColumn(prev, overId, groupIds);
         if (!activeCol || !overCol || activeCol === overCol) return prev;
+        const targetStatus = groups.find((group) => group.id === overCol)?.status;
+        if (targetStatus && catalog.entryOf(targetStatus)?.archived_at) return prev;
 
         if (sortBy !== "position") return prev;
 
@@ -431,7 +551,7 @@ function BoardViewImpl({
         return { ...prev, [activeCol]: oldIds, [overCol]: newIds };
       });
     },
-    [groupIds, sortBy, recentlyMovedRef, setColumns],
+    [groupIds, groups, catalog, sortBy, recentlyMovedRef, setColumns],
   );
 
   const handleDragEnd = useCallback(
@@ -486,12 +606,21 @@ function BoardViewImpl({
       }
 
       const map = issueMapRef.current;
+      if (finalGroup.status && map.get(activeId)?.status !== finalGroup.status && catalog.entryOf(finalGroup.status)?.archived_at) {
+        resetColumns();
+        return;
+      }
 
       if (sortBy !== "position") {
         // Cross-column: only update group (status/assignee), keep original position.
         const currentIssue = map.get(activeId);
         if (!currentIssue || issueMatchesGroup(currentIssue, finalGroup)) {
           resetColumns();
+          if (activeId !== overId) {
+            toast.info(t(($) => $.board.manual_reorder_hint), {
+              id: "issue-manual-reorder-hint",
+            });
+          }
           return;
         }
         // Optimistically move the card into the target column *now*. Without
@@ -550,7 +679,7 @@ function BoardViewImpl({
       );
       applyPropertyGroupValue(finalGroup, activeId);
     },
-    [groupedIssues, groups, grouping, groupingOptionIds, onMoveIssue, groupIds, groupMap, sortBy, beginSettle, columnsRef, isDraggingRef, setColumns, applyPropertyGroupValue],
+    [groupedIssues, groups, grouping, groupingOptionIds, onMoveIssue, groupIds, groupMap, sortBy, beginSettle, columnsRef, isDraggingRef, setColumns, applyPropertyGroupValue, catalog, t],
   );
 
   // An aborted drag (pointercancel, window resize, tab hide, Escape) fires
@@ -562,76 +691,6 @@ function BoardViewImpl({
     setActiveIssue(null);
     setColumns(buildColumns(groupedIssues, groups, grouping, groupingOptionIds));
   }, [groupedIssues, groups, grouping, groupingOptionIds, setColumns, isDraggingRef]);
-
-  let groupsContent: ReactNode;
-  if (groups.length === 0) {
-    if (groupBranches?.isError) {
-      groupsContent = (
-        <button
-          type="button"
-          className="flex min-w-full flex-1 items-center justify-center text-body text-destructive hover:underline"
-          onClick={groupBranches.retryGroups}
-        >
-          {t(($) => $.table.load_more_failed_retry)}
-        </button>
-      );
-    } else {
-      groupsContent = (
-        <div className="flex min-w-full flex-1 items-center justify-center text-body text-muted-foreground">
-          {t(($) => $.board.empty_grouping)}
-        </div>
-      );
-    }
-  } else {
-    groupsContent = groups.map((group) => {
-      if (isStatusGroup(group)) {
-        return (
-          <ServerPaginatedBoardColumn
-            key={group.id}
-            group={group}
-            issueIds={columns[group.id] ?? EMPTY_IDS}
-            issueMap={issueMapRef.current}
-            childProgressMap={childProgressMap}
-            projectMap={projectMap}
-            page={statusPagination?.[group.status]}
-            projectId={projectId}
-            onCreateIssue={onCreateIssue}
-            sortLabel={sortLabel}
-          />
-        );
-      }
-      if (groupPagination?.[group.id]) {
-        return (
-          <ServerPaginatedBoardColumn
-            key={group.id}
-            group={group}
-            issueIds={columns[group.id] ?? EMPTY_IDS}
-            issueMap={issueMapRef.current}
-            childProgressMap={childProgressMap}
-            projectMap={projectMap}
-            page={groupPagination[group.id]!}
-            projectId={projectId}
-            onCreateIssue={onCreateIssue}
-            sortLabel={sortLabel}
-          />
-        );
-      }
-      return (
-        <BoardColumn
-          key={group.id}
-          group={group}
-          issueIds={columns[group.id] ?? EMPTY_IDS}
-          issueMap={issueMapRef.current}
-          childProgressMap={childProgressMap}
-          projectMap={projectMap}
-          projectId={projectId}
-          onCreateIssue={onCreateIssue}
-          totalCount={group.totalCount}
-          sortLabel={sortLabel}
-        />
-      );
-    });
-  }
 
   return (
     <DndContext
@@ -651,7 +710,66 @@ function BoardViewImpl({
         onLostPointerCapture={pan.onLostPointerCapture}
         className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2"
       >
-        {groupsContent}
+        {groups.length === 0 ? (
+          groupBranches?.isError ? (
+            <button
+              type="button"
+              className="flex min-w-full flex-1 items-center justify-center text-body text-destructive hover:underline"
+              onClick={groupBranches.retryGroups}
+            >
+              {t(($) => $.table.load_more_failed_retry)}
+            </button>
+          ) : (
+            <div className="flex min-w-full flex-1 items-center justify-center text-body text-muted-foreground">
+              {t(($) => $.board.empty_grouping)}
+            </div>
+          )
+        ) : (
+          groups.map((group) =>
+            isStatusGroup(group) ? (
+              <ServerPaginatedBoardColumn
+                key={group.id}
+                group={group}
+                issueIds={columns[group.id] ?? EMPTY_IDS}
+                issueMap={issueMapRef.current}
+                childProgressMap={childProgressMap}
+                projectMap={projectMap}
+                page={statusPagination?.[group.status]}
+                projectId={projectId}
+                onCreateIssue={onCreateIssue}
+                sortLabel={sortLabel}
+              />
+            ) : (
+              groupPagination?.[group.id] ? (
+                <ServerPaginatedBoardColumn
+                  key={group.id}
+                  group={group}
+                  issueIds={columns[group.id] ?? EMPTY_IDS}
+                  issueMap={issueMapRef.current}
+                  childProgressMap={childProgressMap}
+                  projectMap={projectMap}
+                  page={groupPagination[group.id]!}
+                  projectId={projectId}
+                  onCreateIssue={onCreateIssue}
+                  sortLabel={sortLabel}
+                />
+              ) : (
+                <BoardColumn
+                  key={group.id}
+                  group={group}
+                  issueIds={columns[group.id] ?? EMPTY_IDS}
+                  issueMap={issueMapRef.current}
+                  childProgressMap={childProgressMap}
+                  projectMap={projectMap}
+                  projectId={projectId}
+                  onCreateIssue={onCreateIssue}
+                  totalCount={group.totalCount}
+                  sortLabel={sortLabel}
+                />
+              )
+            ),
+          )
+        )}
         {groupBranches?.hasMoreGroups && (
           <div className="flex w-8 shrink-0 items-center justify-center">
             <InfiniteScrollSentinel
@@ -742,7 +860,7 @@ function BoardHiddenColumnsPanel({
   hiddenStatuses,
   statusPagination,
 }: {
-  hiddenStatuses: IssueStatusCategory[];
+  hiddenStatuses: IssueStatus[];
   statusPagination?: IssueStatusPagination;
 }) {
   return (

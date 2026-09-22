@@ -251,61 +251,60 @@ export function ChatPage() {
           onArchive={handleArchive}
         />
       )}
-      {(() => {
-        if (c.showSkeleton) return <ChatMessageSkeleton />;
-        if (c.hasMessages) {
-          return (
-            <ChatMessageList
-              key={c.activeSessionId}
-              messages={c.messages}
-              pendingTask={c.pendingTask}
-              availability={c.availability}
-              firstItemIndex={c.firstItemIndex}
-              hasOlderMessages={c.hasOlderMessages}
-              isFetchingOlderMessages={c.isFetchingOlderMessages}
-              onLoadOlderMessages={() => c.fetchOlderMessages()}
-              onQuickAction={(action) => c.handleSend(action.prompt)}
-              quickActionsDisabled={
-                !!c.pendingTaskId ||
-                c.isSessionArchived ||
-                c.isAgentArchived ||
-                c.isAgentAccessRevoked ||
-                !c.isAgentRuntimeBound ||
-                c.noAgent
-              }
-              onRegenerateQuickActions={(message) =>
-                c.activeSessionId
-                  ? regenerateQuickActions.mutateAsync({
-                      sessionId: c.activeSessionId,
-                      messageId: message.id,
-                    })
-                  : undefined
-              }
-              quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
-            />
-          );
-        }
-        return <EmptyState agent={c.activeAgent} />;
-      })()}
+      {c.showSkeleton ? (
+        <ChatMessageSkeleton />
+      ) : c.hasMessages ? (
+        <ChatMessageList
+          key={c.activeSessionId}
+          messages={c.messages}
+          pendingTask={c.pendingTask}
+          availability={c.availability}
+          firstItemIndex={c.firstItemIndex}
+          hasOlderMessages={c.hasOlderMessages}
+          isFetchingOlderMessages={c.isFetchingOlderMessages}
+          onLoadOlderMessages={() => void c.fetchOlderMessages()}
+          onQuickAction={(action) => c.handleSend(action.prompt)}
+          quickActionsDisabled={
+            !!c.pendingTaskId ||
+            c.isSessionArchived ||
+            c.isAgentArchived ||
+            c.isAgentAccessRevoked ||
+            !c.isAgentRuntimeBound ||
+            c.noAgent
+          }
+          onRegenerateQuickActions={(message) =>
+            c.activeSessionId
+              ? regenerateQuickActions.mutateAsync({
+                  sessionId: c.activeSessionId,
+                  messageId: message.id,
+                })
+              : undefined
+          }
+          quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+        />
+      ) : (
+        <EmptyState
+          agent={c.activeAgent}
+          hasSessions={c.sessions.length > 0}
+          onPickPrompt={c.prefillConversationStarter}
+          customizeHref={c.customizeConversationStartersHref}
+        />
+      )}
 
-      {(() => {
-        if (c.isAgentAccessRevoked) {
-          return <AgentAccessRevokedBanner agentName={c.activeAgent?.name} />;
-        }
-        if (c.noAgent) return <NoAgentBanner />;
-        if (c.isAgentArchived) {
-          return <ArchivedAgentBanner agentName={c.activeAgent?.name} />;
-        }
-        if (!c.isAgentRuntimeBound && c.activeAgent) {
-          return (
-            <RuntimeRequiredBanner
-              agentId={c.activeAgent.id}
-              agentName={c.activeAgent.name}
-            />
-          );
-        }
-        return <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />;
-      })()}
+      {c.isAgentAccessRevoked ? (
+        <AgentAccessRevokedBanner agentName={c.activeAgent?.name} />
+      ) : c.noAgent ? (
+        <NoAgentBanner />
+      ) : c.isAgentArchived ? (
+        <ArchivedAgentBanner agentName={c.activeAgent?.name} />
+      ) : !c.isAgentRuntimeBound && c.activeAgent ? (
+        <RuntimeRequiredBanner
+          agentId={c.activeAgent.id}
+          agentName={c.activeAgent.name}
+        />
+      ) : (
+        <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />
+      )}
 
       <ChatQueue
         tasks={queuedTasks}
@@ -320,6 +319,8 @@ export function ChatPage() {
       <ChatInput
         onSend={c.handleSend}
         restoreDraftRequest={c.restoreDraftRequest}
+        conversationStarterRequest={c.conversationStarterRequest}
+        onConversationStarterApplied={c.handleConversationStarterApplied}
         onRestoreDraftApplied={c.handleRestoreDraftApplied}
         uploadEnabled={c.uploadEnabled && !c.isAgentAccessRevoked}
         onStop={c.handleStop}
@@ -391,7 +392,7 @@ export function ChatPage() {
     >
       <ResizablePanel
         id="list"
-        defaultSize={320}
+        defaultSize={260}
         minSize={240}
         maxSize={480}
         groupResizeBehavior="preserve-pixel-size"

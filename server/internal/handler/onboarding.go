@@ -76,7 +76,7 @@ func (h *Handler) CompleteOnboarding(w http.ResponseWriter, r *http.Request) {
 	var req completeOnboardingRequest
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
-			writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
+			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 	}
@@ -234,7 +234,7 @@ func (h *Handler) PatchOnboarding(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, patchOnboardingBodyLimit)
 	var req patchOnboardingRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -276,18 +276,18 @@ func (h *Handler) PatchOnboarding(w http.ResponseWriter, r *http.Request) {
 	var after questionnaireAnswers
 	_ = json.Unmarshal(user.OnboardingQuestionnaire, &after)
 	if after.complete() && !before.complete() {
-		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.OnboardingQuestionnaireSubmitted(analytics.OnboardingQuestionnaireSubmittedParams{
-			UserID:          userID,
-			Source:          []string(after.Source),
-			Role:            after.Role,
-			UseCase:         []string(after.UseCase),
-			SourceSkipped:   after.SourceSkipped,
-			RoleSkipped:     after.RoleSkipped,
-			UseCaseSkipped:  after.UseCaseSkipped,
-			SourceHasOther:  after.SourceOther != "",
-			RoleHasOther:    after.RoleOther != "",
-			UseCaseHasOther: after.UseCaseOther != "",
-		}))
+		obsmetrics.RecordEvent(h.Analytics, h.Metrics, analytics.OnboardingQuestionnaireSubmitted(
+			userID,
+			[]string(after.Source),
+			after.Role,
+			[]string(after.UseCase),
+			after.SourceSkipped,
+			after.RoleSkipped,
+			after.UseCaseSkipped,
+			after.SourceOther != "",
+			after.RoleOther != "",
+			after.UseCaseOther != "",
+		))
 	}
 
 	// Source resolves on its own timeline — typically days after the
@@ -325,7 +325,7 @@ func (h *Handler) JoinCloudWaitlist(w http.ResponseWriter, r *http.Request) {
 	}
 	var req joinCloudWaitlistRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, errMsgInvalidRequestBody)
+		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 

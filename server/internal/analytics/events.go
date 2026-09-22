@@ -188,7 +188,7 @@ func RuntimeRegistered(ownerID, workspaceID, runtimeID, daemonID, provider, runt
 		// daemon registrations across workspaces under a single "anonymous"
 		// person. It's stable within a workspace so repeat heartbeats (which
 		// don't emit anyway) would at least group correctly.
-		distinct = prefixWorkspace + workspaceID
+		distinct = "workspace:" + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeRegistered,
@@ -214,7 +214,7 @@ func RuntimeRegistered(ownerID, workspaceID, runtimeID, daemonID, provider, runt
 func RuntimeReady(ownerID, workspaceID, runtimeID, daemonID, provider string, readyDurationMS int64) Event {
 	distinct := ownerID
 	if distinct == "" {
-		distinct = prefixWorkspace + workspaceID
+		distinct = "workspace:" + workspaceID
 	}
 	props := map[string]any{
 		"runtime_id": runtimeID,
@@ -240,7 +240,7 @@ func RuntimeReady(ownerID, workspaceID, runtimeID, daemonID, provider string, re
 func RuntimeFailed(ownerID, workspaceID, daemonID, provider, failureReason, errorType string, recoverable bool) Event {
 	distinct := ownerID
 	if distinct == "" && workspaceID != "" {
-		distinct = prefixWorkspace + workspaceID
+		distinct = "workspace:" + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeFailed,
@@ -264,7 +264,7 @@ func RuntimeFailed(ownerID, workspaceID, daemonID, provider, failureReason, erro
 func RuntimeOffline(ownerID, workspaceID, runtimeID, daemonID, provider string) Event {
 	distinct := ownerID
 	if distinct == "" {
-		distinct = prefixWorkspace + workspaceID
+		distinct = "workspace:" + workspaceID
 	}
 	return Event{
 		Name:        EventRuntimeOffline,
@@ -283,20 +283,6 @@ func RuntimeOffline(ownerID, workspaceID, runtimeID, daemonID, provider string) 
 	}
 }
 
-// IssueExecutedParams bundles IssueExecuted's fields so the function
-// signature stays under the parameter-count lint.
-type IssueExecutedParams struct {
-	ActorID        string
-	WorkspaceID    string
-	IssueID        string
-	TaskID         string
-	AgentID        string
-	Source         string
-	RuntimeMode    string
-	Provider       string
-	TaskDurationMS int64
-}
-
 // IssueExecuted fires at most once per issue lifetime — on the first task
 // completion that flips `issues.first_executed_at` from NULL via an atomic
 // UPDATE. Retries, re-assignments, and comment-triggered follow-ups never
@@ -306,95 +292,69 @@ type IssueExecutedParams struct {
 // Computing it at emit time is not atomic (two concurrent first-completions
 // both read count=1, both emit n=1), and PostHog derives the same number
 // exactly at query time from the event stream.
-func IssueExecuted(p IssueExecutedParams) Event {
+func IssueExecuted(actorID, workspaceID, issueID, taskID, agentID, source, runtimeMode, provider string, taskDurationMS int64) Event {
 	return Event{
 		Name:        EventIssueExecuted,
-		DistinctID:  p.ActorID,
-		WorkspaceID: p.WorkspaceID,
+		DistinctID:  actorID,
+		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(map[string]any{
-			"issue_id":         p.IssueID,
-			"task_id":          p.TaskID,
-			"agent_id":         p.AgentID,
-			"task_duration_ms": p.TaskDurationMS,
-			"duration_ms":      p.TaskDurationMS,
+			"issue_id":         issueID,
+			"task_id":          taskID,
+			"agent_id":         agentID,
+			"task_duration_ms": taskDurationMS,
+			"duration_ms":      taskDurationMS,
 		}, CoreProperties{
-			UserID:      nonAgentUserID(p.ActorID),
-			WorkspaceID: p.WorkspaceID,
-			AgentID:     p.AgentID,
-			TaskID:      p.TaskID,
-			IssueID:     p.IssueID,
-			Source:      p.Source,
-			RuntimeMode: p.RuntimeMode,
-			Provider:    p.Provider,
+			UserID:      nonAgentUserID(actorID),
+			WorkspaceID: workspaceID,
+			AgentID:     agentID,
+			TaskID:      taskID,
+			IssueID:     issueID,
+			Source:      source,
+			RuntimeMode: runtimeMode,
+			Provider:    provider,
 		}),
 	}
 }
 
-// IssueCreatedParams bundles IssueCreated's fields so the function
-// signature stays under the parameter-count lint.
-type IssueCreatedParams struct {
-	ActorID        string
-	WorkspaceID    string
-	IssueID        string
-	AgentID        string
-	TaskID         string
-	AutopilotRunID string
-	Source         string
-	Platform       string
-}
-
-func IssueCreated(p IssueCreatedParams) Event {
+func IssueCreated(actorID, workspaceID, issueID, agentID, taskID, autopilotRunID, source, platform string) Event {
 	props := map[string]any{}
-	if p.Platform != "" {
-		props["platform"] = p.Platform
+	if platform != "" {
+		props["platform"] = platform
 	}
 	return Event{
 		Name:        EventIssueCreated,
-		DistinctID:  p.ActorID,
-		WorkspaceID: p.WorkspaceID,
+		DistinctID:  actorID,
+		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(props, CoreProperties{
-			UserID:         nonAgentUserID(p.ActorID),
-			WorkspaceID:    p.WorkspaceID,
-			AgentID:        p.AgentID,
-			TaskID:         p.TaskID,
-			IssueID:        p.IssueID,
-			AutopilotRunID: p.AutopilotRunID,
-			Source:         p.Source,
+			UserID:         nonAgentUserID(actorID),
+			WorkspaceID:    workspaceID,
+			AgentID:        agentID,
+			TaskID:         taskID,
+			IssueID:        issueID,
+			AutopilotRunID: autopilotRunID,
+			Source:         source,
 		}),
 	}
 }
 
-// ChatMessageSentParams bundles ChatMessageSent's fields so the function
-// signature stays under the parameter-count lint.
-type ChatMessageSentParams struct {
-	UserID        string
-	WorkspaceID   string
-	ChatSessionID string
-	TaskID        string
-	AgentID       string
-	RuntimeMode   string
-	Provider      string
-	Platform      string
-}
-
-func ChatMessageSent(p ChatMessageSentParams) Event {
+func ChatMessageSent(userID, workspaceID, chatSessionID, taskID, agentID, runtimeMode, provider, platform string) Event {
 	props := map[string]any{}
-	if p.Platform != "" {
-		props["platform"] = p.Platform
+	if platform != "" {
+		props["platform"] = platform
 	}
 	return Event{
 		Name:        EventChatMessageSent,
-		DistinctID:  p.UserID,
-		WorkspaceID: p.WorkspaceID,
+		DistinctID:  userID,
+		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(props, CoreProperties{
-			UserID:        p.UserID,
-			WorkspaceID:   p.WorkspaceID,
-			AgentID:       p.AgentID,
-			TaskID:        p.TaskID,
-			ChatSessionID: p.ChatSessionID,
+			UserID:        userID,
+			WorkspaceID:   workspaceID,
+			AgentID:       agentID,
+			TaskID:        taskID,
+			ChatSessionID: chatSessionID,
 			Source:        SourceChat,
-			RuntimeMode:   p.RuntimeMode,
-			Provider:      p.Provider,
+			RuntimeMode:   runtimeMode,
+			Provider:      provider,
 		}),
 	}
 }
@@ -411,79 +371,21 @@ type AutopilotAssignee struct {
 }
 
 func AutopilotRunStarted(actorID, workspaceID, autopilotID, runID, cadence string, assignee AutopilotAssignee, triggerSource string) Event {
-	return autopilotRunEvent(autopilotRunEventParams{
-		Name:          EventAutopilotRunStarted,
-		ActorID:       actorID,
-		WorkspaceID:   workspaceID,
-		AutopilotID:   autopilotID,
-		RunID:         runID,
-		Cadence:       cadence,
-		Assignee:      assignee,
-		TriggerSource: triggerSource,
+	return autopilotRunEvent(EventAutopilotRunStarted, actorID, workspaceID, autopilotID, runID, cadence, assignee, triggerSource, nil)
+}
+
+func AutopilotRunCompleted(actorID, workspaceID, autopilotID, runID, cadence string, assignee AutopilotAssignee, triggerSource string, durationMS int64) Event {
+	return autopilotRunEvent(EventAutopilotRunCompleted, actorID, workspaceID, autopilotID, runID, cadence, assignee, triggerSource, map[string]any{
+		"duration_ms": durationMS,
 	})
 }
 
-// AutopilotRunCompletedParams bundles AutopilotRunCompleted's fields so the
-// function signature stays under the parameter-count lint.
-type AutopilotRunCompletedParams struct {
-	ActorID       string
-	WorkspaceID   string
-	AutopilotID   string
-	RunID         string
-	Cadence       string
-	Assignee      AutopilotAssignee
-	TriggerSource string
-	DurationMS    int64
-}
-
-func AutopilotRunCompleted(p AutopilotRunCompletedParams) Event {
-	return autopilotRunEvent(autopilotRunEventParams{
-		Name:          EventAutopilotRunCompleted,
-		ActorID:       p.ActorID,
-		WorkspaceID:   p.WorkspaceID,
-		AutopilotID:   p.AutopilotID,
-		RunID:         p.RunID,
-		Cadence:       p.Cadence,
-		Assignee:      p.Assignee,
-		TriggerSource: p.TriggerSource,
-		Extra: map[string]any{
-			"duration_ms": p.DurationMS,
-		},
-	})
-}
-
-// AutopilotRunFailedParams bundles AutopilotRunFailed's fields so the
-// function signature stays under the parameter-count lint.
-type AutopilotRunFailedParams struct {
-	ActorID       string
-	WorkspaceID   string
-	AutopilotID   string
-	RunID         string
-	Cadence       string
-	Assignee      AutopilotAssignee
-	TriggerSource string
-	FailureReason string
-	ErrorType     string
-	WillRetry     bool
-	DurationMS    int64
-}
-
-func AutopilotRunFailed(p AutopilotRunFailedParams) Event {
-	return autopilotRunEvent(autopilotRunEventParams{
-		Name:          EventAutopilotRunFailed,
-		ActorID:       p.ActorID,
-		WorkspaceID:   p.WorkspaceID,
-		AutopilotID:   p.AutopilotID,
-		RunID:         p.RunID,
-		Cadence:       p.Cadence,
-		Assignee:      p.Assignee,
-		TriggerSource: p.TriggerSource,
-		Extra: map[string]any{
-			"duration_ms":    p.DurationMS,
-			"failure_reason": p.FailureReason,
-			"error_type":     p.ErrorType,
-			"will_retry":     p.WillRetry,
-		},
+func AutopilotRunFailed(actorID, workspaceID, autopilotID, runID, cadence string, assignee AutopilotAssignee, triggerSource, failureReason, errorType string, willRetry bool, durationMS int64) Event {
+	return autopilotRunEvent(EventAutopilotRunFailed, actorID, workspaceID, autopilotID, runID, cadence, assignee, triggerSource, map[string]any{
+		"duration_ms":    durationMS,
+		"failure_reason": failureReason,
+		"error_type":     errorType,
+		"will_retry":     willRetry,
 	})
 }
 
@@ -564,53 +466,35 @@ func OnboardingStarted(userID, platform string) Event {
 	}
 }
 
-// OnboardingQuestionnaireSubmittedParams bundles
-// OnboardingQuestionnaireSubmitted's fields so the function signature stays
-// under the parameter-count lint.
-type OnboardingQuestionnaireSubmittedParams struct {
-	UserID          string
-	Source          []string
-	Role            string
-	UseCase         []string
-	SourceSkipped   bool
-	RoleSkipped     bool
-	UseCaseSkipped  bool
-	SourceHasOther  bool
-	RoleHasOther    bool
-	UseCaseHasOther bool
-}
-
-func OnboardingQuestionnaireSubmitted(p OnboardingQuestionnaireSubmittedParams) Event {
+func OnboardingQuestionnaireSubmitted(userID string, source []string, role string, useCase []string, sourceSkipped, roleSkipped, useCaseSkipped, sourceHasOther, roleHasOther, useCaseHasOther bool) Event {
 	// Normalize nil slices to [] so PostHog property values are stable
 	// (avoids null vs [] mixing in property type inference).
-	source := p.Source
 	if source == nil {
 		source = []string{}
 	}
-	useCase := p.UseCase
 	if useCase == nil {
 		useCase = []string{}
 	}
 	return Event{
 		Name:       EventOnboardingQuestionnaireSubmit,
-		DistinctID: p.UserID,
+		DistinctID: userID,
 		Properties: withCoreProperties(map[string]any{
 			"source":             source,
-			"role":               p.Role,
+			"role":               role,
 			"use_case":           useCase,
-			"source_skipped":     p.SourceSkipped,
-			"role_skipped":       p.RoleSkipped,
-			"use_case_skipped":   p.UseCaseSkipped,
-			"source_has_other":   p.SourceHasOther,
-			"role_has_other":     p.RoleHasOther,
-			"use_case_has_other": p.UseCaseHasOther,
+			"source_skipped":     sourceSkipped,
+			"role_skipped":       roleSkipped,
+			"use_case_skipped":   useCaseSkipped,
+			"source_has_other":   sourceHasOther,
+			"role_has_other":     roleHasOther,
+			"use_case_has_other": useCaseHasOther,
 		}, CoreProperties{
-			UserID: p.UserID,
+			UserID: userID,
 			Source: SourceOnboarding,
 		}),
 		Set: map[string]any{
 			"source":   source,
-			"role":     p.Role,
+			"role":     role,
 			"use_case": useCase,
 		},
 	}
@@ -835,48 +719,33 @@ func AutopilotCreated(actorID, workspaceID, autopilotID, cadence, triggerKind st
 	}
 }
 
-// autopilotRunEventParams bundles autopilotRunEvent's fields so the function
-// signature stays under the parameter-count lint.
-type autopilotRunEventParams struct {
-	Name          string
-	ActorID       string
-	WorkspaceID   string
-	AutopilotID   string
-	RunID         string
-	Cadence       string
-	Assignee      AutopilotAssignee
-	TriggerSource string
-	Extra         map[string]any
-}
-
-func autopilotRunEvent(p autopilotRunEventParams) Event {
-	extra := p.Extra
+func autopilotRunEvent(name, actorID, workspaceID, autopilotID, runID, cadence string, assignee AutopilotAssignee, triggerSource string, extra map[string]any) Event {
 	if extra == nil {
 		extra = map[string]any{}
 	}
-	extra["trigger_source"] = p.TriggerSource
-	extra["trigger_kind"] = p.TriggerSource
-	if p.Cadence != "" {
-		extra["cadence"] = p.Cadence
+	extra["trigger_source"] = triggerSource
+	extra["trigger_kind"] = triggerSource
+	if cadence != "" {
+		extra["cadence"] = cadence
 	}
 	props := withCoreProperties(extra, CoreProperties{
-		UserID:         nonAgentUserID(p.ActorID),
-		WorkspaceID:    p.WorkspaceID,
-		AgentID:        p.Assignee.AgentID,
-		AutopilotRunID: p.RunID,
+		UserID:         nonAgentUserID(actorID),
+		WorkspaceID:    workspaceID,
+		AgentID:        assignee.AgentID,
+		AutopilotRunID: runID,
 		Source:         SourceAutopilot,
 	})
-	props["autopilot_id"] = p.AutopilotID
-	if p.Assignee.AssigneeType != "" {
-		props["assignee_type"] = p.Assignee.AssigneeType
+	props["autopilot_id"] = autopilotID
+	if assignee.AssigneeType != "" {
+		props["assignee_type"] = assignee.AssigneeType
 	}
-	if p.Assignee.SquadID != "" {
-		props["squad_id"] = p.Assignee.SquadID
+	if assignee.SquadID != "" {
+		props["squad_id"] = assignee.SquadID
 	}
 	return Event{
-		Name:        p.Name,
-		DistinctID:  p.ActorID,
-		WorkspaceID: p.WorkspaceID,
+		Name:        name,
+		DistinctID:  actorID,
+		WorkspaceID: workspaceID,
 		Properties:  props,
 	}
 }

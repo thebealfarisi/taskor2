@@ -9,8 +9,9 @@ import {
   useRef,
 } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { ApiError, errorCode } from "@multica/core/api";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
 import {
@@ -23,7 +24,8 @@ import { isImeComposing } from "@multica/core/utils";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import {
   inboxListOptions,
-  archivedInboxListOptions,
+  archivedInboxPagesOptions,
+  archivedInboxLookupOptions,
   deduplicateInboxItems,
   deduplicateArchivedInboxItems,
   useInboxUnreadCount,
@@ -37,9 +39,18 @@ import {
   useArchiveAllInbox,
   useArchiveAllReadInbox,
   useArchiveCompletedInbox,
+  useRetrySourceContextQuickCreate,
 } from "@multica/core/inbox/mutations";
+import {
+  filterInboxItems,
+  inboxFiltersForPrioritySupport,
+  inboxFilterCount,
+  inboxPriorityFilterSupport,
+  useInboxFilters,
+  useInboxFilterStore,
+} from "@multica/core/inbox/filter-store";
 
-import { IssueDetail, issueHighlightMementoKey } from "../../issues/components";
+import { IssueDetail, issueHighlightMementoKey } from "../../issues/components/issue-detail";
 import { useViewStateWriter } from "../../platform";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import { useNavigation, useReportNavigating } from "../../navigation";
@@ -76,58 +87,30 @@ import { cn } from "@multica/ui/lib/utils";
 import { PAGE_GUTTER, PageHeader } from "../../layout/page-header";
 import { useTimeAgo } from "./inbox-list-item";
 import { InboxList } from "./inbox-list";
+import { InboxFilterMenu } from "./inbox-filter-menu";
 import { InboxContextMenuProvider } from "./inbox-context-menu";
 import { ARCHIVED_VIEW_PARAM, type InboxView } from "./inbox-view";
 import { useTypeLabels } from "./inbox-detail-label";
 import {
   getInboxDisplayTitle,
+  isAutopilotQuotaNotice,
   isQuickCreateOutcome,
   resolveDetailItem,
 } from "./inbox-display";
+import { AutopilotQuotaNotice } from "./autopilot-quota-notice";
 import { useT } from "../../i18n";
-import type { ReactNode } from "react";
+import { useIssueLimitUpgradePrompt } from "../../modals/use-issue-limit-upgrade-prompt";
 
-// Fixed placeholder set for the loading skeleton — not derived from a data
-// array, so a stable id per row (rather than its position) is the correct key.
-const SKELETON_ROW_IDS = ["row-1", "row-2", "row-3", "row-4", "row-5"];
-
-function InboxListSkeletonRows() {
-  return (
-    <>
-      {SKELETON_ROW_IDS.map((id) => (
-        <div key={id} className="flex items-center gap-3 px-2 py-2.5">
-          <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
-          <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-3/4" />
-            <Skeleton className="h-3 w-1/2" />
-          </div>
-        </div>
-      ))}
-    </>
-  );
-}
-
-// Extracted so the ErrorBoundary fallback is a stable component identity
-// instead of being redefined on every InboxPage render.
-function InboxDetailErrorFallback({
-  compactBackBar,
-  error,
-}: {
-  compactBackBar: ReactNode;
-  error: Error;
-}) {
-  return (
-    <div className="flex flex-1 min-h-0 flex-col">
-      {compactBackBar}
-      <div className="flex flex-1 min-h-0 items-center justify-center px-4 text-center text-body text-muted-foreground">
-        {error.message}
-      </div>
-    </div>
-  );
-}
+const INBOX_LIST_DEFAULT_SIZE = 260;
+const INBOX_LIST_MIN_SIZE = 240;
+const INBOX_LIST_MAX_SIZE = 400;
 
 export function InboxPage() {
   const { t } = useT("inbox");
+  const showIssueLimitUpgradePrompt = useIssueLimitUpgradePrompt();
+  const showAutopilotQuotaRecoveryPrompt = useIssueLimitUpgradePrompt(
+    "autopilot_quota",
+  );
   const { searchParams, replace } = useNavigation();
   const urlIssue = searchParams.get("issue") ?? "";
   const urlView: InboxView =
@@ -146,27 +129,44 @@ export function InboxPage() {
   }, [urlView]);
 
   const wsId = useWorkspaceId();
-  const { data: rawItems = [], isLoading: loading } = useQuery(inboxListOptions(wsId));
-  const items = useMemo(() => deduplicateInboxItems(rawItems), [rawItems]);
-
-  // Fetched in both views, not just the archived one: the main list's entry
-  // into the archive is labelled with this count, so it has to be known before
-  // the user goes there.
-  const {
-    data: rawArchivedItems = [],
-    isLoading: archivedLoading,
-    isError: archivedError,
-  } = useQuery(archivedInboxListOptions(wsId));
-  const archivedItems = useMemo(
-    () => deduplicateArchivedInboxItems(rawArchivedItems),
-    [rawArchivedItems],
-  );
-
   const isArchivedView = view === "archived";
-  const visibleItems = isArchivedView ? archivedItems : items;
-
-  const selected =
-    visibleItems.find((i) => (i.issue_id ?? i.id) === selectedKey) ?? null;
+  const filters = useInboxFilters(wsId);
+  const clearFilters = useInboxFilterStore((state) => state.clearFilters);
+  const { data: rawItems = [], isLoading: loading } = useQuery({
+    ...inboxListOptions(wsId), enabled: !isArchivedView,
+  });
+  const items = useMemo(() => deduplicateInboxItems(rawItems), [rawItems]);
+  const archiveQuery = useInfiniteQuery({
+    ...archivedInboxPagesOptions(wsId, filters), enabled: isArchivedView,
+  });
+  const fetchNextArchivedPage = archiveQuery.fetchNextPage;
+  const loadNextArchivedPage = useCallback(() => { void fetchNextArchivedPage(); }, [fetchNextArchivedPage]);
+  const archivedLoading = archiveQuery.isLoading;
+  const archivedError = archiveQuery.isError && !archiveQuery.data;
+  const archivedItems = useMemo(() => deduplicateArchivedInboxItems(
+    archiveQuery.data?.pages.flatMap((page) => page.items) ?? [],
+  ), [archiveQuery.data]);
+  const viewItems = isArchivedView ? archivedItems : items;
+  // The paginated endpoint guarantees the projection, including on empty pages.
+  const priorityFilterSupport = isArchivedView ? "supported" : inboxPriorityFilterSupport(rawItems);
+  const effectiveFilters = useMemo(() => inboxFiltersForPrioritySupport(filters, priorityFilterSupport), [filters, priorityFilterSupport]);
+  const visibleItems = useMemo(() => filterInboxItems(viewItems, effectiveFilters), [viewItems, effectiveFilters]);
+  const hasActiveFilters = inboxFilterCount(effectiveFilters) > 0;
+  const selectedOnPage = viewItems.find((i) => (i.issue_id ?? i.id) === selectedKey);
+  // A deep link can point beyond every loaded page. Resolve its group directly
+  // without adding it to the cursor chain or mistaking a page miss for a 404.
+  const lookup = useQuery({
+    ...archivedInboxLookupOptions(wsId, selectedKey),
+    enabled: isArchivedView && !!selectedKey && !selectedOnPage && !archivedLoading && !archivedError,
+  });
+  const lookupItems = useMemo(() => deduplicateArchivedInboxItems(lookup.data?.items ?? []), [lookup.data]);
+  const selectionItems = useMemo(() => {
+    if (!isArchivedView || selectedOnPage) return visibleItems;
+    return [...visibleItems, ...filterInboxItems(lookupItems, effectiveFilters)];
+  }, [isArchivedView, selectedOnPage, visibleItems, lookupItems, effectiveFilters]);
+  const selected = selectionItems.find((i) => (i.issue_id ?? i.id) === selectedKey) ?? null;
+  const selectedInView = selectedOnPage ?? (isArchivedView ? lookupItems.find((i) => (i.issue_id ?? i.id) === selectedKey) : null);
+  const selectionFilteredOut = !!selectedKey && !!selectedInView && !selected;
 
   // What the DETAIL pane shows, one React transition behind the click.
   //
@@ -179,7 +179,7 @@ export function InboxPage() {
   // painting — and the previous issue stays on screen until it is ready.
   const detailKey = useDeferredValue(selectedKey);
   const detailSwapping = detailKey !== selectedKey;
-  const detailItem = resolveDetailItem(visibleItems, selectedKey, detailKey);
+  const detailItem = resolveDetailItem(selectionItems, selectedKey, detailKey);
 
   // The gap above is invisible to the navigation adapter — the inbox stays on
   // the same route and only rewrites `?issue=` — so report it explicitly and
@@ -228,10 +228,19 @@ export function InboxPage() {
   // an inline arrow here would rebuild (and remount) the entry every render.
   const openArchived = useCallback(() => setView("archived"), [setView]);
 
-  // Whether the list currently on screen has finished its first load. The
-  // fallback and drain effects below both key on this, and getting it wrong in
-  // the archived view means acting on an empty list that simply hasn't arrived.
+  // Applying a filter can remove the open row from the list. Clear that local
+  // selection instead of treating it as a broken deep link and redirecting to
+  // the issue page; the notification still exists, it is simply filtered out.
+  useEffect(() => {
+    if (selectionFilteredOut) setSelectedKey("");
+  }, [selectionFilteredOut, setSelectedKey]);
+
+  // A targeted lookup must not hide pages that have already loaded. Its
+  // pending/error states only block resolution of the off-page selection.
   const viewLoading = isArchivedView ? archivedLoading : loading;
+  const needsLookup = isArchivedView && !!selectedKey && !selectedOnPage;
+  const lookupLoading = needsLookup && lookup.isLoading;
+  const lookupError = needsLookup && lookup.isError && !selected;
 
   // Shared inbox links (?issue=<id>) may point to notifications not in this
   // user's inbox (archived, or never received). Fall back to the issue page
@@ -240,40 +249,27 @@ export function InboxPage() {
   // and `onInboxIssueDeleted` pruned the cache), the issue detail would 404
   // too — clear the selection and stay on /inbox instead.
   useEffect(() => {
-    if (viewLoading) return;
+    if (viewLoading || lookupLoading || lookupError || (isArchivedView && archivedError)) return;
     if (!selectedKey) return;
     if (selected) return;
+    if (selectionFilteredOut) return;
     if (lastResolvedKeyRef.current === selectedKey) {
       setSelectedKey("");
       return;
     }
     replace(wsPaths.issueDetail(selectedKey));
-  }, [viewLoading, selectedKey, selected, replace, wsPaths, setSelectedKey]);
-
-  // Never strand the user on an empty archive: when the last archived issue is
-  // restored (or a new notification revives it into the main inbox), fall back
-  // to the main list. Same fallback chat's archived view has. Gated on the load
-  // so a cold `?view=archived` open doesn't bounce before the data lands.
-  useEffect(() => {
-    if (!isArchivedView) return;
-    if (archivedLoading) return;
-    // A failed fetch is also "no items" — bouncing here would swap the error
-    // message for the main list and leave the user with no idea it failed.
-    if (archivedError) return;
-    // Let the fallback effect above settle an unresolved selection first. On a
-    // deep link like `?view=archived&issue=X` into an empty archive both would
-    // otherwise fire in the same commit, and this one's replace() would land
-    // last and swallow the redirect to X.
-    if (selectedKey) return;
-    if (archivedItems.length > 0) return;
-    setView("inbox");
   }, [
+    viewLoading,
     isArchivedView,
-    archivedLoading,
     archivedError,
-    archivedItems.length,
+    lookupLoading,
+    lookupError,
     selectedKey,
-    setView,
+    selected,
+    selectionFilteredOut,
+    replace,
+    wsPaths,
+    setSelectedKey,
   ]);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -291,6 +287,7 @@ export function InboxPage() {
   const archiveAllMutation = useArchiveAllInbox();
   const archiveAllReadMutation = useArchiveAllReadInbox();
   const archiveCompletedMutation = useArchiveCompletedInbox();
+  const retrySourceContextMutation = useRetrySourceContextQuickCreate();
   const timeAgo = useTimeAgo();
   const typeLabels = useTypeLabels();
 
@@ -399,7 +396,7 @@ export function InboxPage() {
 
   // Toasts live in these shared handlers so every archive surface confirms alike.
   const handleArchive = (id: string) => {
-    advanceSelectionPast(id, items);
+    advanceSelectionPast(id, selectionItems);
     archiveMutation.mutate(id, {
       onSuccess: () => toast.success(t(($) => $.toasts.archived)),
       onError: (err) =>
@@ -412,7 +409,7 @@ export function InboxPage() {
   };
 
   const handleUnarchive = (id: string) => {
-    advanceSelectionPast(id, archivedItems);
+    advanceSelectionPast(id, selectionItems);
     unarchiveMutation.mutate(id, {
       onSuccess: () => toast.success(t(($) => $.toasts.unarchived)),
       onError: (err) =>
@@ -513,6 +510,12 @@ export function InboxPage() {
           />
         )}
       </div>
+      <InboxFilterMenu
+        wsId={wsId}
+        items={viewItems}
+        priorityFilterSupport={priorityFilterSupport}
+        archived={isArchivedView}
+      />
       {/* Batch actions are main-view only. Every entry archives from the MAIN
           inbox, so offering them while the archived list is on screen reads as
           "archive all of these" and does the opposite of what it looks like. */}
@@ -564,17 +567,17 @@ export function InboxPage() {
     >
       <ChevronLeft className="size-4 shrink-0" />
       <span className="truncate">{t(($) => $.list.archived_title)}</span>
-      <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
-        {archivedItems.length}
-      </span>
     </button>
   );
 
-  const list = archivedError && isArchivedView ? (
+  const list = isArchivedView && archivedError ? (
     <div className="flex-1 min-h-0 overflow-y-auto">
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
         <Archive className="mb-3 h-8 w-8 text-faint-foreground" />
         <p className="text-body">{t(($) => $.errors.archived_load_failed)}</p>
+        <Button variant="outline" size="sm" className="mt-3" onClick={() => void archiveQuery.refetch()}>
+          {t(($) => $.list.retry)}
+        </Button>
       </div>
     </div>
   ) : (
@@ -590,10 +593,28 @@ export function InboxPage() {
         items={visibleItems}
         view={view}
         selectedKey={selectedKey}
-        archivedCount={archivedItems.length}
+        onLoadMore={isArchivedView && archiveQuery.hasNextPage ? loadNextArchivedPage : undefined}
+        loadingMore={archiveQuery.isFetchingNextPage}
+        loadMoreError={archiveQuery.isFetchNextPageError}
         onSelect={handleSelect}
         onAction={isArchivedView ? handleUnarchive : handleArchive}
         onOpenArchived={openArchived}
+        emptyLabel={
+          hasActiveFilters && visibleItems.length === 0
+            ? t(($) => $.filters.empty)
+            : undefined
+        }
+        emptyAction={
+          hasActiveFilters && visibleItems.length === 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => clearFilters(wsId)}
+            >
+              {t(($) => $.filters.clear)}
+            </Button>
+          ) : undefined
+        }
       />
     </InboxContextMenuProvider>
   );
@@ -602,6 +623,21 @@ export function InboxPage() {
     <>
       {listHeader}
       {isArchivedView && archivedBackRow}
+      {lookupLoading && (
+        <p role="status" className="shrink-0 border-b px-3 py-2 text-caption text-muted-foreground">
+          {t(($) => $.list.loading_selection)}
+        </p>
+      )}
+      {lookupError && (
+        <div role="alert" className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+          <p className="flex-1 text-caption text-muted-foreground">
+            {t(($) => $.errors.archived_lookup_failed)}
+          </p>
+          <Button variant="outline" size="sm" disabled={lookup.isFetching} onClick={() => void lookup.refetch()}>
+            {t(($) => $.list.retry)}
+          </Button>
+        </div>
+      )}
       {list}
     </>
   );
@@ -633,115 +669,153 @@ export function InboxPage() {
     </div>
   ) : null;
 
-  let detailContent: ReactNode = null;
-  if (detailItem?.issue_id) {
+  const detailContent = detailItem?.issue_id ? (
     // Key by issue_id (not inbox-item id): a new comment/reaction generates a
     // new inbox notification for the same issue, and the dedup helper picks the
     // newest one — keying on its id would remount IssueDetail on every event,
     // wiping the comment composer draft and resetting scroll position.
-    detailContent = (
-      <ErrorBoundary
-        resetKeys={[detailItem.issue_id]}
-        // The default fallback is a bare message card. On a phone it would be the
-        // only thing on screen, so it has to carry the way back too — the bar is
-        // the point here, the message is whatever the boundary caught.
-        fallback={
-          compactBackAction
-            ? ({ error }) => (
-                <InboxDetailErrorFallback compactBackBar={compactBackBar} error={error} />
-              )
-            : undefined
-        }
-      >
-        <IssueDetail
-          key={detailItem.issue_id}
-          issueId={detailItem.issue_id}
-          defaultSidebarOpen={false}
-          layoutId="multica_inbox_issue_detail_layout"
-          highlightCommentId={detailItem.details?.comment_id ?? undefined}
-          highlightRequestToken={highlightRequestToken}
-          leadingAction={compactBackAction}
-          onDelete={() => {
-            // Issue deletion CASCADE-deletes the inbox item server-side, and the
-            // issue:deleted WS event prunes it from the inbox cache. Just clear
-            // the selection — calling archive here would 404 on a row that no
-            // longer exists.
-            setSelectedKey("");
-          }}
-          onDone={() => {
-            handleArchive(detailItem.id);
-          }}
+    <ErrorBoundary
+      resetKeys={[detailItem.issue_id]}
+      // The default fallback is a bare message card. On a phone it would be the
+      // only thing on screen, so it has to carry the way back too — the bar is
+      // the point here, the message is whatever the boundary caught.
+      fallback={compactBackAction ? ({ error }) => (
+        <div className="flex flex-1 min-h-0 flex-col">
+          {compactBackBar}
+          <div className="flex flex-1 min-h-0 items-center justify-center px-4 text-center text-body text-muted-foreground">
+            {error.message}
+          </div>
+        </div>
+      ) : undefined}
+    >
+      <IssueDetail
+        key={detailItem.issue_id}
+        issueId={detailItem.issue_id}
+        defaultSidebarOpen={false}
+        layoutId="multica_inbox_issue_detail_layout"
+        highlightCommentId={detailItem.details?.comment_id ?? undefined}
+        highlightRequestToken={highlightRequestToken}
+        // The split layout already has a nav trigger in the list header.
+        // Explicit false suppresses the detail header's fallback trigger.
+        leadingAction={compactBackAction ?? false}
+        onDelete={() => {
+          // Issue deletion CASCADE-deletes the inbox item server-side, and the
+          // issue:deleted WS event prunes it from the inbox cache. Just clear
+          // the selection — calling archive here would 404 on a row that no
+          // longer exists.
+          setSelectedKey("");
+        }}
+        onDone={() => {
+          handleArchive(detailItem.id);
+        }}
+      />
+    </ErrorBoundary>
+  ) : detailItem ? (
+    <div className="p-6">
+      <h2 className="text-title font-semibold">
+        {isAutopilotQuotaNotice(detailItem.type)
+          ? typeLabels[detailItem.type]
+          : getInboxDisplayTitle(detailItem)}
+      </h2>
+      <p className="mt-1 text-body text-muted-foreground">
+        {typeLabels[detailItem.type]} · {timeAgo(detailItem.created_at)}
+      </p>
+      {isAutopilotQuotaNotice(detailItem.type) ? (
+        <AutopilotQuotaNotice
+          item={detailItem}
+          onOpenRecovery={showAutopilotQuotaRecoveryPrompt}
         />
-      </ErrorBoundary>
-    );
-  } else if (detailItem) {
-    detailContent = (
-      <div className="p-6">
-        <h2 className="text-title font-semibold">{getInboxDisplayTitle(detailItem)}</h2>
-        <p className="mt-1 text-body text-muted-foreground">
-          {typeLabels[detailItem.type]} · {timeAgo(detailItem.created_at)}
-        </p>
-        {detailItem.body && (
-          <div className="mt-4 whitespace-pre-wrap text-body leading-relaxed text-foreground">
-            {detailItem.body}
-          </div>
-        )}
-        {isQuickCreateOutcome(detailItem.type) && detailItem.details?.original_prompt && (
-          <div className="mt-4 rounded-md border bg-muted/40 p-3">
-            <p className="text-caption font-medium text-muted-foreground">
-              {t(($) => $.detail.original_input)}
-            </p>
-            <p className="mt-1 whitespace-pre-wrap text-body">{detailItem.details.original_prompt}</p>
-          </div>
-        )}
-        <div className="mt-4 flex gap-2">
-          {isQuickCreateOutcome(detailItem.type) && (
+      ) : detailItem.body ? (
+        <div className="mt-4 whitespace-pre-wrap text-body leading-relaxed text-foreground">
+          {detailItem.body}
+        </div>
+      ) : null}
+      {isQuickCreateOutcome(detailItem.type) && detailItem.details?.original_prompt && (
+        <div className="mt-4 rounded-md border bg-muted/40 p-3">
+          <p className="text-caption font-medium text-muted-foreground">
+            {t(($) => $.detail.original_input)}
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-body">{detailItem.details.original_prompt}</p>
+        </div>
+      )}
+      <div className="mt-4 flex gap-2">
+        {detailItem.type === "quick_create_failed" &&
+          detailItem.details?.source_context_id &&
+          detailItem.details?.task_id && (
             <Button
               size="sm"
-              onClick={() => {
-                // Seed the legacy advanced form with the original prompt so the
-                // user can recover their input in the full editor instead of
-                // retyping. The agent picker hint becomes the assignee
-                // candidate (still editable).
-                const prompt = detailItem.details?.original_prompt ?? "";
-                const agentId = detailItem.details?.agent_id;
-                useIssueDraftStore.getState().setManual({
-                  description: prompt,
-                  ...(agentId
-                    ? { assigneeType: "agent" as const, assigneeId: agentId }
-                    : {}),
-                });
-                useModalStore.getState().open("create-issue");
+              data-testid="retry-source-context"
+              disabled={retrySourceContextMutation.isPending}
+              onClick={async () => {
+                try {
+                  await retrySourceContextMutation.mutateAsync(detailItem.details!.task_id!);
+                  toast.success(t(($) => $.toasts.source_context_retry_started));
+                } catch (error) {
+                  if (
+                    error instanceof ApiError &&
+                    errorCode(error) === "issue_limit_reached"
+                  ) {
+                    showIssueLimitUpgradePrompt();
+                    return;
+                  }
+                  toast.error(
+                    error instanceof ApiError &&
+                      errorCode(error) === "source_context_retry_unavailable"
+                      ? t(($) => $.errors.source_context_retry_unavailable)
+                      : t(($) => $.errors.source_context_retry_failed),
+                  );
+                }
               }}
             >
-              {t(($) => $.detail.edit_advanced)}
+              {t(($) => $.detail.retry_with_context)}
             </Button>
           )}
-          {/* Mirrors the row action: the button always reverses the view the
-              item is being read in. */}
-          {isArchivedView ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleUnarchive(detailItem.id)}
-            >
-              <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
-              {t(($) => $.detail.unarchive)}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleArchive(detailItem.id)}
-            >
-              <Archive className="mr-1.5 h-3.5 w-3.5" />
-              {t(($) => $.detail.archive)}
-            </Button>
-          )}
-        </div>
+        {isQuickCreateOutcome(detailItem.type) && (
+          <Button
+            size="sm"
+            onClick={() => {
+              // Seed the legacy advanced form with the original prompt so the
+              // user can recover their input in the full editor instead of
+              // retyping. The agent picker hint becomes the assignee
+              // candidate (still editable).
+              const prompt = detailItem.details?.original_prompt ?? "";
+              const agentId = detailItem.details?.agent_id;
+              useIssueDraftStore.getState().setManual({
+                description: prompt,
+                ...(agentId
+                  ? { assigneeType: "agent" as const, assigneeId: agentId }
+                  : {}),
+              });
+              useModalStore.getState().open("create-issue");
+            }}
+          >
+            {t(($) => $.detail.edit_advanced)}
+          </Button>
+        )}
+        {/* Mirrors the row action: the button always reverses the view the
+            item is being read in. */}
+        {isArchivedView ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleUnarchive(detailItem.id)}
+          >
+            <ArchiveRestore className="mr-1.5 h-3.5 w-3.5" />
+            {t(($) => $.detail.unarchive)}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleArchive(detailItem.id)}
+          >
+            <Archive className="mr-1.5 h-3.5 w-3.5" />
+            {t(($) => $.detail.archive)}
+          </Button>
+        )}
       </div>
-    );
-  }
+    </div>
+  ) : null;
 
   // -- Compact layout: list / detail toggle -----------------------------------
 
@@ -753,7 +827,15 @@ export function InboxPage() {
             <Skeleton className="h-5 w-16" />
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto space-y-1 p-2">
-            <InboxListSkeletonRows />
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-2 py-2.5">
+                <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       );
@@ -795,13 +877,27 @@ export function InboxPage() {
   if (viewLoading) {
     return (
       <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
-        <ResizablePanel id="list" defaultSize={320} minSize={240} maxSize={480} groupResizeBehavior="preserve-pixel-size">
+        <ResizablePanel
+          id="list"
+          defaultSize={INBOX_LIST_DEFAULT_SIZE}
+          minSize={INBOX_LIST_MIN_SIZE}
+          maxSize={INBOX_LIST_MAX_SIZE}
+          groupResizeBehavior="preserve-pixel-size"
+        >
           <div className="flex flex-col border-r h-full">
             <div className={cn("flex h-12 shrink-0 items-center border-b", PAGE_GUTTER)}>
               <Skeleton className="h-5 w-16" />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-1 p-2">
-              <InboxListSkeletonRows />
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-2 py-2.5">
+                  <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </ResizablePanel>
@@ -818,7 +914,13 @@ export function InboxPage() {
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
-      <ResizablePanel id="list" defaultSize={320} minSize={240} maxSize={480} groupResizeBehavior="preserve-pixel-size">
+      <ResizablePanel
+        id="list"
+        defaultSize={INBOX_LIST_DEFAULT_SIZE}
+        minSize={INBOX_LIST_MIN_SIZE}
+        maxSize={INBOX_LIST_MAX_SIZE}
+        groupResizeBehavior="preserve-pixel-size"
+      >
       <div className="flex flex-col border-r h-full">
         {listPanel}
       </div>

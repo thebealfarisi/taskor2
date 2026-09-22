@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Trash2, Copy, Check, Info } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import type { PersonalAccessToken } from "@multica/core/types";
@@ -37,13 +37,14 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { copyText } from "@multica/ui/lib/clipboard";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 import { SettingsSection, SettingsTab } from "./settings-layout";
 
 const EXPIRY_KEYS = ["30", "90", "365", "never"] as const;
 
 export function TokensTab() {
   const { t } = useT("settings");
+  const locale = useLocale();
   const expiryItems = EXPIRY_KEYS.map((value) => ({
     value,
     label: t(($) => $.tokens.expiry[value]),
@@ -128,90 +129,17 @@ export function TokensTab() {
     setStoredConfirmed(false);
   };
 
-  let tokensBody: ReactNode;
-  if (tokensLoading) {
-    tokensBody = (
-      <div className="space-y-2">
-        {["token-skeleton-1", "token-skeleton-2"].map((key) => (
-          <Card key={key}>
-            <CardContent className="flex items-center gap-3">
-              <div className="flex-1 space-y-1.5">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-48" />
-              </div>
-              <Skeleton className="h-8 w-8 rounded" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  } else if (tokens.length === 0) {
-    tokensBody = (
-      <Card>
-        <CardContent>
-          <p className="text-caption text-muted-foreground">
-            {tokensLoadFailed ? t(($) => $.tokens.load_failed) : t(($) => $.tokens.empty)}
-          </p>
-        </CardContent>
-      </Card>
-    );
-  } else {
-    tokensBody = (
-      <div className="space-y-2">
-        {tokens.map((token) => (
-          <Card key={token.id}>
-            <CardContent className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="text-body font-medium truncate">{token.name}</div>
-                <div className="text-caption text-muted-foreground">
-                  {t(($) => $.tokens.metadata_prefix, {
-                    prefix: token.token_prefix,
-                    created: new Date(token.created_at).toLocaleDateString(),
-                    lastUsed: token.last_used_at
-                      ? t(($) => $.tokens.last_used_with_date, {
-                          date: new Date(token.last_used_at!).toLocaleDateString(),
-                        })
-                      : t(($) => $.tokens.last_used_never),
-                  })}
-                  {token.expires_at && t(($) => $.tokens.expires_with_date, {
-                    date: new Date(token.expires_at!).toLocaleDateString(),
-                  })}
-                </div>
-              </div>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => setRevokeConfirmId(token.id)}
-                      disabled={tokenRevoking === token.id}
-                      aria-label={t(($) => $.tokens.revoke_aria, { name: token.name })}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  }
-                />
-                <TooltipContent>{t(($) => $.tokens.revoke_tooltip)}</TooltipContent>
-              </Tooltip>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  }
-
   return (
-    <SettingsTab title={t(($) => $.tokens.title)}>
+    <SettingsTab title={t(($) => $.tokens.title)} description={t(($) => $.tokens.purpose)}>
       <SettingsSection
-        description={
-          <>
-            {t(($) => $.tokens.description)}
-            <br />
-            {t(($) => $.tokens.security_note)}
-          </>
-        }
+        description={t(($) => $.tokens.security_note)}
       >
+        <details className="text-caption text-muted-foreground">
+          <summary className="cursor-pointer rounded-sm py-2 focus-visible:outline-2 focus-visible:outline-ring">
+            {t(($) => $.tokens.usage_help)}
+          </summary>
+          <p className="mt-1">{t(($) => $.tokens.description)}</p>
+        </details>
         <Card>
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-[1fr_120px_auto]">
@@ -246,7 +174,71 @@ export function TokensTab() {
           </CardContent>
         </Card>
 
-        {tokensBody}
+        {tokensLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <Card key={i}>
+                <CardContent className="flex items-center gap-3">
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-3 w-48" />
+                  </div>
+                  <Skeleton className="h-8 w-8 rounded-xs" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : tokens.length === 0 ? (
+          <Card>
+            <CardContent>
+              <p className="text-caption text-muted-foreground">
+                {tokensLoadFailed ? t(($) => $.tokens.load_failed) : t(($) => $.tokens.empty)}
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {tokens.map((token) => (
+              <Card key={token.id}>
+                <CardContent className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-body font-medium truncate">{token.name}</div>
+                    <div className="text-caption text-muted-foreground">
+                      {t(($) => $.tokens.metadata_prefix, {
+                        prefix: token.token_prefix,
+                        created: new Date(token.created_at).toLocaleDateString(locale),
+                        lastUsed: token.last_used_at
+                          ? t(($) => $.tokens.last_used_with_date, {
+                              date: new Date(token.last_used_at!).toLocaleDateString(locale),
+                            })
+                          : t(($) => $.tokens.last_used_never),
+                      })}
+                      {token.expires_at && t(($) => $.tokens.expires_with_date, {
+                        date: new Date(token.expires_at!).toLocaleDateString(locale),
+                      })}
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => setRevokeConfirmId(token.id)}
+                          disabled={tokenRevoking === token.id}
+                          aria-label={t(($) => $.tokens.revoke_aria, { name: token.name })}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>{t(($) => $.tokens.revoke_tooltip)}</TooltipContent>
+                  </Tooltip>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </SettingsSection>
 
       <AlertDialog open={!!revokeConfirmId} onOpenChange={(v) => { if (!v) setRevokeConfirmId(null); }}>

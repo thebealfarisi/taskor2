@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
+import { sortDirectionLabelKey } from "../utils/sort-direction";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
@@ -45,9 +46,9 @@ import {
   viewStorePersistOptions,
   mergeViewStatePersisted,
   GROUPING_OPTIONS,
-  SORT_OPTIONS,
   SWIMLANE_GROUPINGS,
-  CARD_PROPERTY_OPTIONS,
+  cardPropertyOptionsForView,
+  sortOptionsForView,
   type IssueGrouping,
   type IssueViewState,
   type SortField,
@@ -108,6 +109,7 @@ const LAYOUT_LABEL_KEY = {
 const GROUPING_LABEL_KEY = {
   status: "group_status",
   assignee: "group_assignee",
+  project: "group_project",
 } as const;
 
 const SWIMLANE_LABEL_KEY = {
@@ -158,6 +160,8 @@ export function DraftDefinitionFields() {
   const cardProperties = useViewStore((s) => s.cardProperties);
   const cardPropertyIds = useViewStore((s) => s.cardPropertyIds);
   const act = useViewStoreApi().getState();
+  const availableSortOptions = sortOptionsForView(viewMode, grouping);
+  const availableCardPropertyOptions = cardPropertyOptionsForView(viewMode);
 
   const { data: workspaceProperties = [] } = useQuery(propertyListOptions(wsId));
   const groupableProperties = useMemo(
@@ -173,30 +177,22 @@ export function DraftDefinitionFields() {
     t(($) => $.save_view.custom_property);
 
   const layoutLabel = t(($) => $.view[LAYOUT_LABEL_KEY[viewMode]]);
-  let groupingLabel: string | null;
-  if (viewMode === "board") {
-    if (grouping in GROUPING_LABEL_KEY) {
-      groupingLabel = t(($) => $.display[GROUPING_LABEL_KEY[grouping as keyof typeof GROUPING_LABEL_KEY]]);
-    } else {
-      groupingLabel = propertyName(grouping);
-    }
-  } else if (viewMode === "swimlane") {
-    groupingLabel = t(($) => $.display[SWIMLANE_LABEL_KEY[swimlaneGrouping]]);
-  } else {
-    groupingLabel = null;
-  }
+  const groupingLabel =
+    viewMode === "board"
+      ? grouping in GROUPING_LABEL_KEY
+        ? t(($) => $.display[GROUPING_LABEL_KEY[grouping as keyof typeof GROUPING_LABEL_KEY]])
+        : propertyName(grouping)
+      : viewMode === "swimlane"
+        ? t(($) => $.display[SWIMLANE_LABEL_KEY[swimlaneGrouping]])
+        : null;
   const sortLabel =
     sortBy in SORT_LABEL_KEY
       ? t(($) => $.display[SORT_LABEL_KEY[sortBy as keyof typeof SORT_LABEL_KEY]])
       : propertyName(sortBy);
-  let sortDirectionLabel: string | null;
-  if (sortBy === "position") {
-    sortDirectionLabel = null;
-  } else if (sortDirection === "asc") {
-    sortDirectionLabel = t(($) => $.display.ascending_title);
-  } else {
-    sortDirectionLabel = t(($) => $.display.descending_title);
-  }
+  const sortDirectionLabel =
+    sortBy === "position"
+      ? null
+      : t(($) => $.display[sortDirectionLabelKey(sortBy, sortDirection)]);
   const displaySummary = [
     layoutLabel,
     groupingLabel,
@@ -356,7 +352,7 @@ export function DraftDefinitionFields() {
               <div className="flex items-center gap-1.5">
                 <Select
                   items={[
-                    ...SORT_OPTIONS.map((opt) => ({
+                    ...availableSortOptions.map((opt) => ({
                       value: opt.value as string,
                       label: t(($) => $.display[SORT_LABEL_KEY[opt.value as keyof typeof SORT_LABEL_KEY]]),
                     })),
@@ -375,7 +371,7 @@ export function DraftDefinitionFields() {
                   </SelectTrigger>
                   <SelectContent align="start">
                     <SelectGroup>
-                      {SORT_OPTIONS.map((opt) => (
+                      {availableSortOptions.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
                           {t(($) => $.display[SORT_LABEL_KEY[opt.value as keyof typeof SORT_LABEL_KEY]])}
                         </SelectItem>
@@ -392,7 +388,7 @@ export function DraftDefinitionFields() {
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon-sm"
+                    size="sm"
                     onClick={() =>
                       act.setSortDirection(
                         sortDirection === "asc" ? "desc" : "asc",
@@ -401,22 +397,18 @@ export function DraftDefinitionFields() {
                     aria-label={sortDirectionLabel ?? undefined}
                     title={sortDirectionLabel ?? undefined}
                   >
-                    {sortDirection === "asc" ? (
-                      <ArrowUp className="size-3.5" />
-                    ) : (
-                      <ArrowDown className="size-3.5" />
-                    )}
+                    {sortDirectionLabel}
                   </Button>
                 )}
               </div>
             </div>
-            {viewMode !== "table" && (
+            {availableCardPropertyOptions.length > 0 && (
               <div className="flex items-start gap-3">
                 <Label className={`${ROW_LABEL} pt-1`}>
                   {t(($) => $.display.card_properties_section)}
                 </Label>
                 <div className="flex min-w-0 flex-1 flex-wrap gap-1">
-                  {CARD_PROPERTY_OPTIONS.map((opt) => (
+                  {availableCardPropertyOptions.map((opt) => (
                     <Toggle
                       key={opt.key}
                       size="sm"
@@ -519,15 +511,13 @@ export function SaveViewDialog({
     setVisibility(editView?.visibility === "workspace" ? "workspace" : "private");
     if (scope.kind === "workspace" || scope.kind === "project") {
       const fromEdit = editView?.scope_variant;
-      let nextVariant: ScopeVariantValue;
-      if (fromEdit === "members" || fromEdit === "agents") {
-        nextVariant = fromEdit;
-      } else if (editView) {
-        nextVariant = "all";
-      } else {
-        nextVariant = scope.actorKind ?? "all";
-      }
-      setVariant(nextVariant);
+      setVariant(
+        fromEdit === "members" || fromEdit === "agents"
+          ? fromEdit
+          : editView
+            ? "all"
+            : (scope.actorKind ?? "all"),
+      );
     } else if (scope.kind === "my") {
       const fromEdit = editView?.scope_variant;
       setVariant(
@@ -547,27 +537,26 @@ export function SaveViewDialog({
       ? projects.find((p) => p.id === scope.projectId)?.title ?? ""
       : "";
 
-  let scopeHint: string;
-  if (scope.kind === "workspace") {
-    if (variant === "members") {
-      scopeHint = t(($) => $.save_view.hint_workspace_members);
-    } else if (variant === "agents") {
-      scopeHint = t(($) => $.save_view.hint_workspace_agents);
-    } else {
-      scopeHint = t(($) => $.save_view.hint_workspace);
-    }
-  } else if (scope.kind === "my") {
-    const myVariant = (MY_VARIANTS as readonly string[]).includes(variant)
-      ? (variant as (typeof MY_VARIANTS)[number])
-      : scope.variant;
-    scopeHint = t(($) => $.save_view[MY_VARIANT_HINT_KEY[myVariant]]);
-  } else if (variant === "members") {
-    scopeHint = t(($) => $.save_view.hint_project_members, { title: projectTitle });
-  } else if (variant === "agents") {
-    scopeHint = t(($) => $.save_view.hint_project_agents, { title: projectTitle });
-  } else {
-    scopeHint = t(($) => $.save_view.hint_project, { title: projectTitle });
-  }
+  const scopeHint =
+    scope.kind === "workspace"
+      ? variant === "members"
+        ? t(($) => $.save_view.hint_workspace_members)
+        : variant === "agents"
+          ? t(($) => $.save_view.hint_workspace_agents)
+          : t(($) => $.save_view.hint_workspace)
+      : scope.kind === "my"
+        ? t(($) => $.save_view[
+            MY_VARIANT_HINT_KEY[
+              (MY_VARIANTS as readonly string[]).includes(variant)
+                ? (variant as (typeof MY_VARIANTS)[number])
+                : scope.variant
+            ]
+          ])
+        : variant === "members"
+          ? t(($) => $.save_view.hint_project_members, { title: projectTitle })
+          : variant === "agents"
+            ? t(($) => $.save_view.hint_project_agents, { title: projectTitle })
+            : t(($) => $.save_view.hint_project, { title: projectTitle });
 
   const create = () => {
     if (!draftStore) return;
@@ -599,6 +588,7 @@ export function SaveViewDialog({
         creatorFilters: state.creatorFilters,
         projectFilters: state.projectFilters,
         includeNoProject: state.includeNoProject,
+        projectStatusFilters: state.projectStatusFilters,
         labelFilters: state.labelFilters,
         propertyFilters: state.propertyFilters,
       },

@@ -158,8 +158,9 @@ function AgentAvailabilityLine({
 }
 
 // Compact runtime row — wifi-style health icon + runtime name. The icon
-// shape (Wifi / WifiOff) plus colour reflects the live runtime health
-// derived from runtime + clock; cloud runtimes always read as online.
+// shape (Wifi / WifiOff) plus colour reflects the live runtime health derived
+// from a visible runtime + clock, or the coarse projection when that row is
+// private; cloud runtimes always read as online.
 // This is duplicate signal with the availability dot above by design —
 // the dot is the agent's effective availability (which mostly tracks
 // runtime health), and seeing the same wifi icon next to the runtime
@@ -173,22 +174,20 @@ function RuntimeRow({
 }) {
   const { t } = useT("agents");
   const isCloud = agent.runtime_mode === "cloud";
-  let health: RuntimeHealth;
-  if (isCloud) {
-    health = "online";
-  } else if (runtime) {
-    health = deriveRuntimeHealth(runtime, Date.now());
-  } else {
-    health = "offline";
-  }
-  let label: string;
-  if (runtime) {
-    label = runtimeDisplayLabel(runtime);
-  } else if (isCloud) {
-    label = t(($) => $.row.fallback_runtime_cloud);
-  } else {
-    label = t(($) => $.profile_card.unknown_runtime);
-  }
+  const health: RuntimeHealth = isCloud
+    ? "online"
+    : runtime
+      ? deriveRuntimeHealth(runtime, Date.now())
+      : agent.runtime_availability === "online"
+        ? "online"
+        : agent.runtime_availability === "unstable"
+          ? "recently_lost"
+          : "offline";
+  const label = runtime
+    ? runtimeDisplayLabel(runtime)
+    : isCloud
+      ? t(($) => $.row.fallback_runtime_cloud)
+      : t(($) => $.profile_card.unknown_runtime);
   return (
     <div className="flex items-center gap-1.5">
       <span className="w-12 shrink-0 text-muted-foreground">{t(($) => $.profile_card.runtime_label)}</span>

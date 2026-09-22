@@ -231,14 +231,19 @@ export function MentionSuggestionBar({
       <FlatList
         data={rows}
         keyboardShouldPersistTaps="handled"
-        keyExtractor={(row, i) => {
-          if (row.kind === "all") return "row:all";
-          if (row.kind === "section") return `row:section:${row.label}`;
-          if (row.kind === "member") return `row:m:${row.member.user_id}`;
-          if (row.kind === "agent") return `row:a:${row.agent.id}`;
-          if (row.kind === "issue") return `row:i:${row.issue.id}`;
-          return `row:empty:${i}`;
-        }}
+        keyExtractor={(row, i) =>
+          row.kind === "all"
+            ? "row:all"
+            : row.kind === "section"
+              ? `row:section:${row.label}`
+              : row.kind === "member"
+                ? `row:m:${row.member.user_id}`
+                : row.kind === "agent"
+                  ? `row:a:${row.agent.id}`
+                  : row.kind === "issue"
+                    ? `row:i:${row.issue.id}`
+                    : `row:empty:${i}`
+        }
         renderItem={({ item, index }) => {
           if (item.kind === "section") {
             return (
@@ -354,7 +359,7 @@ export function MentionSuggestionBar({
             );
           }
           // issue
-          // By CATEGORY, not by key: a custom status in the done category IS
+          // By CATEGORY, not by key: a custom status in the completed category is
           // done, and `status === "done"` silently disagrees — the row would
           // render at full opacity as though the work were still open.
           // (MUL-6243)
@@ -377,7 +382,7 @@ export function MentionSuggestionBar({
                 <StatusIcon
                   status={item.issue.status}
                   category={issueColumnCategory(item.issue)}
-                  color={catalog.colorOf(item.issue.status)}
+                  icon={catalog.iconOf(item.issue.status)} color={catalog.colorOf(item.issue.status)}
                   size={16}
                 />
               </View>
@@ -405,18 +410,16 @@ function Badge({
   label: string;
   tone?: "muted" | "brand" | "outline";
 }) {
-  let toneClassName: string;
-  if (tone === "brand") {
-    toneClassName = "bg-brand/10";
-  } else if (tone === "outline") {
-    toneClassName = "border border-border";
-  } else {
-    toneClassName = "bg-secondary";
-  }
-
   return (
     <View
-      className={cn("px-1.5 py-0.5 rounded", toneClassName)}
+      className={cn(
+        "px-1.5 py-0.5 rounded-xs",
+        tone === "brand"
+          ? "bg-brand/10"
+          : tone === "outline"
+            ? "border border-border"
+            : "bg-secondary",
+      )}
     >
       <Text
         className={cn(

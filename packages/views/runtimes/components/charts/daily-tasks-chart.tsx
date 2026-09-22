@@ -11,7 +11,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
-import { useT } from "../../../i18n";
+import { useLocale, useT } from "../../../i18n";
 
 // Three-segment stack — completed runs at the bottom (chart-1, primary
 // brand), then cancelled (chart-3, muted: a manual stop is an outcome, not
@@ -33,17 +33,7 @@ export interface DailyTasksData {
 
 export function DailyTasksChart({ data }: { data: DailyTasksData[] }) {
   const { t } = useT("runtimes");
-
-  const getTooltipTotal = (payload: Array<{ value?: string | number }>) => {
-    let total = 0;
-    for (const item of payload) {
-      if (typeof item.value === "number") {
-        total += item.value;
-      }
-    }
-    return total;
-  };
-
+  const locale = useLocale();
   return (
     <ChartContainer config={tasksChartConfig} className="aspect-[3/1] w-full">
       <BarChart data={data} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
@@ -67,12 +57,17 @@ export function DailyTasksChart({ data }: { data: DailyTasksData[] }) {
             <ChartTooltipContent
               formatter={(value, name) => `${value} ${name}`}
               footer={(payload) => {
-                const total = getTooltipTotal(payload);
+                const total = payload.reduce(
+                  (sum, item) =>
+                    sum +
+                    (typeof item.value === "number" ? item.value : 0),
+                  0,
+                );
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>
                     <span className="font-mono tabular-nums">
-                      {total.toLocaleString()}
+                      {total.toLocaleString(locale)}
                     </span>
                   </div>
                 );

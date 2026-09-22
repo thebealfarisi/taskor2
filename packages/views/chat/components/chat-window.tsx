@@ -17,11 +17,12 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useAuthStore } from "@multica/core/auth";
 import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
-import { canAssignAgent } from "@multica/views/issues/components";
+import { canAssignAgent } from "../../issues/components/pickers/assignee-picker";
 import { api, dispatchReasonCode } from "@multica/core/api";
 import {
   isAgentRuntimeBound,
   useAgentPresenceDetail,
+  useCustomizeConversationStartersHref,
   useWorkspaceAgentAvailability,
 } from "@multica/core/agents";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -72,6 +73,7 @@ import { useChatInputFocus } from "./use-chat-input-focus";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
 import { ChatQueue } from "./chat-queue";
+import { EmptyState } from "./chat-empty-state";
 import { SessionRenameInput } from "./session-rename-input";
 import { ChatResizeHandles } from "./chat-resize-handles";
 import { useChatContextItems } from "./use-chat-context-items";
@@ -87,22 +89,11 @@ import {
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
 const CHAT_VIRTUOSO_INITIAL_FIRST_ITEM_INDEX = 1_000_000;
-
-// Shared by both send-error catch blocks below so the reason → toast copy
-// mapping lives in one place instead of two nested ternaries.
-function sendErrorToastMessage(
-  reason: string | undefined,
-  t: ReturnType<typeof useT<"chat">>["t"],
-): string {
-  if (reason === "invocation_not_allowed") return t(($) => $.input.send_blocked_toast);
-  if (reason === "agent_runtime_required") return t(($) => $.input.runtime_required_toast);
-  return t(($) => $.input.send_failed_toast);
-}
 
 
 export function ChatWindow() {
@@ -153,7 +144,7 @@ export function ChatWindow() {
   const allMessages = [...messagePages].reverse().flatMap((page) => page.messages);
   // Skeleton only shows for an un-cached session fetch. Cached switches
   // return data synchronously — no flash. `enabled: false` (new chat)
-  // keeps isLoading false so the starter prompts aren't hidden.
+  // keeps isLoading false so the conversation starters aren't hidden.
   // Server-authoritative pending task. Survives refresh / reopen / session
   // switch because it's keyed on sessionId in the Query cache; WS events
   // (chat:message / chat:done / task:*) keep it invalidated in real time.
@@ -198,6 +189,25 @@ export function ChatWindow() {
   // Nonce handed to ChatInput to pull focus into the compose box: when a new
   // chat starts (⊕ or switching agent), and whenever the window itself opens.
   const { focusRequest, requestInputFocus } = useChatInputFocus(isOpen);
+  const [conversationStarterRequest, setConversationStarterRequest] = useState<{
+    id: number;
+    content: string;
+  } | null>(null);
+  const nextConversationStarterRequestIdRef = useRef(0);
+  const prefillConversationStarter = useCallback(
+    (prompt: string) => {
+      setConversationStarterRequest({
+        id: ++nextConversationStarterRequestIdRef.current,
+        content: prompt,
+      });
+      requestInputFocus();
+    },
+    [requestInputFocus],
+  );
+  const handleConversationStarterApplied = useCallback(
+    () => setConversationStarterRequest(null),
+    [],
+  );
 
   // Legacy archived sessions (the old soft-archive feature was removed but
   // pre-existing rows with status='archived' may still exist) are excluded
@@ -261,6 +271,13 @@ export function ChatWindow() {
   // user types (MUL-6380). Mirrors use-chat-controller.ts.
   const isAgentAccessRevoked =
     !!activeAgent && !canAssignAgent(activeAgent, user?.id, memberRole);
+
+  // "Customize" under the starter buttons — the only place the empty state
+  // admits that those buttons are configuration at all.
+  const customizeConversationStartersHref = useCustomizeConversationStartersHref(
+    activeAgent,
+    wsId,
+  );
 
   const projectContextSupport = useChatProjectContextSupport(wsId, activeAgent);
 
@@ -472,7 +489,15 @@ export function ChatWindow() {
       } catch (err) {
         apiLogger.error("sendChatMessage.ensureSession.error", err);
         const reason = dispatchReasonCode(err);
-        toast.error(sendErrorToastMessage(reason, t));
+        toast.error(
+          reason === "invocation_not_allowed"
+            ? t(($) => $.input.send_blocked_toast)
+            : reason === "agent_runtime_required"
+              ? t(($) => $.input.runtime_required_toast)
+              : reason === "runtime_access_denied"
+                ? t(($) => $.input.runtime_access_denied_toast)
+                : t(($) => $.input.send_failed_toast),
+        );
         return false;
       }
       if (!sessionId) {
@@ -492,7 +517,15 @@ export function ChatWindow() {
       } catch (err) {
         apiLogger.error("sendChatMessage.error", { sessionId, err });
         const reason = dispatchReasonCode(err);
-        toast.error(sendErrorToastMessage(reason, t));
+        toast.error(
+          reason === "invocation_not_allowed"
+            ? t(($) => $.input.send_blocked_toast)
+            : reason === "agent_runtime_required"
+              ? t(($) => $.input.runtime_required_toast)
+              : reason === "runtime_access_denied"
+                ? t(($) => $.input.runtime_access_denied_toast)
+                : t(($) => $.input.send_failed_toast),
+        );
         return false;
       }
       apiLogger.info("sendChatMessage.success", {
@@ -603,7 +636,7 @@ export function ChatWindow() {
       });
       return;
     }
-    cancelChatTask(pendingTaskId, activeSessionId, {
+    void cancelChatTask(pendingTaskId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });
@@ -884,48 +917,45 @@ export function ChatWindow() {
       </div>
 
       {/* Messages / skeleton / empty state */}
-      {(() => {
-        if (showSkeleton) return <ChatMessageSkeleton />;
-        if (hasMessages) {
-          return (
-            <ChatMessageList
-              key={activeSessionId}
-              messages={messages}
-              pendingTask={pendingTask}
-              availability={availability}
-              firstItemIndex={firstItemIndex}
-              hasOlderMessages={!!hasOlderMessages}
-              isFetchingOlderMessages={isFetchingOlderMessages}
-              onLoadOlderMessages={() => fetchOlderMessages()}
-              onQuickAction={(action) => handleSend(action.prompt)}
-              quickActionsDisabled={
-                !!pendingTaskId ||
-                isSessionArchived ||
-                isAgentArchived ||
-                isAgentAccessRevoked ||
-                !activeAgentRuntimeBound ||
-                noAgent
-              }
-              onRegenerateQuickActions={(message) =>
-                activeSessionId
-                  ? regenerateQuickActions.mutateAsync({
-                      sessionId: activeSessionId,
-                      messageId: message.id,
-                    })
-                  : undefined
-              }
-              quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
-            />
-          );
-        }
-        return (
-          <EmptyState
-            hasSessions={sessions.length > 0}
-            agentName={activeAgent?.name}
-            onPickPrompt={(text) => handleSend(text)}
-          />
-        );
-      })()}
+      {showSkeleton ? (
+        <ChatMessageSkeleton />
+      ) : hasMessages ? (
+        <ChatMessageList
+          key={activeSessionId}
+          messages={messages}
+          pendingTask={pendingTask}
+          availability={availability}
+          firstItemIndex={firstItemIndex}
+          hasOlderMessages={!!hasOlderMessages}
+          isFetchingOlderMessages={isFetchingOlderMessages}
+          onLoadOlderMessages={() => void fetchOlderMessages()}
+          onQuickAction={(action) => handleSend(action.prompt)}
+          quickActionsDisabled={
+            !!pendingTaskId ||
+            isSessionArchived ||
+            isAgentArchived ||
+            isAgentAccessRevoked ||
+            !activeAgentRuntimeBound ||
+            noAgent
+          }
+          onRegenerateQuickActions={(message) =>
+            activeSessionId
+              ? regenerateQuickActions.mutateAsync({
+                  sessionId: activeSessionId,
+                  messageId: message.id,
+                })
+              : undefined
+          }
+          quickActionsPendingMessageId={quickActionsPending?.message_id ?? null}
+        />
+      ) : (
+        <EmptyState
+          agent={activeAgent}
+          hasSessions={sessions.length > 0}
+          onPickPrompt={prefillConversationStarter}
+          customizeHref={customizeConversationStartersHref}
+        />
+      )}
 
       {/* Status banner above the input — single mutually-exclusive slot.
        *  Priority: no-agent > offline / unstable. Agent presence is the
@@ -936,24 +966,20 @@ export function ChatWindow() {
        *  We key off `noAgent` (the resolved-empty state) rather than
        *  `!activeAgent`, so the loading window between mount and the
        *  first agent-list response stays banner-free. */}
-      {(() => {
-        if (noAgent) return <NoAgentBanner />;
-        if (isAgentAccessRevoked) {
-          return <AgentAccessRevokedBanner agentName={activeAgent?.name} />;
-        }
-        if (isAgentArchived) {
-          return <ArchivedAgentBanner agentName={activeAgent?.name} />;
-        }
-        if (!activeAgentRuntimeBound && activeAgent) {
-          return (
-            <RuntimeRequiredBanner
-              agentId={activeAgent.id}
-              agentName={activeAgent.name}
-            />
-          );
-        }
-        return <OfflineBanner agentName={activeAgent?.name} availability={availability} />;
-      })()}
+      {noAgent ? (
+        <NoAgentBanner />
+      ) : isAgentAccessRevoked ? (
+        <AgentAccessRevokedBanner agentName={activeAgent?.name} />
+      ) : isAgentArchived ? (
+        <ArchivedAgentBanner agentName={activeAgent?.name} />
+      ) : !activeAgentRuntimeBound && activeAgent ? (
+        <RuntimeRequiredBanner
+          agentId={activeAgent.id}
+          agentName={activeAgent.name}
+        />
+      ) : (
+        <OfflineBanner agentName={activeAgent?.name} availability={availability} />
+      )}
 
       <ChatQueue
         tasks={queuedTasks}
@@ -971,6 +997,8 @@ export function ChatWindow() {
       <ChatInput
         onSend={handleSend}
         restoreDraftRequest={restoreDraftRequest}
+        conversationStarterRequest={conversationStarterRequest}
+        onConversationStarterApplied={handleConversationStarterApplied}
         onRestoreDraftApplied={handleRestoreDraftApplied}
         uploadEnabled={!!activeAgent && !isAgentAccessRevoked}
         onStop={handleStop}
@@ -1365,16 +1393,13 @@ function SessionDropdown({
     const isConfirmingStop = confirmingStopId === session.id && !!pendingTask;
     const isConfirmingAction = isConfirmingStop;
     const titleText = session.title?.trim() || t(($) => $.window.untitled);
-    let trailingStatus: string;
-    if (isRunning) {
-      trailingStatus = t(($) => $.session_history.row_subtitle.working);
-    } else if (showCompleted) {
-      trailingStatus = t(($) => $.session_history.row_subtitle.completed);
-    } else if (showUnread) {
-      trailingStatus = t(($) => $.session_history.row_subtitle.new_reply);
-    } else {
-      trailingStatus = formatTimeAgo(session.updated_at);
-    }
+    const trailingStatus = isRunning
+      ? t(($) => $.session_history.row_subtitle.working)
+      : showCompleted
+        ? t(($) => $.session_history.row_subtitle.completed)
+        : showUnread
+          ? t(($) => $.session_history.row_subtitle.new_reply)
+          : formatTimeAgo(session.updated_at);
 
     // One list drives both action surfaces — the compact menu without hover
     // and the hover strip with it — so they cannot drift.
@@ -1436,24 +1461,17 @@ function SessionDropdown({
           <span className="size-6 shrink-0" />
         )}
         <div className="min-w-0 flex-1">
-          {(() => {
-            if (isRenaming) {
-              return (
-                <SessionRenameInput
-                  initialValue={session.title ?? ""}
-                  onSubmit={(value) => handleSubmitRename(session.id, value)}
-                  onCancel={() => setRenamingId(null)}
-                />
-              );
-            }
-            if (isConfirmingStop) {
-              return (
-                <div className="truncate text-body font-medium text-destructive">
-                  {t(($) => $.session_history.stop_dialog.title)}
-                </div>
-              );
-            }
-            return (
+          {isRenaming ? (
+            <SessionRenameInput
+              initialValue={session.title ?? ""}
+              onSubmit={(value) => handleSubmitRename(session.id, value)}
+              onCancel={() => setRenamingId(null)}
+            />
+          ) : isConfirmingStop ? (
+            <div className="truncate text-body font-medium text-destructive">
+              {t(($) => $.session_history.stop_dialog.title)}
+            </div>
+          ) : (
             <div
               className={cn("truncate text-body", (showUnread || showCompleted) && !isRunning && "font-medium")}
               style={{
@@ -1463,8 +1481,7 @@ function SessionDropdown({
             >
               {titleText}
             </div>
-            );
-          })()}
+          )}
         </div>
         {!isRenaming && (
           isConfirmingStop && pendingTask ? (
@@ -1481,7 +1498,7 @@ function SessionDropdown({
                   setConfirmingStopId(null);
                 }}
                 disabled={stoppingTaskId === pendingTask.task_id}
-                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded-xs px-2 text-micro font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 {t(($) => $.session_history.stop_dialog.cancel)}
               </button>
@@ -1497,7 +1514,7 @@ function SessionDropdown({
                   handleConfirmStop(session, pendingTask);
                 }}
                 disabled={stoppingTaskId === pendingTask.task_id}
-                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded-xs px-2 text-micro font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
                 {stoppingTaskId === pendingTask.task_id
                   ? t(($) => $.session_history.stop_dialog.confirming)
@@ -1540,8 +1557,8 @@ function SessionDropdown({
                     }}
                     className={
                       action.danger
-                        ? "inline-flex h-7 items-center gap-1 rounded px-1.5 text-micro font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none"
-                        : "inline-flex size-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none"
+                        ? "inline-flex h-7 items-center gap-1 rounded-xs px-1.5 text-micro font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none"
+                        : "inline-flex size-7 items-center justify-center rounded-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground focus-visible:outline-none"
                     }
                     aria-label={action.label}
                     title={action.label}
@@ -1581,33 +1598,25 @@ function SessionDropdown({
             )}
             <ChevronDown className="size-3 text-muted-foreground shrink-0" />
           </PopoverTrigger>
-          {(() => {
-            if (otherRunningCount > 0) {
-              return (
-                <span
-                  aria-label={t(($) => $.window.another_running)}
-                  title={t(($) => $.window.another_running)}
-                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
-                >
-                  <Loader2 className="size-3 animate-spin" />
-                  {otherRunningCount > 1 && <span>{otherRunningCount}</span>}
-                </span>
-              );
-            }
-            if (otherUnreadCount > 0) {
-              return (
-                <span
-                  aria-label={t(($) => $.window.another_unread)}
-                  title={t(($) => $.window.another_unread)}
-                  className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
-                >
-                  <span className="size-1.5 rounded-full bg-brand" />
-                  {otherUnreadCount > 1 && <span>{otherUnreadCount}</span>}
-                </span>
-              );
-            }
-            return null;
-          })()}
+          {otherRunningCount > 0 ? (
+            <span
+              aria-label={t(($) => $.window.another_running)}
+              title={t(($) => $.window.another_running)}
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
+            >
+              <Loader2 className="size-3 animate-spin" />
+              {otherRunningCount > 1 && <span>{otherRunningCount}</span>}
+            </span>
+          ) : otherUnreadCount > 0 ? (
+            <span
+              aria-label={t(($) => $.window.another_unread)}
+              title={t(($) => $.window.another_unread)}
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
+            >
+              <span className="size-1.5 rounded-full bg-brand" />
+              {otherUnreadCount > 1 && <span>{otherUnreadCount}</span>}
+            </span>
+          ) : null}
         </div>
         <PopoverContent
           align="start"
@@ -1634,6 +1643,7 @@ function SessionDropdown({
 
 function useFormatTimeAgo(): (dateStr: string) => string {
   const { t } = useT("chat");
+  const locale = useLocale();
   return (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -1646,88 +1656,6 @@ function useFormatTimeAgo(): (dateStr: string) => string {
     if (diffMins < 60) return t(($) => $.session_history.time.minutes, { count: diffMins });
     if (diffHours < 24) return t(($) => $.session_history.time.hours, { count: diffHours });
     if (diffDays < 7) return t(($) => $.session_history.time.days, { count: diffDays });
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(locale);
   };
-}
-
-// Three starter prompts shown on the empty state. Each is keyed into the
-// chat namespace so labels translate per locale; the icon stays raw since
-// emojis are locale-neutral.
-const STARTER_KEYS: ("list_open" | "summarize_today" | "plan_next")[] = [
-  "list_open",
-  "summarize_today",
-  "plan_next",
-];
-const STARTER_ICONS: Record<(typeof STARTER_KEYS)[number], string> = {
-  list_open: "📋",
-  summarize_today: "📝",
-  plan_next: "💡",
-};
-
-function EmptyState({
-  hasSessions,
-  agentName,
-  onPickPrompt,
-}: {
-  hasSessions: boolean;
-  agentName?: string;
-  onPickPrompt: (text: string) => void;
-}) {
-  const { t } = useT("chat");
-  // First-time experience: the user has never started a chat in this
-  // workspace. Educate before suggesting actions — starter prompts
-  // presume the user already knows what chat is for.
-  if (!hasSessions) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-3 overflow-y-auto px-6 py-8">
-        <div className="text-center space-y-3">
-          <h3 className="text-title-sm font-semibold">
-            {t(($) => $.empty_state.first_time_title)}
-          </h3>
-          <p className="text-body text-muted-foreground">
-            {t(($) => $.empty_state.first_time_intro)}{" "}
-            <span className="font-medium text-foreground">
-              {t(($) => $.empty_state.first_time_pillars)}
-            </span>
-            {t(($) => $.empty_state.first_time_pillars_suffix)}
-          </p>
-          <p className="text-body text-muted-foreground">
-            {t(($) => $.empty_state.first_time_actions)}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // Returning user: starter prompts are the fastest path back to action.
-  return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center-safe gap-5 overflow-y-auto px-6 py-8">
-      <div className="text-center space-y-1">
-        <h3 className="text-title-sm font-semibold">
-          {agentName
-            ? t(($) => $.empty_state.returning_title_named, { name: agentName })
-            : t(($) => $.empty_state.returning_title_default)}
-        </h3>
-        <p className="text-body text-muted-foreground">
-          {t(($) => $.empty_state.returning_subtitle)}
-        </p>
-      </div>
-      <div className="w-full max-w-xs space-y-2">
-        {STARTER_KEYS.map((key) => {
-          const text = t(($) => $.starter_prompts[key]);
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onPickPrompt(text)}
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-body text-foreground transition-colors hover:bg-accent hover:border-brand/40"
-            >
-              <span className="mr-2">{STARTER_ICONS[key]}</span>
-              {text}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
 }

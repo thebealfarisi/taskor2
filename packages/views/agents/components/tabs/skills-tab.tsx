@@ -20,6 +20,7 @@ import type {
 import { api, ApiError } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import {
+  isRuntimeUsableForUser,
   runtimeCapabilitiesOptions,
   runtimeDisplayLabel,
 } from "@multica/core/runtimes";
@@ -50,18 +51,24 @@ type SelectedSkill =
 export function SkillsTab({
   agent,
   runtime,
+  currentUserId,
   canEdit = true,
 }: {
   agent: Agent;
   runtime: AgentRuntime | null;
+  currentUserId?: string | null;
   canEdit?: boolean;
 }) {
   const { t } = useT("agents");
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   const { data: workspaceSkills = [] } = useQuery(skillListOptions(wsId));
+  const canReadRuntime =
+    runtime != null && isRuntimeUsableForUser(runtime, currentUserId ?? null);
   const runtimeId =
-    runtime?.runtime_mode === "local" && runtime.status === "online"
+    runtime?.runtime_mode === "local" &&
+    runtime.status === "online" &&
+    canReadRuntime
       ? runtime.id
       : null;
   const runtimeQuery = useQuery(runtimeCapabilitiesOptions(runtimeId));
@@ -139,9 +146,6 @@ export function SkillsTab({
 
   return (
     <div className="space-y-8">
-      <p className="text-body leading-6 text-muted-foreground">
-        {t(($) => $.tab_body.skills.intro)}
-      </p>
 
       <CapabilitySection
         title={t(($) => $.tab_body.skills.assigned_title)}
@@ -164,7 +168,6 @@ export function SkillsTab({
           <EmptyState
             icon={<SkillIcon className="h-6 w-6" />}
             title={t(($) => $.tab_body.skills.empty_title)}
-            hint={t(($) => $.tab_body.skills.empty_hint)}
           />
         ) : (
           <ul className="divide-y rounded-lg border bg-surface-raised/40">
@@ -253,36 +256,31 @@ export function SkillsTab({
           ) : null
         }
       >
-        {(() => {
-          if (!runtime) {
-            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_missing)} />;
-          }
-          if (runtime.status !== "online") {
-            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_offline)} />;
-          }
-          if (runtimeQuery.isLoading) {
-            return (
-              <RuntimeNotice
-                loading
-                text={t(($) => $.tab_body.skills.runtime_discovering)}
-              />
-            );
-          }
-          if (runtimeQuery.isError) {
-            const runtimeErrorText =
+        {!runtime ? (
+          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_missing)} />
+        ) : !canReadRuntime ? (
+          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_forbidden)} />
+        ) : runtime.status !== "online" ? (
+          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_offline)} />
+        ) : runtimeQuery.isLoading ? (
+          <RuntimeNotice
+            loading
+            text={t(($) => $.tab_body.skills.runtime_discovering)}
+          />
+        ) : runtimeQuery.isError ? (
+          <RuntimeNotice
+            text={
               runtimeQuery.error instanceof ApiError &&
               runtimeQuery.error.status === 403
                 ? t(($) => $.tab_body.skills.runtime_forbidden)
-                : t(($) => $.tab_body.skills.runtime_failed);
-            return <RuntimeNotice text={runtimeErrorText} />;
-          }
-          if (runtimeQuery.data?.supported !== true) {
-            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_unsupported)} />;
-          }
-          if (runtimeSkills.length === 0) {
-            return <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_empty)} />;
-          }
-          return (
+                : t(($) => $.tab_body.skills.runtime_failed)
+            }
+          />
+        ) : runtimeQuery.data?.supported !== true ? (
+          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_unsupported)} />
+        ) : runtimeSkills.length === 0 ? (
+          <RuntimeNotice text={t(($) => $.tab_body.skills.runtime_empty)} />
+        ) : (
           <ul className="divide-y rounded-lg border bg-surface-raised/40">
             {runtimeSkills.map((skill) => {
               const disabled = isRuntimeSkillDisabled(
@@ -345,8 +343,7 @@ export function SkillsTab({
               );
             })}
           </ul>
-          );
-        })()}
+        )}
       </CapabilitySection>
 
       <SkillAddDialog agent={agent} open={showAdd} onOpenChange={setShowAdd} />
@@ -405,12 +402,12 @@ function CapabilitySection({
   );
 }
 
-function EmptyState({ icon, title, hint }: { icon: React.ReactNode; title: string; hint: string }) {
+function EmptyState({ icon, title, hint }: { icon: React.ReactNode; title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10 text-muted-foreground">
       <span className="opacity-50">{icon}</span>
       <p className="mt-3 text-body">{title}</p>
-      <p className="mt-1 max-w-sm text-center text-caption">{hint}</p>
+      {hint && <p className="mt-1 max-w-sm text-center text-caption">{hint}</p>}
     </div>
   );
 }
@@ -458,56 +455,45 @@ function SkillDetailDialog({
           </div>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
-        {(() => {
-          if (loading) {
-            return (
-              <div className="flex items-center gap-2 py-8 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                {t(($) => $.tab_body.skills.detail_loading)}
-              </div>
-            );
-          }
-          if (runtimeSkill) {
-            return (
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
-                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
-                <dd className="break-all">{runtimeSkill.source_path}</dd>
-                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
-                <dd>{runtimeSkill.provider}</dd>
-                {runtimeSkill.plugin && (
-                  <>
-                    <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
-                    <dd>{runtimeSkill.plugin}</dd>
-                  </>
-                )}
-                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
-                <dd>{runtimeSkill.file_count}</dd>
-              </dl>
-            );
-          }
-          if (workspaceSkill) {
-            return (
-              <div className="space-y-4">
-                <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-caption leading-5">
-                    {workspaceSkill.content}
-                  </pre>
+        {loading ? (
+          <div className="flex items-center gap-2 py-8 text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+            {t(($) => $.tab_body.skills.detail_loading)}
+          </div>
+        ) : runtimeSkill ? (
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 rounded-lg border p-4 text-caption">
+            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_source)}</dt>
+            <dd className="break-all">{runtimeSkill.source_path}</dd>
+            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_provider)}</dt>
+            <dd>{runtimeSkill.provider}</dd>
+            {runtimeSkill.plugin && (
+              <>
+                <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_plugin)}</dt>
+                <dd>{runtimeSkill.plugin}</dd>
+              </>
+            )}
+            <dt className="text-muted-foreground">{t(($) => $.tab_body.skills.detail_files)}</dt>
+            <dd>{runtimeSkill.file_count}</dd>
+          </dl>
+        ) : workspaceSkill ? (
+          <div className="space-y-4">
+            <div className="max-h-96 overflow-auto rounded-lg border bg-muted/30 p-4">
+              <pre className="whitespace-pre-wrap break-words font-mono text-caption leading-5">
+                {workspaceSkill.content}
+              </pre>
+            </div>
+            {(workspaceSkill.files ?? []).length > 0 && (
+              <div>
+                <h4 className="text-caption font-medium">{t(($) => $.tab_body.skills.detail_supporting_files)}</h4>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {(workspaceSkill.files ?? []).map((file) => (
+                    <Badge key={file.id} variant="outline">{file.path}</Badge>
+                  ))}
                 </div>
-                {(workspaceSkill.files ?? []).length > 0 && (
-                  <div>
-                    <h4 className="text-caption font-medium">{t(($) => $.tab_body.skills.detail_supporting_files)}</h4>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(workspaceSkill.files ?? []).map((file) => (
-                        <Badge key={file.id} variant="outline">{file.path}</Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
-            );
-          }
-          return null;
-        })()}
+            )}
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

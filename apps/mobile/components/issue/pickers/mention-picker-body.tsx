@@ -19,7 +19,7 @@
  * route via `useNativeSearchBar`), groups via uppercase section labels,
  * empty state inline.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FlatList, Pressable, View } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
@@ -234,71 +234,6 @@ export function MentionPickerBody({ query, mode = "comment" }: Props) {
           (item.kind === "agent" && !isAgentRuntimeBound(item.agent)) ||
           (item.kind === "squad" &&
             !runnableAgentIds.has(item.squad.leader_id));
-
-        let avatarNode: ReactNode;
-        if (item.kind === "all") {
-          avatarNode = (
-            <View
-              className="rounded-full bg-primary/10 items-center justify-center"
-              style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
-            >
-              <Ionicons name="people" size={20} color={checkColor} />
-            </View>
-          );
-        } else if (item.kind === "member") {
-          avatarNode = (
-            <ActorAvatar
-              type="member"
-              id={item.member.user_id}
-              size={AVATAR_SIZE}
-            />
-          );
-        } else if (item.kind === "agent") {
-          avatarNode = (
-            <ActorAvatar type="agent" id={item.agent.id} size={AVATAR_SIZE} />
-          );
-        } else if (item.kind === "squad") {
-          avatarNode = (
-            <ActorAvatar type="squad" id={item.squad.id} size={AVATAR_SIZE} />
-          );
-        } else {
-          avatarNode = (
-            <View
-              className="items-center justify-center"
-              style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
-            >
-              <StatusIcon
-                status={item.issue.status}
-                category={issueColumnCategory(item.issue)}
-                color={catalog.colorOf(item.issue.status)}
-                size={22}
-              />
-            </View>
-          );
-        }
-
-        let rowLabel: string;
-        if (item.kind === "all") {
-          rowLabel = "Everyone (@all)";
-        } else if (item.kind === "member") {
-          rowLabel = item.member.name;
-        } else if (item.kind === "agent") {
-          rowLabel = item.agent.name;
-        } else if (item.kind === "squad") {
-          rowLabel = item.squad.name;
-        } else {
-          rowLabel = "";
-        }
-
-        let secondaryLabel: string | null = null;
-        if (item.kind === "agent") {
-          secondaryLabel = isAgentRuntimeBound(item.agent)
-            ? "Agent"
-            : "Needs runtime";
-        } else if (item.kind === "squad") {
-          secondaryLabel = needsRuntime ? "Leader needs runtime" : "Squad";
-        }
-
         return (
           <Pressable
             disabled={needsRuntime}
@@ -308,7 +243,36 @@ export function MentionPickerBody({ query, mode = "comment" }: Props) {
               needsRuntime && "opacity-50",
             )}
           >
-            {avatarNode}
+            {item.kind === "all" ? (
+              <View
+                className="rounded-full bg-primary/10 items-center justify-center"
+                style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
+              >
+                <Ionicons name="people" size={20} color={checkColor} />
+              </View>
+            ) : item.kind === "member" ? (
+              <ActorAvatar
+                type="member"
+                id={item.member.user_id}
+                size={AVATAR_SIZE}
+              />
+            ) : item.kind === "agent" ? (
+              <ActorAvatar type="agent" id={item.agent.id} size={AVATAR_SIZE} />
+            ) : item.kind === "squad" ? (
+              <ActorAvatar type="squad" id={item.squad.id} size={AVATAR_SIZE} />
+            ) : (
+              <View
+                className="items-center justify-center"
+                style={{ width: AVATAR_SIZE, height: AVATAR_SIZE }}
+              >
+                <StatusIcon
+                  status={item.issue.status}
+                  category={issueColumnCategory(item.issue)}
+                  icon={catalog.iconOf(item.issue.status)} color={catalog.colorOf(item.issue.status)}
+                  size={22}
+                />
+              </View>
+            )}
             {item.kind === "issue" ? (
               <View className="flex-1 flex-row items-center gap-2">
                 <Text className="text-sm font-medium text-muted-foreground">
@@ -323,12 +287,22 @@ export function MentionPickerBody({ query, mode = "comment" }: Props) {
               </View>
             ) : (
               <Text className="flex-1 text-base text-foreground">
-                {rowLabel}
+                {item.kind === "all"
+                  ? "Everyone (@all)"
+                  : item.kind === "member"
+                    ? item.member.name
+                    : item.kind === "agent"
+                      ? item.agent.name
+                      : item.squad.name}
               </Text>
             )}
-            {secondaryLabel ? (
+            {item.kind === "agent" ? (
               <Text className="text-sm text-muted-foreground">
-                {secondaryLabel}
+                {isAgentRuntimeBound(item.agent) ? "Agent" : "Needs runtime"}
+              </Text>
+            ) : item.kind === "squad" ? (
+              <Text className="text-sm text-muted-foreground">
+                {needsRuntime ? "Leader needs runtime" : "Squad"}
               </Text>
             ) : null}
             {isSelected(item) ? (

@@ -148,41 +148,28 @@ export function AgentMcpTab({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {(() => {
-        if (connectionsQuery.isLoading) {
-          return (
-            <p className="text-body text-muted-foreground">
-              {t(($) => $.tab_body.composio_mcp.loading)}
-            </p>
-          );
-        }
-        if (connectionsQuery.isError) {
-          return (
-            <p className="text-body text-destructive">
-              {t(($) => $.tab_body.composio_mcp.load_failed)}
-            </p>
-          );
-        }
-        if (activeSlugs.length === 0) {
-          return (
-            <div className="space-y-2 rounded-lg border border-dashed p-6 text-center">
-              <p className="text-body font-medium">
-                {t(($) => $.tab_body.composio_mcp.empty_title)}
-              </p>
-              <p className="text-caption text-muted-foreground">
-                {t(($) => $.tab_body.composio_mcp.empty_hint)}
-              </p>
-              <AppLink
-                href={settingsHref}
-                className="inline-flex items-center gap-1.5 text-caption font-medium text-primary hover:underline"
-              >
-                <Plug className="h-3 w-3" />
-                {t(($) => $.tab_body.composio_mcp.empty_link_to_settings)}
-              </AppLink>
-            </div>
-          );
-        }
-        return (
+      {connectionsQuery.isLoading ? (
+        <p className="text-body text-muted-foreground">
+          {t(($) => $.tab_body.composio_mcp.loading)}
+        </p>
+      ) : connectionsQuery.isError ? (
+        <p className="text-body text-destructive">
+          {t(($) => $.tab_body.composio_mcp.load_failed)}
+        </p>
+      ) : activeSlugs.length === 0 ? (
+        <div className="space-y-2 rounded-lg border border-dashed p-6 text-center">
+          <p className="text-body font-medium">
+            {t(($) => $.tab_body.composio_mcp.empty_title)}
+          </p>
+          <AppLink
+            href={settingsHref}
+            className="inline-flex items-center gap-1.5 text-caption font-medium text-primary hover:underline"
+          >
+            <Plug className="h-3 w-3" />
+            {t(($) => $.tab_body.composio_mcp.empty_link_to_settings)}
+          </AppLink>
+        </div>
+      ) : (
         <ul className="divide-y rounded-lg border">
           {activeSlugs.map((slug) => {
             const tk = toolkitBySlug.get(slug);
@@ -209,8 +196,7 @@ export function AgentMcpTab({ agent }: { agent: Agent }) {
             );
           })}
         </ul>
-        );
-      })()}
+      )}
 
       {updateAllowlist.isPending && (
         <p className="flex items-center gap-1.5 text-caption text-muted-foreground">

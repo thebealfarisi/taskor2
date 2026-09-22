@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/multica-ai/multica/server/internal/service"
 )
 
 // seedRunningChatTask inserts a running chat task (chat_session_id set) for the
@@ -278,16 +276,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 		taskID := seedRunningChatTask(t, agentID, sessionID)
 		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(), service.CompleteTaskParams{
-		TaskID:                parseUUID(taskID),
-		Result:                []byte(`{"output":"here is the chart"}`),
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
+			parseUUID(taskID), []byte(`{"output":"here is the chart"}`), "", "", "", false, "", ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		msgID, content, ok := assistantMessageForTask(t, taskID)
@@ -307,16 +297,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 		taskID := seedRunningChatTask(t, agentID, sessionID)
 		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(), service.CompleteTaskParams{
-		TaskID:                parseUUID(taskID),
-		Result:                []byte(`{"output":""}`),
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
+			parseUUID(taskID), []byte(`{"output":""}`), "", "", "", false, "", ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		msgID, content, ok := assistantMessageForTask(t, taskID)
@@ -334,16 +316,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 
 	t.Run("empty output + no attachment creates no message", func(t *testing.T) {
 		taskID := seedRunningChatTask(t, agentID, sessionID)
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(), service.CompleteTaskParams{
-		TaskID:                parseUUID(taskID),
-		Result:                []byte(`{"output":""}`),
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
+			parseUUID(taskID), []byte(`{"output":""}`), "", "", "", false, "", ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		if _, _, ok := assistantMessageForTask(t, taskID); ok {
@@ -365,16 +339,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 		}
 		t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM attachment WHERE id = $1`, looseID) })
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(), service.CompleteTaskParams{
-		TaskID:                parseUUID(taskID),
-		Result:                []byte(`{"output":"done"}`),
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
+			parseUUID(taskID), []byte(`{"output":"done"}`), "", "", "", false, "", ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		if got := attachmentMessageID(t, looseID); got != nil {
@@ -411,16 +377,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 			t.Fatalf("pre-bind attachment: %v", err)
 		}
 
-		if _, err := testHandler.TaskService.CompleteTask(context.Background(), service.CompleteTaskParams{
-		TaskID:                parseUUID(taskID),
-		Result:                []byte(`{"output":"done"}`),
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.CompleteTask(context.Background(),
+			parseUUID(taskID), []byte(`{"output":"done"}`), "", "", "", false, "", ""); err != nil {
 			t.Fatalf("CompleteTask: %v", err)
 		}
 		got := attachmentMessageID(t, claimedID)
@@ -432,17 +390,8 @@ func TestCompleteTask_BindsChatAttachments(t *testing.T) {
 	t.Run("FailTask does not bind attachments", func(t *testing.T) {
 		taskID := seedRunningChatTask(t, agentID, sessionID)
 		attID := seedAgentChatAttachment(t, agentID, sessionID, taskID)
-		if _, err := testHandler.TaskService.FailTask(context.Background(), service.FailTaskParams{
-		TaskID:                parseUUID(taskID),
-		ErrMsg:                "agent crashed",
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		FailureReason:         "",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+		if _, err := testHandler.TaskService.FailTask(context.Background(),
+			parseUUID(taskID), "agent crashed", "", "", "", "", false, "", ""); err != nil {
 			t.Fatalf("FailTask: %v", err)
 		}
 		if got := attachmentMessageID(t, attID); got != nil {

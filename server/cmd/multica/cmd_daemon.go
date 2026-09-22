@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,7 +35,7 @@ var daemonCmd = &cobra.Command{
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the local agent runtime daemon",
-	Long:  "Start the daemon process that polls for tasks and executes them using local agent CLIs (Claude, Codex).\nRuns in the background by default. Use --foreground to run in the current terminal.",
+	Long:  "Start the daemon process that polls for runs and executes them using local agent CLIs (Claude, Codex).\nRuns in the background by default. Use --foreground to run in the current terminal.",
 	RunE:  runDaemonStart,
 }
 
@@ -73,9 +72,9 @@ var daemonLogsCmd = &cobra.Command{
 
 var daemonDiskUsageCmd = &cobra.Command{
 	Use:   "disk-usage",
-	Short: "Show daemon workspace disk usage by task or workspace",
-	Long: "Walks the daemon's workspaces root and reports per-task or per-workspace disk usage.\n" +
-		"Default view is per-task, sorted by size descending. --by-workspace switches to a per-workspace summary;\n" +
+	Short: "Show daemon workspace disk usage by run or workspace",
+	Long: "Walks the daemon's workspaces root and reports per-run or per-workspace disk usage.\n" +
+		"Default view is per-run, sorted by size descending. --by-workspace switches to a per-workspace summary;\n" +
 		"--top N keeps only the largest N entries.\n\n" +
 		"By default only the current profile's root is scanned. --all-profiles aggregates across every workspace\n" +
 		"root — the default root plus each ~/.multica/profiles/* root, including the Desktop app's dedicated\n" +
@@ -84,7 +83,7 @@ var daemonDiskUsageCmd = &cobra.Command{
 		"Bytes are split into total and the artifact-cleanable subset (node_modules, .next, .turbo by default,\n" +
 		"overridable via MULTICA_GC_ARTIFACT_PATTERNS) so the report stays in sync with what the GC reclaims.\n" +
 		"A .git directory counts toward the total but never toward the artifact subset — the GC frees it only\n" +
-		"when it removes the whole task directory. Symlinks are never followed.\n\n" +
+		"when it removes the whole run directory. Symlinks are never followed.\n\n" +
 		"The STATUS column shows the current status of the issue each directory belongs to, which requires\n" +
 		"contacting the server. When the machine is offline, logged out, or the request fails, the column is\n" +
 		"left blank and the rest of the report still prints. --by-workspace has no STATUS column and therefore\n" +
@@ -95,19 +94,20 @@ var daemonDiskUsageCmd = &cobra.Command{
 func init() {
 	f := daemonStartCmd.Flags()
 	f.Bool("foreground", false, "Run in the foreground instead of background")
-	f.String(flagDaemonID, "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
-	f.String(flagDeviceName, "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
-	f.String(flagRuntimeName, "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
-	f.String(flagWorkspacesRoot, "", "Base directory for task workspaces (env: MULTICA_WORKSPACES_ROOT)")
-	f.Duration(flagPollInterval, 0, "Task poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
-	f.Duration(flagHeartbeatInterval, 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
-	f.Duration(flagAgentTimeout, 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
-	f.Duration(flagCodexSemanticInactivityTimeout, 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
-	f.Duration(flagCodexHandshakeTimeout, 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
-	f.Int(flagMaxConcurrentTasks, 0, "Max tasks running in parallel (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
-	f.Bool(flagNoAutoUpdate, false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
-	f.Duration(flagAutoUpdateInterval, 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
-	f.Bool(flagNoAutoReload, false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
+	f.String("daemon-id", "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
+	f.String("device-name", "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
+	f.String("runtime-name", "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
+	f.String("workspaces-root", "", "Base directory for run workspaces (env: MULTICA_WORKSPACES_ROOT)")
+	f.Duration("poll-interval", 0, "Run poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
+	f.Duration("ws-claim-poll-interval", 0, "Healthy WebSocket claim safety-poll upper bound (env: MULTICA_DAEMON_WS_CLAIM_POLL_INTERVAL)")
+	f.Duration("heartbeat-interval", 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
+	f.Duration("agent-timeout", 0, "Absolute per-run wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
+	f.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
+	f.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
+	f.Int("max-concurrent-tasks", 0, "Maximum concurrent runs (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
+	f.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
+	f.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
+	f.Bool("no-auto-reload", false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
 
 	daemonLogsCmd.Flags().BoolP("follow", "f", false, "Follow log output")
 	daemonLogsCmd.Flags().IntP("lines", "n", 50, "Number of lines to show")
@@ -117,26 +117,27 @@ func init() {
 	// restart shares all the same flags as start
 	rf := daemonRestartCmd.Flags()
 	rf.Bool("foreground", false, "Run in the foreground instead of background")
-	rf.String(flagDaemonID, "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
-	rf.String(flagDeviceName, "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
-	rf.String(flagRuntimeName, "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
-	rf.String(flagWorkspacesRoot, "", "Base directory for task workspaces (env: MULTICA_WORKSPACES_ROOT)")
-	rf.Duration(flagPollInterval, 0, "Task poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
-	rf.Duration(flagHeartbeatInterval, 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
-	rf.Duration(flagAgentTimeout, 0, "Absolute per-task wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
-	rf.Duration(flagCodexSemanticInactivityTimeout, 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
-	rf.Duration(flagCodexHandshakeTimeout, 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
-	rf.Int(flagMaxConcurrentTasks, 0, "Max tasks running in parallel (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
-	rf.Bool(flagNoAutoUpdate, false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
-	rf.Duration(flagAutoUpdateInterval, 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
-	rf.Bool(flagNoAutoReload, false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
+	rf.String("daemon-id", "", "Unique daemon identifier (env: MULTICA_DAEMON_ID)")
+	rf.String("device-name", "", "Human-readable device name (env: MULTICA_DAEMON_DEVICE_NAME)")
+	rf.String("runtime-name", "", "Runtime display name (env: MULTICA_AGENT_RUNTIME_NAME)")
+	rf.String("workspaces-root", "", "Base directory for run workspaces (env: MULTICA_WORKSPACES_ROOT)")
+	rf.Duration("poll-interval", 0, "Run poll interval (env: MULTICA_DAEMON_POLL_INTERVAL)")
+	rf.Duration("ws-claim-poll-interval", 0, "Healthy WebSocket claim safety-poll upper bound (env: MULTICA_DAEMON_WS_CLAIM_POLL_INTERVAL)")
+	rf.Duration("heartbeat-interval", 0, "Heartbeat interval (env: MULTICA_DAEMON_HEARTBEAT_INTERVAL)")
+	rf.Duration("agent-timeout", 0, "Absolute per-run wall-clock cap; 0 = no cap, rely on the watchdogs (env: MULTICA_AGENT_TIMEOUT)")
+	rf.Duration("codex-semantic-inactivity-timeout", 0, "Codex semantic inactivity timeout (env: MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT)")
+	rf.Duration("codex-handshake-timeout", 0, "Codex app-server startup RPC timeout (env: MULTICA_CODEX_HANDSHAKE_TIMEOUT)")
+	rf.Int("max-concurrent-tasks", 0, "Maximum concurrent runs (env: MULTICA_DAEMON_MAX_CONCURRENT_TASKS)")
+	rf.Bool("no-auto-update", false, "Disable periodic CLI self-update (env: MULTICA_DAEMON_AUTO_UPDATE=false)")
+	rf.Duration("auto-update-interval", 0, "How often to poll GitHub for a newer release (env: MULTICA_DAEMON_AUTO_UPDATE_INTERVAL)")
+	rf.Bool("no-auto-reload", false, "Disable restarting when the multica binary on disk changes version (env: MULTICA_DAEMON_AUTO_RELOAD=false)")
 
 	df := daemonDiskUsageCmd.Flags()
-	df.Bool("by-workspace", false, "Aggregate output by workspace instead of by task")
-	df.Bool("by-task", false, "Per-task view (default; mutually exclusive with --by-workspace)")
+	df.Bool("by-workspace", false, "Aggregate output by workspace instead of by run")
+	df.Bool("by-task", false, "Per-run view (default; mutually exclusive with --by-workspace)")
 	df.Int("top", 0, "Keep only the largest N entries (per root in --all-profiles mode)")
 	df.String("output", "table", "Output format: table or json")
-	df.String(flagWorkspacesRoot, "", "Override the workspaces root path (default: same as the daemon)")
+	df.String("workspaces-root", "", "Override the workspaces root path (default: same as the daemon)")
 	df.Bool("all-profiles", false, "Scan every workspace root (default root + all ~/.multica/profiles/* roots, incl. the Desktop app's) and report a combined total")
 
 	daemonCmd.AddCommand(daemonStartCmd)
@@ -531,7 +532,7 @@ func requireDaemonAuth(profile string) error {
 		return fmt.Errorf("load CLI config: %w", err)
 	}
 	if cfg.Token == "" {
-		loginHint := hintMulticaLogin
+		loginHint := "multica login"
 		if profile != "" {
 			loginHint = fmt.Sprintf("multica login --profile %s", profile)
 		}
@@ -750,7 +751,7 @@ func daemonStartupFailureError(logs daemonStartupLogs, waitErr error, profile, s
 	crashLines := readLogTailSince(logs.errLogPath, logs.errLogOffset, 40)
 	joined := strings.Join(append(append([]string{}, lines...), crashLines...), "\n")
 
-	loginHint := hintMulticaLogin
+	loginHint := "multica login"
 	if profile != "" {
 		loginHint += " --profile " + profile
 	}
@@ -855,46 +856,49 @@ func readLogTailSince(logPath string, sinceOffset int64, maxLines int) []string 
 func buildDaemonStartArgs(cmd *cobra.Command) []string {
 	args := []string{"daemon", "start", "--foreground"}
 
-	if v := flagString(cmd, flagDaemonID); v != "" {
+	if v := flagString(cmd, "daemon-id"); v != "" {
 		args = append(args, "--daemon-id", v)
 	}
-	if v := flagString(cmd, flagDeviceName); v != "" {
+	if v := flagString(cmd, "device-name"); v != "" {
 		args = append(args, "--device-name", v)
 	}
-	if v := flagString(cmd, flagRuntimeName); v != "" {
+	if v := flagString(cmd, "runtime-name"); v != "" {
 		args = append(args, "--runtime-name", v)
 	}
-	if v := flagString(cmd, flagWorkspacesRoot); v != "" {
+	if v := flagString(cmd, "workspaces-root"); v != "" {
 		args = append(args, "--workspaces-root", v)
 	}
-	if d, _ := cmd.Flags().GetDuration(flagPollInterval); d > 0 {
+	if d, _ := cmd.Flags().GetDuration("poll-interval"); d > 0 {
 		args = append(args, "--poll-interval", d.String())
 	}
-	if d, _ := cmd.Flags().GetDuration(flagHeartbeatInterval); d > 0 {
+	if d, _ := cmd.Flags().GetDuration("ws-claim-poll-interval"); d > 0 {
+		args = append(args, "--ws-claim-poll-interval", d.String())
+	}
+	if d, _ := cmd.Flags().GetDuration("heartbeat-interval"); d > 0 {
 		args = append(args, "--heartbeat-interval", d.String())
 	}
 	// Forward agent-timeout when explicitly set, including an explicit 0
 	// (= no cap), so it can override an environment MULTICA_AGENT_TIMEOUT.
-	if cmd.Flags().Changed(flagAgentTimeout) {
-		d, _ := cmd.Flags().GetDuration(flagAgentTimeout)
+	if cmd.Flags().Changed("agent-timeout") {
+		d, _ := cmd.Flags().GetDuration("agent-timeout")
 		args = append(args, "--agent-timeout", d.String())
 	}
-	if d, _ := cmd.Flags().GetDuration(flagCodexSemanticInactivityTimeout); d > 0 {
+	if d, _ := cmd.Flags().GetDuration("codex-semantic-inactivity-timeout"); d > 0 {
 		args = append(args, "--codex-semantic-inactivity-timeout", d.String())
 	}
-	if d, _ := cmd.Flags().GetDuration(flagCodexHandshakeTimeout); d > 0 {
+	if d, _ := cmd.Flags().GetDuration("codex-handshake-timeout"); d > 0 {
 		args = append(args, "--codex-handshake-timeout", d.String())
 	}
-	if n, _ := cmd.Flags().GetInt(flagMaxConcurrentTasks); n > 0 {
+	if n, _ := cmd.Flags().GetInt("max-concurrent-tasks"); n > 0 {
 		args = append(args, "--max-concurrent-tasks", strconv.Itoa(n))
 	}
-	if b, _ := cmd.Flags().GetBool(flagNoAutoUpdate); b {
+	if b, _ := cmd.Flags().GetBool("no-auto-update"); b {
 		args = append(args, "--no-auto-update")
 	}
-	if d, _ := cmd.Flags().GetDuration(flagAutoUpdateInterval); d > 0 {
+	if d, _ := cmd.Flags().GetDuration("auto-update-interval"); d > 0 {
 		args = append(args, "--auto-update-interval", d.String())
 	}
-	if b, _ := cmd.Flags().GetBool(flagNoAutoReload); b {
+	if b, _ := cmd.Flags().GetBool("no-auto-reload"); b {
 		args = append(args, "--no-auto-reload")
 	}
 
@@ -959,30 +963,30 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	// override (typical for systemd units) always wins over the file. This
 	// matches server_url's precedence above and resolves #3824.
 	deviceNameFlag := resolveDaemonStringOverride(
-		flagString(cmd, flagDeviceName),
+		flagString(cmd, "device-name"),
 		"MULTICA_DAEMON_DEVICE_NAME",
 		fileCfg.DeviceName,
 	)
 	runtimeNameFlag := resolveDaemonStringOverride(
-		flagString(cmd, flagRuntimeName),
+		flagString(cmd, "runtime-name"),
 		"MULTICA_AGENT_RUNTIME_NAME",
 		fileCfg.RuntimeName,
 	)
-	workspacesRoot, err := resolveWorkspacesRootForProfile(profile, flagString(cmd, flagWorkspacesRoot))
+	workspacesRoot, err := resolveWorkspacesRootForProfile(profile, flagString(cmd, "workspaces-root"))
 	if err != nil {
 		return err
 	}
 
 	overrides := daemon.Overrides{
 		ServerURL:      serverURL,
-		DaemonID:       flagString(cmd, flagDaemonID),
+		DaemonID:       flagString(cmd, "daemon-id"),
 		DeviceName:     deviceNameFlag,
 		RuntimeName:    runtimeNameFlag,
 		WorkspacesRoot: workspacesRoot,
 		Profile:        profile,
 		HealthPort:     healthPortForProfile(profile),
 	}
-	pollFlag, _ := cmd.Flags().GetDuration(flagPollInterval)
+	pollFlag, _ := cmd.Flags().GetDuration("poll-interval")
 	pollOverride, err := resolveDaemonDurationOverride(pollFlag, "MULTICA_DAEMON_POLL_INTERVAL", fileCfg.PollInterval)
 	if err != nil {
 		return err
@@ -990,7 +994,15 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if pollOverride > 0 {
 		overrides.PollInterval = pollOverride
 	}
-	heartbeatFlag, _ := cmd.Flags().GetDuration(flagHeartbeatInterval)
+	wsClaimPollFlag, _ := cmd.Flags().GetDuration("ws-claim-poll-interval")
+	wsClaimPollOverride, err := resolveDaemonDurationOverride(wsClaimPollFlag, "MULTICA_DAEMON_WS_CLAIM_POLL_INTERVAL", fileCfg.WSClaimPollInterval)
+	if err != nil {
+		return err
+	}
+	if wsClaimPollOverride > 0 {
+		overrides.WSClaimPollInterval = wsClaimPollOverride
+	}
+	heartbeatFlag, _ := cmd.Flags().GetDuration("heartbeat-interval")
 	heartbeatOverride, err := resolveDaemonDurationOverride(heartbeatFlag, "MULTICA_DAEMON_HEARTBEAT_INTERVAL", fileCfg.HeartbeatInterval)
 	if err != nil {
 		return err
@@ -1009,7 +1021,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if agentTimeoutOverride != nil {
 		overrides.AgentTimeout = agentTimeoutOverride
 	}
-	semanticFlag, _ := cmd.Flags().GetDuration(flagCodexSemanticInactivityTimeout)
+	semanticFlag, _ := cmd.Flags().GetDuration("codex-semantic-inactivity-timeout")
 	semanticOverride, err := resolveDaemonDurationOverride(semanticFlag, "MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT", fileCfg.CodexSemanticInactivityTimeout)
 	if err != nil {
 		return err
@@ -1017,7 +1029,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if semanticOverride > 0 {
 		overrides.CodexSemanticInactivityTimeout = semanticOverride
 	}
-	handshakeFlag, _ := cmd.Flags().GetDuration(flagCodexHandshakeTimeout)
+	handshakeFlag, _ := cmd.Flags().GetDuration("codex-handshake-timeout")
 	handshakeOverride, err := resolveDaemonDurationOverride(handshakeFlag, "MULTICA_CODEX_HANDSHAKE_TIMEOUT", fileCfg.CodexHandshakeTimeout)
 	if err != nil {
 		return err
@@ -1025,7 +1037,7 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	if handshakeOverride > 0 {
 		overrides.CodexHandshakeTimeout = handshakeOverride
 	}
-	maxFlag, _ := cmd.Flags().GetInt(flagMaxConcurrentTasks)
+	maxFlag, _ := cmd.Flags().GetInt("max-concurrent-tasks")
 	if n := resolveDaemonIntOverride(maxFlag, "MULTICA_DAEMON_MAX_CONCURRENT_TASKS", fileCfg.MaxConcurrentTasks); n > 0 {
 		overrides.MaxConcurrentTasks = n
 	}
@@ -1034,18 +1046,18 @@ func runDaemonForeground(cmd *cobra.Command) error {
 	// auto-update *on*, they can only turn it off. Env "true" is not
 	// treated as an override signal here — LoadConfig honors the raw env
 	// itself for the affirmative case.
-	noAutoUpdateFlag, _ := cmd.Flags().GetBool(flagNoAutoUpdate)
+	noAutoUpdateFlag, _ := cmd.Flags().GetBool("no-auto-update")
 	if resolveDaemonDisableSignal(noAutoUpdateFlag, "MULTICA_DAEMON_AUTO_UPDATE", fileCfg.DisableAutoUpdate) {
 		overrides.DisableAutoUpdate = true
 	}
 	// Same single-direction shape for the on-disk version watcher, resolved
 	// through its own env var: turning off GitHub polling must not also stop the
 	// daemon from following a binary the operator replaced by hand.
-	noAutoReloadFlag, _ := cmd.Flags().GetBool(flagNoAutoReload)
+	noAutoReloadFlag, _ := cmd.Flags().GetBool("no-auto-reload")
 	if resolveDaemonDisableSignal(noAutoReloadFlag, "MULTICA_DAEMON_AUTO_RELOAD", fileCfg.DisableAutoReload) {
 		overrides.DisableAutoReload = true
 	}
-	autoUpdateFlag, _ := cmd.Flags().GetDuration(flagAutoUpdateInterval)
+	autoUpdateFlag, _ := cmd.Flags().GetDuration("auto-update-interval")
 	autoUpdateOverride, err := resolveDaemonDurationOverride(autoUpdateFlag, "MULTICA_DAEMON_AUTO_UPDATE_INTERVAL", fileCfg.AutoUpdateCheckInterval)
 	if err != nil {
 		return err
@@ -1176,7 +1188,7 @@ func requireDaemonRestartPreflight(cmd *cobra.Command, profile string) error {
 		return fmt.Errorf("refusing to restart: invalid server URL %q: %w", rawURL, err)
 	}
 
-	loginHint := hintMulticaLogin
+	loginHint := "multica login"
 	if profile != "" {
 		loginHint += " --profile " + profile
 	}
@@ -1320,7 +1332,7 @@ func runDaemonStop(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Daemon is still stopping. It may be finishing a running task.")
+	fmt.Fprintln(os.Stderr, "Daemon is still stopping. It may be finishing an in-progress run.")
 	return nil
 }
 
@@ -1710,8 +1722,8 @@ func resolveDaemonIntOverride(flagValue int, envName string, cfgValue int) int {
 //     valid here (it's the "disabled" sentinel).
 //  4. Otherwise -> nil, LoadConfig applies DefaultAgentTimeout.
 func resolveDaemonAgentTimeoutOverride(cmd *cobra.Command, envName string, cfgValue *string) (*time.Duration, error) {
-	if cmd.Flags().Changed(flagAgentTimeout) {
-		d, _ := cmd.Flags().GetDuration(flagAgentTimeout)
+	if cmd.Flags().Changed("agent-timeout") {
+		d, _ := cmd.Flags().GetDuration("agent-timeout")
 		return &d, nil
 	}
 	if !envUnset(envName) {
@@ -1763,7 +1775,7 @@ func resolveDaemonDisableSignal(flagValue bool, envName string, cfgValue bool) b
 func runDaemonDiskUsage(cmd *cobra.Command, _ []string) error {
 	taskContext := inDaemonManagedExecutionContext()
 	profile := resolveProfile(cmd)
-	rootOverride, _ := cmd.Flags().GetString(flagWorkspacesRoot)
+	rootOverride, _ := cmd.Flags().GetString("workspaces-root")
 	byWorkspace, _ := cmd.Flags().GetBool("by-workspace")
 	byTask, _ := cmd.Flags().GetBool("by-task")
 	top, _ := cmd.Flags().GetInt("top")
@@ -2046,7 +2058,7 @@ func printAggregateDiskUsage(w io.Writer, agg daemon.AggregateDiskUsageReport, b
 			printDiskUsageTaskTable(w, root.Report)
 		}
 	}
-	fmt.Fprintf(w, "\nGrand total: %s across %d task(s) in %d root(s); %s reclaimable as artifacts (%.1f%%).\n",
+	fmt.Fprintf(w, "\nGrand total: %s across %d run(s) in %d root(s); %s reclaimable as artifacts (%.1f%%).\n",
 		formatBytes(agg.TotalSizeBytes), agg.TotalTaskCount, len(agg.Roots),
 		formatBytes(agg.TotalArtifactSizeBytes), agg.TotalArtifactRatio*100)
 	if agg.TotalRepoCacheCount > 0 || agg.TotalRepoCacheSizeBytes > 0 {
@@ -2058,7 +2070,7 @@ func printAggregateDiskUsage(w io.Writer, agg daemon.AggregateDiskUsageReport, b
 func printDiskUsageTaskTable(w io.Writer, report daemon.DiskUsageReport) {
 	fmt.Fprintf(w, "Workspaces root: %s\n", report.WorkspacesRoot)
 	if report.TotalTaskCount == 0 {
-		fmt.Fprintln(w, "(no task directories)")
+		fmt.Fprintln(w, "(no run directories)")
 		printRepoCacheLine(w, report)
 		return
 	}
@@ -2082,13 +2094,13 @@ func printDiskUsageTaskTable(w io.Writer, report daemon.DiskUsageReport) {
 		// Report-wide totals stay anchored to the full scan; the displayed
 		// row is what the user is currently looking at. Calling these out
 		// separately keeps `--top N` from misleading at-a-glance triage.
-		fmt.Fprintf(w, "\nShowing top %d of %d task(s). Displayed: %s (%s artifacts). Scan total: %s (%s artifacts, %.1f%% reclaimable).\n",
+		fmt.Fprintf(w, "\nShowing top %d of %d run(s). Displayed: %s (%s artifacts). Scan total: %s (%s artifacts, %.1f%% reclaimable).\n",
 			len(report.Tasks), report.TotalTaskCount,
 			formatBytes(displayedSize), formatBytes(displayedArtifact),
 			formatBytes(report.TotalSizeBytes), formatBytes(report.TotalArtifactSizeBytes),
 			report.TotalArtifactRatio*100)
 	} else {
-		fmt.Fprintf(w, "\nTotal: %s across %d task(s); %s reclaimable as artifacts (%.1f%%).\n",
+		fmt.Fprintf(w, "\nTotal: %s across %d run(s); %s reclaimable as artifacts (%.1f%%).\n",
 			formatBytes(report.TotalSizeBytes), report.TotalTaskCount,
 			formatBytes(report.TotalArtifactSizeBytes), report.TotalArtifactRatio*100)
 	}
@@ -2166,9 +2178,9 @@ func printDiskUsageOtherRootsHint(w io.Writer, report daemon.DiskUsageReport, pr
 		return
 	}
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Other workspace roots contain task directories:")
+	fmt.Fprintln(w, "Other workspace roots contain run directories:")
 	for _, s := range suggestions {
-		fmt.Fprintf(w, "  %s  # %s (%d task%s)\n",
+		fmt.Fprintf(w, "  %s  # %s (%d run%s)\n",
 			s.Command, s.Root, s.TaskCount, pluralS(s.TaskCount))
 	}
 	fmt.Fprintln(w, "Run 'multica daemon disk-usage --all-profiles' for a combined total across all roots.")
@@ -2309,7 +2321,7 @@ func pluralS(n int) string {
 // non-finite or negative input collapses to "0.0%" — total=0 workspaces
 // shouldn't surface "NaN%".
 func formatRatio(r float64) string {
-	if math.IsNaN(r) || r < 0 {
+	if r != r || r < 0 { // NaN check via inequality
 		return "0.0%"
 	}
 	return fmt.Sprintf("%.1f%%", r*100)

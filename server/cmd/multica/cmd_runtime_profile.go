@@ -87,25 +87,26 @@ func init() {
 	runtimeProfileCmd.AddCommand(runtimeProfileUnsetPathCmd)
 
 	// list
-	runtimeProfileListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	runtimeProfileListCmd.Flags().String("output", "table", "Output format: table or json")
 
 	// create
-	runtimeProfileCreateCmd.Flags().String("protocol-family", "", "Supported backend the profile routes to (required)")
-	runtimeProfileCreateCmd.Flags().String(flagCommandName, "", "Executable the daemon resolves on PATH (required)")
-	runtimeProfileCreateCmd.Flags().String(flagDisplayName, "", "Human-readable profile name (required)")
+	runtimeProfileCreateCmd.Flags().String("runtime-type", "", "Base runtime compatibility target (e.g. pi or omp)")
+	runtimeProfileCreateCmd.Flags().String("protocol-family", "", "Legacy base protocol family (use --runtime-type for Oh-My-Pi)")
+	runtimeProfileCreateCmd.Flags().String("command-name", "", "Executable the daemon resolves on PATH (required)")
+	runtimeProfileCreateCmd.Flags().String("display-name", "", "Human-readable profile name (required)")
 	runtimeProfileCreateCmd.Flags().String("description", "", "Optional description")
-	runtimeProfileCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	runtimeProfileCreateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// update
-	runtimeProfileUpdateCmd.Flags().String(flagDisplayName, "", "New display name")
-	runtimeProfileUpdateCmd.Flags().String(flagCommandName, "", "New command name")
+	runtimeProfileUpdateCmd.Flags().String("display-name", "", "New display name")
+	runtimeProfileUpdateCmd.Flags().String("command-name", "", "New command name")
 	runtimeProfileUpdateCmd.Flags().String("description", "", "New description")
 	// NOTE: --fixed-arg remains out of the CLI create/update surface for now:
 	// the product path parses command + args in the UI and stores them as
 	// command_name + fixed_args. Keep this CLI shape narrow until we add an
 	// argv-aware command-line parser here too.
 	runtimeProfileUpdateCmd.Flags().Bool("enabled", true, "Enable or disable the profile")
-	runtimeProfileUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	runtimeProfileUpdateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// set-path
 	runtimeProfileSetPathCmd.Flags().String("path", "", "Absolute path to the executable on this machine (required)")
@@ -162,12 +163,24 @@ func runRuntimeProfileList(cmd *cobra.Command, _ []string) error {
 
 func runRuntimeProfileCreate(cmd *cobra.Command, _ []string) error {
 	family, _ := cmd.Flags().GetString("protocol-family")
-	commandName, _ := cmd.Flags().GetString(flagCommandName)
-	displayName, _ := cmd.Flags().GetString(flagDisplayName)
+	commandName, _ := cmd.Flags().GetString("command-name")
+	displayName, _ := cmd.Flags().GetString("display-name")
 	description, _ := cmd.Flags().GetString("description")
 
-	if strings.TrimSpace(family) == "" {
-		return fmt.Errorf("--protocol-family is required")
+	runtimeType, _ := cmd.Flags().GetString("runtime-type")
+	runtimeType = strings.TrimSpace(runtimeType)
+	if runtimeType == "" && strings.TrimSpace(family) == "" {
+		return fmt.Errorf("--runtime-type or --protocol-family is required")
+	}
+	if runtimeType != "" {
+		resolved, ok := agent.RuntimeProtocolFamily(runtimeType)
+		if !ok {
+			return fmt.Errorf("unsupported --runtime-type %q", runtimeType)
+		}
+		if family != "" && family != resolved {
+			return fmt.Errorf("--protocol-family does not match --runtime-type")
+		}
+		family = resolved
 	}
 	if strings.TrimSpace(commandName) == "" {
 		return fmt.Errorf("--command-name is required")
@@ -193,6 +206,10 @@ func runRuntimeProfileCreate(cmd *cobra.Command, _ []string) error {
 		"protocol_family": family,
 		"command_name":    commandName,
 	}
+	if runtimeType != "" {
+		body["runtime_type"] = runtimeType
+		delete(body, "protocol_family")
+	}
 	if description != "" {
 		body["description"] = description
 	}
@@ -211,12 +228,12 @@ func runRuntimeProfileUpdate(cmd *cobra.Command, args []string) error {
 	profileID := args[0]
 
 	body := map[string]any{}
-	if cmd.Flags().Changed(flagDisplayName) {
-		v, _ := cmd.Flags().GetString(flagDisplayName)
+	if cmd.Flags().Changed("display-name") {
+		v, _ := cmd.Flags().GetString("display-name")
 		body["display_name"] = v
 	}
-	if cmd.Flags().Changed(flagCommandName) {
-		v, _ := cmd.Flags().GetString(flagCommandName)
+	if cmd.Flags().Changed("command-name") {
+		v, _ := cmd.Flags().GetString("command-name")
 		body["command_name"] = v
 	}
 	if cmd.Flags().Changed("description") {
@@ -269,16 +286,17 @@ func runRuntimeProfileDelete(cmd *cobra.Command, args []string) error {
 
 	path := runtimeProfilesPath(workspaceID) + "/" + profileID
 	if err := client.DeleteJSON(ctx, path); err != nil {
-		// 409 means the server refused because active agents are still bound
-		// to this profile. Surface the server's explanation verbatim rather
-		// than the generic HTTP wrapper so the user sees what to unbind.
+		// 409 means the server refused — usually because active agents are
+		// still bound to this profile, on machines it names. Surface that
+		// sentence rather than the raw response body: it already reads as
+		// guidance, and it is what tells the user the blockers may be sitting
+		// on a machine other than the one they were cleaning up.
+		if _, msg, isConflict := serverConflictMessage(err); isConflict {
+			return errors.New(msg)
+		}
 		var httpErr *cli.HTTPError
 		if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusConflict {
-			msg := strings.TrimSpace(httpErr.Body)
-			if msg == "" {
-				msg = "profile still has active agents bound to it"
-			}
-			return fmt.Errorf("cannot delete runtime profile %s: %s", profileID, msg)
+			return fmt.Errorf("cannot delete runtime profile %s: profile still has active agents bound to it", profileID)
 		}
 		return fmt.Errorf("delete runtime profile: %w", err)
 	}

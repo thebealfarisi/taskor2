@@ -11,41 +11,22 @@
 // that it happened at all.
 
 const pending = new Map();
-let port = null;
+const port = globalThis.__multicaPluginBridgePortV2;
 let sequence = 0;
 
-window.addEventListener("message", (event) => {
-  const expectedOrigin = document.referrer ? new URL(document.referrer).origin : window.location.origin;
-  if (event.origin && event.origin !== "null" && event.origin !== expectedOrigin) return;
-  const data = event.data;
-  if (!data || data.type !== "multica:plugin-bridge-init" || !event.ports[0]) return;
-  // Only the embedder may hand this frame a port, and only once. Sibling frames
-  // are mutually opaque but `parent.frames[i]` is an allowed cross-origin
-  // access, so another plugin on this page could otherwise deliver its own port
-  // and become this surface's "host". Origin is useless here — a sandboxed
-  // frame sees "null" — so identity is the window reference.
-  if (event.source !== window.parent || port) return;
-  port = event.ports[0];
-  port.onmessage = (message) => {
-    const payload = message.data;
-    if (payload?.kind === "theme") return applyTheme(payload.theme);
-    const entry = pending.get(payload?.id);
-    if (!entry) return;
-    pending.delete(payload.id);
-    if (payload.ok) entry.resolve(payload.data);
-    else entry.reject(Object.assign(new Error(payload.error), { status: payload.status }));
-  };
-  port.start();
-  applyTheme(data.theme);
-  boot();
-});
-
-(function announce(attempts) {
-  if (port || attempts > 50) return;
-  const targetOrigin = document.referrer ? new URL(document.referrer).origin : "*";
-  window.parent.postMessage({ type: "multica:plugin-surface-ready" }, targetOrigin);
-  setTimeout(() => announce(attempts + 1), 120);
-})(0);
+if (!(port instanceof MessagePort)) throw new Error("Multica surface bridge is unavailable");
+delete globalThis.__multicaPluginBridgePortV2;
+port.onmessage = (message) => {
+  const payload = message.data;
+  if (payload?.kind === "theme") return applyTheme(payload.theme);
+  const entry = pending.get(payload?.id);
+  if (!entry) return;
+  pending.delete(payload.id);
+  if (payload.ok) entry.resolve(payload.data);
+  else entry.reject(Object.assign(new Error(payload.error), { status: payload.status }));
+};
+port.start();
+boot();
 
 function applyTheme(theme) {
   for (const [name, value] of Object.entries(theme ?? {})) {
@@ -110,10 +91,6 @@ async function triage() {
 
 function render(view) {
   const disabled = view.state === "running";
-  const buttonLabel = disabled ? "Triaging…" : "Triage this issue";
-  const buttonHtml = context?.issue
-    ? `<button id="run" ${disabled ? "disabled" : ""}>${buttonLabel}</button>`
-    : "";
   document.body.innerHTML = `
     <div class="wrap">
       <p class="lede">${
@@ -121,7 +98,9 @@ function render(view) {
           ? "Ask the triage service to suggest an owner and priority for this issue."
           : "Open this panel on an issue to triage it."
       }</p>
-      ${buttonHtml}
+      ${context?.issue ? `<button id="run" ${disabled ? "disabled" : ""}>${
+        disabled ? "Triaging…" : "Triage this issue"
+      }</button>` : ""}
       ${view.state === "done" ? `<p class="ok">Suggested: <strong>${escapeHtml(
         String(view.output?.priority ?? "unknown"),
       )}</strong> → <strong>${escapeHtml(String(view.output?.owner ?? "unknown"))}</strong>. A comment was posted.</p>` : ""}

@@ -33,24 +33,6 @@ export const costStackConfig = {
 
 export function DailyCostChart({ data }: { data: DailyCostStackData[] }) {
   const { t } = useT("runtimes");
-
-  const formatTooltipValue = (value: string | number, name: string) => {
-    if (typeof value === "number") {
-      return `$${value.toFixed(2)} ${name}`;
-    }
-    return `${value} ${name}`;
-  };
-
-  const getTooltipTotal = (payload: Array<{ value?: string | number }>) => {
-    let total = 0;
-    for (const item of payload) {
-      if (typeof item.value === "number") {
-        total += item.value;
-      }
-    }
-    return total;
-  };
-
   // No internal empty-state — the parent decides what to show in place of
   // the chart (often a diagnostic explaining *why* there's no cost). Letting
   // recharts render an empty axis would be both ugly and uninformative.
@@ -75,9 +57,18 @@ export function DailyCostChart({ data }: { data: DailyCostStackData[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              formatter={(value, name) => formatTooltipValue(value, name)}
+              formatter={(value, name) =>
+                typeof value === "number"
+                  ? `$${value.toFixed(2)} ${name}`
+                  : `${value} ${name}`
+              }
               footer={(payload) => {
-                const total = getTooltipTotal(payload);
+                const total = payload.reduce(
+                  (sum, item) =>
+                    sum +
+                    (typeof item.value === "number" ? item.value : 0),
+                  0,
+                );
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>

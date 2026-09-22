@@ -64,6 +64,7 @@ import type { AgentTask } from "@multica/core/types/agent";
 import { ReadonlyContent } from "../../editor";
 import { TranscriptButton } from "../../common/task-transcript";
 import { AutopilotDialog } from "./autopilot-dialog";
+import { EditScheduleTriggerDialog } from "./edit-schedule-trigger-dialog";
 import { runNowToastKind, runNowBlockedKey } from "./run-now-toast";
 import { WebhookPayloadPreview } from "./webhook-payload-preview";
 import { WebhookDeliveriesSection } from "./webhook-deliveries-section";
@@ -115,33 +116,26 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
 
   // For runs with a task_id (run_only mode), build a minimal AgentTask so
   // TranscriptButton can lazy-load the execution transcript.
-  let syntheticTask: AgentTask | null = null;
-  if (run.task_id) {
-    let syntheticStatus: AgentTask["status"];
-    if (run.status === "running") {
-      syntheticStatus = "running";
-    } else if (run.status === "completed") {
-      syntheticStatus = "completed";
-    } else if (run.status === "failed") {
-      syntheticStatus = "failed";
-    } else {
-      syntheticStatus = "queued";
-    }
-    syntheticTask = {
-      id: run.task_id,
-      agent_id: agentId,
-      runtime_id: "",
-      issue_id: "",
-      status: syntheticStatus,
-      priority: 0,
-      dispatched_at: null,
-      started_at: run.triggered_at || null,
-      completed_at: run.completed_at || null,
-      result: null,
-      error: run.failure_reason || null,
-      created_at: run.created_at,
-    };
-  }
+  const syntheticTask: AgentTask | null = run.task_id
+    ? {
+        id: run.task_id,
+        agent_id: agentId,
+        runtime_id: "",
+        issue_id: "",
+        status:
+          run.status === "running" ? "running" :
+          run.status === "completed" ? "completed" :
+          run.status === "failed" ? "failed" :
+          "queued",
+        priority: 0,
+        dispatched_at: null,
+        started_at: run.triggered_at || null,
+        completed_at: run.completed_at || null,
+        result: null,
+        error: run.failure_reason || null,
+        created_at: run.created_at,
+      }
+    : null;
 
   const content = (
     <>
@@ -153,13 +147,11 @@ function RunRow({ run, agentId, agentName }: { run: AutopilotRun; agentId: strin
         {t(($) => $.run_source[run.source as "schedule" | "manual" | "webhook" | "api"]) ?? run.source}
       </span>
       <span className="flex-1 min-w-0 text-caption text-muted-foreground truncate">
-        {(() => {
-          if (run.issue_id) return t(($) => $.run.issue_linked);
-          if (run.failure_reason) {
-            return <span className="text-destructive">{run.failure_reason}</span>;
-          }
-          return null;
-        })()}
+        {run.issue_id ? (
+          t(($) => $.run.issue_linked)
+        ) : run.failure_reason ? (
+          <span className="text-destructive">{run.failure_reason}</span>
+        ) : null}
       </span>
       <span className="w-32 shrink-0 text-right text-caption text-muted-foreground tabular-nums">
         {formatInTimeZone(run.triggered_at || run.created_at, undefined, i18n.language)}
@@ -264,13 +256,14 @@ function SkippedRunsGroup({
   );
 }
 
-function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrigger; autopilotId: string; canWrite: boolean }) {
+export function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrigger; autopilotId: string; canWrite: boolean }) {
   const { t, i18n } = useT("autopilots");
   const describeSchedule = useDescribeSchedule();
   const deleteTrigger = useDeleteAutopilotTrigger();
   const rotateToken = useRotateAutopilotTriggerWebhookToken();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rotateOpen, setRotateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
@@ -317,14 +310,7 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
     }
   };
 
-  let Icon: typeof Webhook;
-  if (isWebhook) {
-    Icon = Webhook;
-  } else if (isApi) {
-    Icon = Zap;
-  } else {
-    Icon = Clock;
-  }
+  const Icon = isWebhook ? Webhook : isApi ? Zap : Clock;
   const showWebhookUrlRow = isWebhook && webhookUrl;
   // null when the expression is beyond the structured model — those rows keep
   // showing the raw cron on its own.
@@ -351,6 +337,23 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
     </Button>
   ) : null;
 
+  // Schedule rows only: cron and timezone are the fields this dialog edits, and
+  // the API rejects them on any other kind. It rides alongside Delete so the
+  // row that states a schedule is also the row that can change it — without it
+  // an autopilot with two schedules has no editable schedule at all (MUL-7478).
+  const editButton =
+    canWrite && trigger.kind === "schedule" ? (
+      <Button
+        size="icon"
+        variant="ghost"
+        className="h-7 w-7 shrink-0"
+        onClick={() => setEditOpen(true)}
+        title={t(($) => $.trigger_row.edit_schedule)}
+      >
+        <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+      </Button>
+    ) : null;
+
   return (
     <div className="flex items-start gap-3 rounded-md border px-3 py-2">
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
@@ -361,12 +364,12 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
             <span className="text-caption text-muted-foreground">({trigger.label})</span>
           )}
           {!trigger.enabled && (
-            <span className="text-caption bg-muted px-1.5 py-0.5 rounded">
+            <span className="text-caption bg-muted px-1.5 py-0.5 rounded-xs">
               {t(($) => $.trigger_row.disabled_badge)}
             </span>
           )}
           {isApi && (
-            <span className="text-caption bg-muted px-1.5 py-0.5 rounded">
+            <span className="text-caption bg-muted px-1.5 py-0.5 rounded-xs">
               {t(($) => $.trigger_row.deprecated_badge)}
             </span>
           )}
@@ -388,7 +391,11 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
             )}
           </div>
         )}
-        {trigger.next_run_at && (
+        {/* A disabled trigger keeps the next_run_at it had — the dispatcher
+            filters on `enabled` instead of clearing it — so the row would
+            otherwise carry the Disabled badge and a promise to run at 09:00
+            in the same breath. The badge is the true one. */}
+        {trigger.next_run_at && trigger.enabled && (
           <div className="text-caption text-muted-foreground">
             {t(($) => $.trigger_row.next_label, {
               date: formatInTimeZone(
@@ -424,7 +431,12 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
           </div>
         )}
       </div>
-      {!showWebhookUrlRow && deleteButton}
+      {!showWebhookUrlRow && (
+        <div className="flex shrink-0 items-center gap-0.5">
+          {editButton}
+          {deleteButton}
+        </div>
+      )}
       <AlertDialog open={confirmOpen} onOpenChange={(v) => { if (!v && !deleting) setConfirmOpen(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -449,6 +461,12 @@ function TriggerRow({ trigger, autopilotId, canWrite }: { trigger: AutopilotTrig
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <EditScheduleTriggerDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        autopilotId={autopilotId}
+        trigger={trigger}
+      />
       <AlertDialog open={rotateOpen} onOpenChange={(v) => { if (!v && !rotateToken.isPending) setRotateOpen(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -789,15 +807,6 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
     updateAutopilot.mutate({ id: autopilotId, status: checked ? "active" : "paused" });
   };
 
-  let statusColorClass: string;
-  if (autopilot.status === "active") {
-    statusColorClass = "text-emerald-500";
-  } else if (autopilot.status === "paused") {
-    statusColorClass = "text-amber-500";
-  } else {
-    statusColorClass = "text-muted-foreground";
-  }
-
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -820,7 +829,9 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
               />
               <span className={cn(
                 "text-caption font-medium hidden sm:inline",
-                statusColorClass,
+                autopilot.status === "active" ? "text-emerald-500" :
+                autopilot.status === "paused" ? "text-amber-500" :
+                "text-muted-foreground",
               )}>
                 {t(($) => $.status[autopilot.status])}
               </span>
@@ -921,33 +932,30 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
                   {t(($) => $.execution_mode[autopilot.execution_mode as AutopilotExecutionMode])}
                 </div>
               </div>
-              {autopilot.execution_mode === "create_issue" && (
-                <div>
-                  <label className="text-caption text-muted-foreground">{t(($) => $.detail.field_project)}</label>
-                  <div className="mt-1 min-w-0">
-                    {(() => {
-                      if (!autopilot.project_id) {
-                        return <span className="text-muted-foreground">{t(($) => $.detail.no_project)}</span>;
-                      }
-                      if (projectLoading) {
-                        return <Skeleton className="h-5 w-32" />;
-                      }
-                      if (project) {
-                        return (
-                          <AppLink
-                            href={wsPaths.projectDetail(project.id)}
-                            className="inline-flex max-w-full items-center gap-1.5 text-foreground hover:underline"
-                          >
-                            <ProjectIcon project={project} size="md" />
-                            <span className="truncate">{project.title}</span>
-                          </AppLink>
-                        );
-                      }
-                      return <span className="text-muted-foreground">{t(($) => $.detail.project_unavailable)}</span>;
-                    })()}
-                  </div>
+              {/* Shown for BOTH output modes (MUL-6681): a run_only autopilot's
+                  project decides its execution environment (repository /
+                  local_directory, and therefore worktree isolation), so an
+                  operator debugging a run needs to see it here. */}
+              <div>
+                <label className="text-caption text-muted-foreground">{t(($) => $.detail.field_project)}</label>
+                <div className="mt-1 min-w-0">
+                  {!autopilot.project_id ? (
+                    <span className="text-muted-foreground">{t(($) => $.detail.no_project)}</span>
+                  ) : projectLoading ? (
+                    <Skeleton className="h-5 w-32" />
+                  ) : project ? (
+                    <AppLink
+                      href={wsPaths.projectDetail(project.id)}
+                      className="inline-flex max-w-full items-center gap-1.5 text-foreground hover:underline"
+                    >
+                      <ProjectIcon project={project} size="md" />
+                      <span className="truncate">{project.title}</span>
+                    </AppLink>
+                  ) : (
+                    <span className="text-muted-foreground">{t(($) => $.detail.project_unavailable)}</span>
+                  )}
                 </div>
-              )}
+              </div>
               {autopilot.execution_mode === "create_issue" && (
                 <div className="col-span-2">
                   <label className="text-caption text-muted-foreground">
@@ -1008,31 +1016,23 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
             <h2 className="text-body font-medium text-muted-foreground uppercase tracking-wider">
               {t(($) => $.detail.section_run_history)}
             </h2>
-            {(() => {
-              if (runsLoading) {
-                return (
-                  <div className="space-y-1">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <Skeleton key={`run-skeleton-${i}`} className="h-10 w-full" />
-                    ))}
-                  </div>
-                );
-              }
-              if (runs.length === 0) {
-                return (
-                  <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
-                    {t(($) => $.detail.no_runs)}
-                  </div>
-                );
-              }
-              return (
-                <RunHistoryList
-                  runs={runs}
-                  agentId={autopilot.assignee_id}
-                  agentName={getActorName(autopilot.assignee_type, autopilot.assignee_id)}
-                />
-              );
-            })()}
+            {runsLoading ? (
+              <div className="space-y-1">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : runs.length === 0 ? (
+              <div className="rounded-md border border-dashed p-4 text-center text-body text-muted-foreground">
+                {t(($) => $.detail.no_runs)}
+              </div>
+            ) : (
+              <RunHistoryList
+                runs={runs}
+                agentId={autopilot.assignee_id}
+                agentName={getActorName(autopilot.assignee_type, autopilot.assignee_id)}
+              />
+            )}
           </section>
 
           {/* Danger zone */}

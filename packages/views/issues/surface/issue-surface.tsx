@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { StoreApi } from "zustand/vanilla";
+import type { IssueViewState } from "@multica/core/issues/stores/view-store";
+import type { IssueViewBaseline } from "@multica/core/issue-views/baseline";
 import { AlertTriangle, FilterX, ListTodo, Plus } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { cn } from "@multica/ui/lib/utils";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useQuery } from "@tanstack/react-query";
+import { workspaceWakeupSummariesOptions } from "@multica/core/issues/wakeups";
 import {
   useViewStore,
   ViewStoreProvider,
@@ -29,7 +34,6 @@ import { BoardView } from "../components/board-view";
 import { BatchActionToolbar } from "../components/batch-action-toolbar";
 import { GanttView } from "../components/gantt-view";
 import { IssuesHeader } from "../components/issues-header";
-import type { SaveViewScope } from "../components/save-view-dialog";
 import { ListView } from "../components/list-view";
 import { SwimLaneView } from "../components/swimlane-view";
 import { TableView } from "../components/table-view";
@@ -58,6 +62,19 @@ interface IssueSurfaceComponentProps extends IssueSurfaceProps {
   contentClassName?: string;
 }
 
+/** An explicit, caller-owned store bypasses saved views and persisted surfaces. */
+export function IssueSurfaceWithStore({ store, baseline, ...props }: Omit<IssueSurfaceComponentProps, "surfaceKey"> & {
+  store: StoreApi<IssueViewState>;
+  baseline: IssueViewBaseline;
+}) {
+  const wsId = useWorkspaceId();
+  return <ViewStoreProvider store={store}>
+    <ViewBaselineProvider baseline={baseline}>
+      <IssueSurfaceContent key={wsId} {...props} />
+    </ViewBaselineProvider>
+  </ViewStoreProvider>;
+}
+
 export function IssueSurface({
   scope,
   modes,
@@ -74,16 +91,14 @@ export function IssueSurface({
 }: IssueSurfaceComponentProps) {
   const wsId = useWorkspaceId();
   // Saved views exist on workspace / my / project surfaces only.
-  let viewScope: IssueViewScope | null;
-  if (scope.type === "workspace") {
-    viewScope = { scope_type: "workspace" };
-  } else if (scope.type === "my") {
-    viewScope = { scope_type: "my" };
-  } else if (scope.type === "project") {
-    viewScope = { scope_type: "project", scope_id: scope.projectId };
-  } else {
-    viewScope = null;
-  }
+  const viewScope: IssueViewScope | null =
+    scope.type === "workspace"
+      ? { scope_type: "workspace" }
+      : scope.type === "my"
+        ? { scope_type: "my" }
+        : scope.type === "project"
+          ? { scope_type: "project", scope_id: scope.projectId }
+          : null;
   const { activeView } = useActiveIssueView(wsId, viewScope);
 
   // An open saved view swaps the surface onto its own view-preference key:
@@ -105,14 +120,12 @@ export function IssueSurface({
   // own tab state is never touched — it is exactly where they left it when
   // the view closes (or vanishes). A variant-free view resolves to the
   // unrestricted axis value.
-  let effectiveScope: IssueScope;
-  if (activeView && (scope.type === "workspace" || scope.type === "project")) {
-    effectiveScope = { ...scope, actorKind: actorKindForViewVariant(activeView.scope_variant) };
-  } else if (activeView && scope.type === "my") {
-    effectiveScope = { ...scope, relation: myRelationForViewVariant(activeView.scope_variant) };
-  } else {
-    effectiveScope = scope;
-  }
+  const effectiveScope: IssueScope =
+    activeView && (scope.type === "workspace" || scope.type === "project")
+      ? { ...scope, actorKind: actorKindForViewVariant(activeView.scope_variant) }
+      : activeView && scope.type === "my"
+        ? { ...scope, relation: myRelationForViewVariant(activeView.scope_variant) }
+        : scope;
   const store = useMemo(() => {
     // First-open seeding happens HERE, at store-creation time for this key:
     // no React component has subscribed to the new key's store yet, so the
@@ -130,8 +143,7 @@ export function IssueSurface({
   // but expensive enough that unexpected flips are performance bugs. Dev-only
   // breadcrumb so a Performance trace showing double mounts can be tied to
   // the exact key transition.
-  const viewKeySegment = activeView ? `view:${activeView.id}` : "default";
-  const contentKey = `${wsId}:${issueScopeKey(effectiveScope)}:${viewKeySegment}`;
+  const contentKey = `${wsId}:${issueScopeKey(effectiveScope)}:${activeView ? `view:${activeView.id}` : "default"}`;
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
       console.warn(`[issue-surface] mount ${contentKey}`);
@@ -184,6 +196,9 @@ function IssueSurfaceContent({
   batchToolbar,
   contentClassName,
 }: Omit<IssueSurfaceComponentProps, "surfaceKey">) {
+  const workspaceId = useWorkspaceId();
+  // One polling owner for the whole surface; individual cards only select cache data.
+  useQuery({ ...workspaceWakeupSummariesOptions(workspaceId), refetchInterval: 10_000 });
   const { t } = useT("projects");
   const controller = useIssueSurfaceController({
     scope,
@@ -237,118 +252,6 @@ function IssueSurfaceContent({
       controller.viewMode === "list" ||
       controller.viewMode === "table");
 
-  let saveViewScope: SaveViewScope | null;
-  if (scope.type === "project") {
-    saveViewScope = { kind: "project", projectId: scope.projectId };
-  } else if (scope.type === "workspace") {
-    saveViewScope = { kind: "workspace" };
-  } else {
-    saveViewScope = null;
-  }
-
-  let statusEmptyOrContent: React.ReactNode;
-  if (controller.isStatusCatalogError) {
-    statusEmptyOrContent = (
-      <StatusCatalogErrorState onRetry={controller.retryStatusCatalog} />
-    );
-  } else if (controller.isLoading) {
-    statusEmptyOrContent = renderLoading ? (
-      renderLoading(renderContext)
-    ) : (
-      <IssueSurfaceSkeleton mode={controller.viewMode} />
-    );
-  } else if (controller.isEmpty || shouldShowClientEmpty) {
-    // A filtered-empty surface is NOT an empty surface. Claiming "no
-    // issues here yet" and offering to create one is wrong when the rows
-    // exist and a filter is hiding them — and it is the state the
-    // agents-working chip drops you into most often (MUL-5525). This
-    // branch precedes `renderEmpty` on purpose: every surface's own empty
-    // copy describes the unfiltered case.
-    if (controller.hasActiveFilters) {
-      statusEmptyOrContent = <FilteredEmptyState />;
-    } else if (renderEmpty) {
-      statusEmptyOrContent = renderEmpty(renderContext);
-    } else {
-      statusEmptyOrContent = (
-        <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
-          <ListTodo className="h-10 w-10 text-faint-foreground" />
-          <p className="text-body">{t(($) => $.detail.empty_issues_title)}</p>
-          <p className="text-caption">{t(($) => $.detail.empty_issues_hint)}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-1"
-            onClick={() => controller.openCreateIssue()}
-          >
-            <Plus className="size-3.5 mr-1.5" />
-            {t(($) => $.detail.empty_issues_new_button)}
-          </Button>
-        </div>
-      );
-    }
-  } else {
-    statusEmptyOrContent = (
-      <div className={cn("flex flex-col flex-1 min-h-0", contentClassName)}>
-        {controller.viewMode === "board" && (
-          <BoardView
-            issues={issues}
-            visibleStatuses={controller.visibleStatuses}
-            hiddenStatuses={controller.hiddenStatuses}
-            onMoveIssue={controller.moveIssue}
-            childProgressMap={controller.childProgressMap}
-            projectMap={controller.projectMap}
-            projectId={controller.projectId}
-            onCreateIssue={openCreateIssue}
-            statusPagination={controller.statusPagination}
-            groupBranches={controller.groupBranches}
-          />
-        )}
-        {controller.viewMode === "list" && (
-          <ListView
-            issues={issues}
-            visibleStatuses={controller.visibleStatuses}
-            childProgressMap={controller.childProgressMap}
-            projectMap={controller.projectMap}
-            projectId={controller.projectId}
-            onMoveIssue={controller.moveIssue}
-            onCreateIssue={openCreateIssue}
-            statusPagination={controller.statusPagination!}
-          />
-        )}
-        {controller.viewMode === "table" && (
-          <TableView
-            serverQuery={controller.tableQuerySpec}
-            childProgressMap={controller.childProgressMap}
-            search={controller.tableSearch}
-            onSearchChange={controller.setTableSearch}
-            onLoadedIssuesChange={handleTableLoadedIssuesChange}
-            onCreateIssue={openCreateIssue}
-            exportIssues={controller.exportTableIssues}
-            resolveExportLookups={controller.resolveTableExportLookups}
-          />
-        )}
-        {controller.viewMode === "gantt" && (
-          <GanttView issues={controller.filteredGanttIssues} />
-        )}
-        {controller.viewMode === "swimlane" && (
-          <SwimLaneView
-            issues={issues}
-            unfilteredIssues={swimlaneIssues}
-            activeFilters={controller.activeFilters}
-            visibleStatuses={controller.visibleStatuses}
-            hiddenStatuses={controller.hiddenStatuses}
-            onMoveIssue={controller.moveIssue}
-            childProgressMap={controller.childProgressMap}
-            projectMap={controller.projectMap}
-            projectId={controller.projectId}
-            onCreateIssue={openCreateIssue}
-            groupBranches={controller.groupBranches}
-          />
-        )}
-      </div>
-    );
-  }
-
   return (
     <IssueSurfaceActionsProvider actions={controller.actions}>
       {/* One shared right-click menu for every card/row this surface renders
@@ -370,14 +273,115 @@ function IssueSurfaceContent({
             }
             tableFacetCounts={controller.tableFacetCounts}
             onTableFacetChange={controller.setActiveTableFacet}
-            saveViewScope={saveViewScope}
+            saveViewScope={
+              scope.type === "project"
+                ? { kind: "project", projectId: scope.projectId }
+                : scope.type === "workspace"
+                  ? { kind: "workspace" }
+                  : null
+            }
           />
         )}
         {/* A failed status catalog precedes loading/empty/content on purpose.
             Row fetching is suspended while it is down (a custom status filter
             cannot be routed without it), so every branch below would render an
             unexplained empty surface with no way out. (MUL-6243) */}
-        {statusEmptyOrContent}
+        {controller.isStatusCatalogError ? (
+          <StatusCatalogErrorState onRetry={controller.retryStatusCatalog} />
+        ) : controller.isLoading ? (
+          renderLoading ? (
+            renderLoading(renderContext)
+          ) : (
+            <IssueSurfaceSkeleton mode={controller.viewMode} />
+          )
+        ) : controller.isEmpty || shouldShowClientEmpty ? (
+          // A filtered-empty surface is NOT an empty surface. Claiming "no
+          // issues here yet" and offering to create one is wrong when the rows
+          // exist and a filter is hiding them — and it is the state the
+          // agents-working chip drops you into most often (MUL-5525). This
+          // branch precedes `renderEmpty` on purpose: every surface's own empty
+          // copy describes the unfiltered case.
+          controller.hasActiveFilters ? (
+            <FilteredEmptyState />
+          ) : renderEmpty ? (
+            renderEmpty(renderContext)
+          ) : (
+            <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
+              <ListTodo className="h-10 w-10 text-faint-foreground" />
+              <p className="text-body">{t(($) => $.detail.empty_issues_title)}</p>
+              <p className="text-caption">{t(($) => $.detail.empty_issues_hint)}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-1"
+                onClick={() => controller.openCreateIssue()}
+              >
+                <Plus className="size-3.5 mr-1.5" />
+                {t(($) => $.detail.empty_issues_new_button)}
+              </Button>
+            </div>
+          )
+        ) : (
+          <div className={cn("flex flex-col flex-1 min-h-0", contentClassName)}>
+            {controller.viewMode === "board" && (
+              <BoardView
+                issues={issues}
+                visibleStatuses={controller.visibleStatuses}
+                hiddenStatuses={controller.hiddenStatuses}
+                onMoveIssue={controller.moveIssue}
+                childProgressMap={controller.childProgressMap}
+                projectMap={controller.projectMap}
+                projectId={controller.projectId}
+                onCreateIssue={openCreateIssue}
+                statusPagination={controller.statusPagination}
+                groupBranches={controller.groupBranches}
+              />
+            )}
+            {controller.viewMode === "list" && (
+              <ListView
+                issues={issues}
+                visibleStatuses={controller.visibleStatuses}
+                hiddenStatuses={controller.hiddenStatuses}
+                childProgressMap={controller.childProgressMap}
+                projectMap={controller.projectMap}
+                projectId={controller.projectId}
+                onMoveIssue={controller.moveIssue}
+                onCreateIssue={openCreateIssue}
+                statusPagination={controller.statusPagination!}
+              />
+            )}
+            {controller.viewMode === "table" && (
+              <TableView
+                serverQuery={controller.tableQuerySpec}
+                childProgressMap={controller.childProgressMap}
+                search={controller.tableSearch}
+                onSearchChange={controller.setTableSearch}
+                onLoadedIssuesChange={handleTableLoadedIssuesChange}
+                onCreateIssue={openCreateIssue}
+                exportIssues={controller.exportTableIssues}
+                resolveExportLookups={controller.resolveTableExportLookups}
+              />
+            )}
+            {controller.viewMode === "gantt" && (
+              <GanttView issues={controller.filteredGanttIssues} />
+            )}
+            {controller.viewMode === "swimlane" && (
+              <SwimLaneView
+                issues={issues}
+                unfilteredIssues={swimlaneIssues}
+                activeFilters={controller.activeFilters}
+                visibleStatuses={controller.visibleStatuses}
+                hiddenStatuses={controller.hiddenStatuses}
+                onMoveIssue={controller.moveIssue}
+                childProgressMap={controller.childProgressMap}
+                projectMap={controller.projectMap}
+                projectId={controller.projectId}
+                onCreateIssue={openCreateIssue}
+                groupBranches={controller.groupBranches}
+              />
+            )}
+          </div>
+        )}
         {shouldShowBatchToolbar && (
           <BatchActionToolbar
             issues={
@@ -429,7 +433,6 @@ function FilteredEmptyState() {
     <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-muted-foreground">
       <FilterX className="h-10 w-10 text-faint-foreground" />
       <p className="text-body">{t(($) => $.filtered_empty.title)}</p>
-      <p className="text-caption">{t(($) => $.filtered_empty.hint)}</p>
       <Button variant="outline" size="sm" className="mt-1" onClick={handleClear}>
         {t(($) => $.filtered_empty.clear_button)}
       </Button>
@@ -441,15 +444,12 @@ function FilteredEmptyState() {
 // inside its real grid so the header, column widths and toolbar are up before
 // any data is — a surface-level stand-in would replace all of that with bars
 // of a different shape and then jump when the rows arrived.
-const SKELETON_ROW_IDS = ["row-1", "row-2", "row-3", "row-4"];
-const SKELETON_COLUMN_IDS = ["col-1", "col-2", "col-3", "col-4", "col-5"];
-
 function IssueSurfaceSkeleton({ mode }: { mode: string }) {
   if (mode === "list") {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
-        {SKELETON_ROW_IDS.map((key) => (
-          <Skeleton key={key} className="h-10 w-full rounded-lg" />
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 w-full rounded-lg" />
         ))}
       </div>
     );
@@ -457,8 +457,8 @@ function IssueSurfaceSkeleton({ mode }: { mode: string }) {
 
   return (
     <div className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-4">
-      {SKELETON_COLUMN_IDS.map((key) => (
-        <div key={key} className="flex min-w-52 flex-1 flex-col gap-2">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex min-w-52 flex-1 flex-col gap-2">
           <Skeleton className="h-4 w-20" />
           <Skeleton className="h-24 w-full rounded-lg" />
           <Skeleton className="h-24 w-full rounded-lg" />

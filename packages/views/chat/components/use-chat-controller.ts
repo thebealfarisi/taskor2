@@ -11,11 +11,12 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useAuthStore } from "@multica/core/auth";
 import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
-import { canAssignAgent } from "@multica/views/issues/components";
+import { canAssignAgent } from "../../issues/components/pickers/assignee-picker";
 import { api, dispatchReasonCode } from "@multica/core/api";
 import {
   isAgentRuntimeBound as hasAgentRuntime,
   useAgentPresenceDetail,
+  useCustomizeConversationStartersHref,
   useWorkspaceAgentAvailability,
 } from "@multica/core/agents";
 import {
@@ -53,17 +54,6 @@ import { useAppForeground } from "../../common/use-app-foreground";
 
 const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
-
-// Shared by both send-error catch blocks below so the reason → toast copy
-// mapping lives in one place instead of two nested ternaries.
-function sendErrorToastMessage(
-  reason: string | undefined,
-  t: ReturnType<typeof useT<"chat">>["t"],
-): string {
-  if (reason === "invocation_not_allowed") return t(($) => $.input.send_blocked_toast);
-  if (reason === "agent_runtime_required") return t(($) => $.input.runtime_required_toast);
-  return t(($) => $.input.send_failed_toast);
-}
 
 // Derive a concise session title from the first user message: first line,
 // markdown stripped, whitespace collapsed, capped. A deterministic title
@@ -288,6 +278,25 @@ export function useChatController(opts?: { isActive?: boolean }) {
     () => setFocusInputRequest((n) => n + 1),
     [],
   );
+  const [conversationStarterRequest, setConversationStarterRequest] = useState<{
+    id: number;
+    content: string;
+  } | null>(null);
+  const nextConversationStarterRequestIdRef = useRef(0);
+  const prefillConversationStarter = useCallback(
+    (prompt: string) => {
+      setConversationStarterRequest({
+        id: ++nextConversationStarterRequestIdRef.current,
+        content: prompt,
+      });
+      requestInputFocus();
+    },
+    [requestInputFocus],
+  );
+  const handleConversationStarterApplied = useCallback(
+    () => setConversationStarterRequest(null),
+    [],
+  );
 
   const currentSession = activeSessionId
     ? sessions.find((s) => s.id === activeSessionId)
@@ -361,6 +370,14 @@ export function useChatController(opts?: { isActive?: boolean }) {
   // (MUL-6380). Same rule the server enforces, via the shared predicate.
   const isAgentAccessRevoked =
     !!activeAgent && !canAssignAgent(activeAgent, user?.id, memberRole);
+
+  // "Customize" under the starter buttons in the empty state — the only place
+  // that admits those buttons are configuration. Resolved here so the full
+  // page and the floating window cannot disagree about who sees it.
+  const customizeConversationStartersHref = useCustomizeConversationStartersHref(
+    activeAgent,
+    wsId,
+  );
 
   const agentAvailability = useWorkspaceAgentAvailability();
   const noAgent = agentAvailability === "none";
@@ -531,7 +548,15 @@ export function useChatController(opts?: { isActive?: boolean }) {
         // A revoked invoke permission blocks session create with a structured
         // 403 (MUL-4525) — name the cause instead of a generic failure.
         const reason = dispatchReasonCode(err);
-        toast.error(sendErrorToastMessage(reason, t));
+        toast.error(
+          reason === "invocation_not_allowed"
+            ? t(($) => $.input.send_blocked_toast)
+            : reason === "agent_runtime_required"
+              ? t(($) => $.input.runtime_required_toast)
+              : reason === "runtime_access_denied"
+                ? t(($) => $.input.runtime_access_denied_toast)
+                : t(($) => $.input.send_failed_toast),
+        );
         return false;
       }
       if (!sessionId) {
@@ -555,7 +580,15 @@ export function useChatController(opts?: { isActive?: boolean }) {
         // specific cause so the user knows it is a permission change, not a
         // transient failure they should retry.
         const reason = dispatchReasonCode(err);
-        toast.error(sendErrorToastMessage(reason, t));
+        toast.error(
+          reason === "invocation_not_allowed"
+            ? t(($) => $.input.send_blocked_toast)
+            : reason === "agent_runtime_required"
+              ? t(($) => $.input.runtime_required_toast)
+              : reason === "runtime_access_denied"
+                ? t(($) => $.input.runtime_access_denied_toast)
+                : t(($) => $.input.send_failed_toast),
+        );
         return false;
       }
       apiLogger.info("sendChatMessage.success", {
@@ -657,7 +690,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
       });
       return;
     }
-    cancelChatTask(pendingTaskId, activeSessionId, {
+    void cancelChatTask(pendingTaskId, activeSessionId, {
       restoreDraftToInput: true,
       source: "active-input",
     });
@@ -814,6 +847,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
     isAgentAccessRevoked,
     isAgentRuntimeBound,
     activeAgent,
+    customizeConversationStartersHref,
     noAgent,
     availability,
     // messages
@@ -831,6 +865,9 @@ export function useChatController(opts?: { isActive?: boolean }) {
     handleRestoreDraftApplied,
     // compose-box focus nonce (bumped on new chat)
     focusInputRequest,
+    conversationStarterRequest,
+    handleConversationStarterApplied,
+    prefillConversationStarter,
     // actions
     handleSend,
     handleStop,

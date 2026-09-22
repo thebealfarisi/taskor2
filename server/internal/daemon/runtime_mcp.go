@@ -54,7 +54,7 @@ func mergeRuntimeAndAgentMcpConfig(provider string, agentConfig json.RawMessage)
 	agentServers := map[string]any{}
 	if servers, ok := nestedRuntimeMcpMap(agentDocument, "mcpServers"); ok {
 		agentServers = servers
-	} else if provider == "opencode" {
+	} else if provider == "opencode" || provider == "codearts" {
 		// Older OpenCode agents may store the provider-native top-level `mcp`
 		// map. Its individual entries can still flow through the existing
 		// OpenCode adapter when placed under the canonical mcpServers envelope.
@@ -76,6 +76,22 @@ func mergeRuntimeAndAgentMcpConfig(provider string, agentConfig json.RawMessage)
 		return nil, fmt.Errorf("marshal merged MCP config: %w", err)
 	}
 	return raw, nil
+}
+
+// codeArtsUserConfigPath returns the first CodeArts user config file present,
+// following the official launcher's codearts_cli.json/codearts_cli.jsonc order.
+func codeArtsUserConfigPath(home string) string {
+	configDir := filepath.Join(home, ".codeartsdoer")
+	candidates := []string{
+		filepath.Join(configDir, "codearts_cli.json"),
+		filepath.Join(configDir, "codearts_cli.jsonc"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return candidates[0]
 }
 
 // codebuddyUserMcpConfigPath returns the user-scope MCP config file CodeBuddy
@@ -100,8 +116,8 @@ func codebuddyUserMcpConfigPath(home string) string {
 		configDir = filepath.Join(home, ".codebuddy")
 	}
 	candidates := []string{
-		filepath.Join(configDir, fileDotMCPJSON),
-		filepath.Join(configDir, fileMCPJSON),
+		filepath.Join(configDir, ".mcp.json"),
+		filepath.Join(configDir, "mcp.json"),
 		filepath.Join(home, ".codebuddy.json"),
 	}
 	for _, candidate := range candidates {
@@ -120,19 +136,19 @@ func unmarshalRuntimeMcpConfig(raw []byte, format string) (map[string]any, error
 	switch format {
 	case "toml":
 		if err := toml.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
+			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
 		}
 	case "jsonc":
 		stripped, err := stripJSONC(raw)
 		if err != nil {
-			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
+			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
 		}
 		if err := json.Unmarshal(stripped, &cfg); err != nil {
-			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
+			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
 		}
 	default:
 		if err := json.Unmarshal(raw, &cfg); err != nil {
-			return nil, fmt.Errorf(errFmtParseRuntimeMCPConfig, err)
+			return nil, fmt.Errorf("parse runtime MCP config: %w", err)
 		}
 	}
 	return cfg, nil
@@ -253,6 +269,8 @@ func loadRuntimeMcpServerConfigs(provider string) (map[string]any, bool, error) 
 	switch provider {
 	case "claude":
 		path, key, format = filepath.Join(home, ".claude.json"), "mcpServers", "json"
+	case "codearts":
+		path, key, format = codeArtsUserConfigPath(home), "mcp", "jsonc"
 	// codebuddy is deliberately absent. CodeBuddy loads its own user, project
 	// and local scopes on every launch (codebuddy.go never passes
 	// --strict-mcp-config), and a managed entry already wins a same-name
@@ -266,7 +284,7 @@ func loadRuntimeMcpServerConfigs(provider string) (map[string]any, bool, error) 
 		}
 		path, key, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", "toml"
 	case "cursor":
-		path, key, format = filepath.Join(home, ".cursor", fileMCPJSON), "mcpServers", "json"
+		path, key, format = filepath.Join(home, ".cursor", "mcp.json"), "mcpServers", "json"
 	case "opencode":
 		configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 		if configHome == "" {
@@ -343,7 +361,7 @@ func loadClaudePluginMcpServerConfigs(home string) map[string]any {
 		paths := claudePluginComponentPaths(
 			plugin.InstallPath,
 			manifest.MCPServers,
-			filepath.Join(plugin.InstallPath, fileDotMCPJSON),
+			filepath.Join(plugin.InstallPath, ".mcp.json"),
 		)
 		for _, path := range paths {
 			raw, err := os.ReadFile(path)
@@ -378,9 +396,11 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 	var format string
 	switch provider {
 	case "claude":
-		path, key, source, format = filepath.Join(home, ".claude.json"), "mcpServers", labelUserConfig, "json"
+		path, key, source, format = filepath.Join(home, ".claude.json"), "mcpServers", "User config", "json"
+	case "codearts":
+		path, key, source, format = codeArtsUserConfigPath(home), "mcp", "User config", "jsonc"
 	case "codebuddy":
-		path, key, source, format = codebuddyUserMcpConfigPath(home), "mcpServers", labelUserConfig, "jsonc"
+		path, key, source, format = codebuddyUserMcpConfigPath(home), "mcpServers", "User config", "jsonc"
 	case "kimi":
 		// Inventory only — kimi is deliberately absent from
 		// loadRuntimeMcpServerConfigs. `kimi acp` merges this file with the
@@ -390,21 +410,21 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 		if kimiHome == "" {
 			kimiHome = filepath.Join(home, ".kimi-code")
 		}
-		path, key, source, format = filepath.Join(kimiHome, fileMCPJSON), "mcpServers", labelUserConfig, "json"
+		path, key, source, format = filepath.Join(kimiHome, "mcp.json"), "mcpServers", "User config", "json"
 	case "codex":
 		codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
 		if codexHome == "" {
 			codexHome = filepath.Join(home, ".codex")
 		}
-		path, key, source, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", labelUserConfig, "toml"
+		path, key, source, format = filepath.Join(codexHome, "config.toml"), "mcp_servers", "User config", "toml"
 	case "cursor":
-		path, key, source, format = filepath.Join(home, ".cursor", fileMCPJSON), "mcpServers", labelUserConfig, "json"
+		path, key, source, format = filepath.Join(home, ".cursor", "mcp.json"), "mcpServers", "User config", "json"
 	case "opencode":
 		configHome := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
 		if configHome == "" {
 			configHome = filepath.Join(home, ".config")
 		}
-		path, key, source, format = filepath.Join(configHome, "opencode", "opencode.json"), "mcp", labelUserConfig, "json"
+		path, key, source, format = filepath.Join(configHome, "opencode", "opencode.json"), "mcp", "User config", "json"
 	case "openclaw":
 		path = strings.TrimSpace(os.Getenv("CLAWDBOT_CONFIG_PATH"))
 		if path == "" {
@@ -414,7 +434,18 @@ func listRuntimeLocalMcpServers(provider string) ([]runtimeLocalMcpServerSummary
 			}
 			path = filepath.Join(stateDir, "openclaw.json")
 		}
-		key, source, format = "mcp.servers", labelUserConfig, "json"
+		key, source, format = "mcp.servers", "User config", "json"
+	case "omp":
+		// Inventory scope: omp discovers servers from a multi-level precedence
+		// chain (.omp/mcp.json, .omp/.mcp.json, profile/user-level configs, and
+		// third-party tool configs such as .claude.json, .cursor/mcp.json,
+		// .vscode/mcp.json, and project-root mcp.json/.mcp.json). This inventory
+		// reads only ~/.omp/agent/mcp.json — the user-scope entry point — so a
+		// user who clears every server in the UI may still inherit servers from
+		// lower-precedence sources. This matches the simplification other
+		// providers already make and avoids sending full tool-chain state over
+		// the wire.
+		path, key, source, format = filepath.Join(home, ".omp", "agent", "mcp.json"), "mcpServers", "User config", "json"
 	default:
 		return []runtimeLocalMcpServerSummary{}, false, nil
 	}
@@ -486,7 +517,7 @@ func listClaudePluginMcpServers(home string) []runtimeLocalMcpServerSummary {
 		paths := claudePluginComponentPaths(
 			plugin.InstallPath,
 			manifest.MCPServers,
-			filepath.Join(plugin.InstallPath, fileDotMCPJSON),
+			filepath.Join(plugin.InstallPath, ".mcp.json"),
 		)
 		for _, path := range paths {
 			raw, err := os.ReadFile(path)

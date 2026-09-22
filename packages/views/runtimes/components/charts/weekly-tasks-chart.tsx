@@ -12,7 +12,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
-import { useT } from "../../../i18n";
+import { useLocale, useT } from "../../../i18n";
 
 // Weekly counterpart of DailyTasksChart — same completed/cancelled/failed
 // stacked bar, but each bar groups a Mon–Sun calendar week. Partial-week
@@ -39,19 +39,7 @@ export interface WeeklyTasksData {
 export function WeeklyTasksChart({ data }: { data: WeeklyTasksData[] }) {
   const { t } = useT("usage");
   const { t: tRuntimes } = useT("runtimes");
-
-  const getTooltipTotal = (
-    payload: ReadonlyArray<{ value?: string | number | readonly (string | number)[] | undefined }>,
-  ) => {
-    let total = 0;
-    for (const item of payload) {
-      if (typeof item.value === "number") {
-        total += item.value;
-      }
-    }
-    return total;
-  };
-
+  const locale = useLocale();
   return (
     <ChartContainer
       config={weeklyTasksChartConfig}
@@ -89,12 +77,17 @@ export function WeeklyTasksChart({ data }: { data: WeeklyTasksData[] }) {
               }}
               formatter={(value, name) => `${value} ${name}`}
               footer={(payload) => {
-                const total = getTooltipTotal(payload);
+                const total = payload.reduce(
+                  (sum, item) =>
+                    sum +
+                    (typeof item.value === "number" ? item.value : 0),
+                  0,
+                );
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{tRuntimes(($) => $.charts.tooltip_total)}</span>
                     <span className="font-mono tabular-nums">
-                      {total.toLocaleString()}
+                      {total.toLocaleString(locale)}
                     </span>
                   </div>
                 );

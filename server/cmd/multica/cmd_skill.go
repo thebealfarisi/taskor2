@@ -32,7 +32,7 @@ var skillListCmd = &cobra.Command{
 
 var skillGetCmd = &cobra.Command{
 	Use:   "get <id>",
-	Short: "Get skill details (includes files)",
+	Short: "Get skill details and its file list (use --with-content for the bodies)",
 	Args:  exactArgs(1),
 	RunE:  runSkillGet,
 }
@@ -121,28 +121,29 @@ func init() {
 	skillFilesCmd.AddCommand(skillFilesDeleteCmd)
 
 	// skill list
-	skillListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	skillListCmd.Flags().String("output", "table", "Output format: table or json")
 
 	// skill get
-	skillGetCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillGetCmd.Flags().String("output", "json", "Output format: table or json")
+	skillGetCmd.Flags().Bool("with-content", false, "Include the SKILL.md body and every file body. Off by default: the response grows with the skill and large skills cannot be fetched this way over slow links.")
 
 	// skill create
 	skillCreateCmd.Flags().String("name", "", "Skill name (required)")
 	skillCreateCmd.Flags().String("description", "", "Skill description")
 	skillCreateCmd.Flags().String("content", "", "Skill content (SKILL.md body)")
-	skillCreateCmd.Flags().Bool(flagContentStdin, false, "Read skill content from stdin. Mutually exclusive with --content and --content-file.")
-	skillCreateCmd.Flags().String(flagContentFile, "", "Read skill content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillCreateCmd.Flags().Bool("content-stdin", false, "Read skill content from stdin. Mutually exclusive with --content and --content-file.")
+	skillCreateCmd.Flags().String("content-file", "", "Read skill content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
 	skillCreateCmd.Flags().String("config", "", "Skill config as JSON string")
-	skillCreateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillCreateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// skill update
 	skillUpdateCmd.Flags().String("name", "", "New name")
 	skillUpdateCmd.Flags().String("description", "", "New description")
 	skillUpdateCmd.Flags().String("content", "", "New content")
-	skillUpdateCmd.Flags().Bool(flagContentStdin, false, "Read new content from stdin. Mutually exclusive with --content and --content-file.")
-	skillUpdateCmd.Flags().String(flagContentFile, "", "Read new content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillUpdateCmd.Flags().Bool("content-stdin", false, "Read new content from stdin. Mutually exclusive with --content and --content-file.")
+	skillUpdateCmd.Flags().String("content-file", "", "Read new content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
 	skillUpdateCmd.Flags().String("config", "", "New config as JSON string")
-	skillUpdateCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillUpdateCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// skill delete
 	skillDeleteCmd.Flags().Bool("yes", false, "Skip confirmation prompt")
@@ -151,37 +152,83 @@ func init() {
 	skillImportCmd.Flags().String("url", "", "URL to import from (clawhub.ai, skills.sh, or github.com). Mutually exclusive with --file.")
 	skillImportCmd.Flags().String("file", "", "Path to a local skill archive (.skill or .zip) to import. Mutually exclusive with --url.")
 	skillImportCmd.Flags().String("on-conflict", "fail", "Conflict strategy when a skill with the same name exists: fail, overwrite, rename, or skip")
-	skillImportCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillImportCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// skill refresh
-	skillRefreshCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillRefreshCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// skill search
-	skillSearchCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillSearchCmd.Flags().String("output", "json", "Output format: table or json")
 
 	// skill files list
-	skillFilesListCmd.Flags().String("output", "table", flagOutputFormatDesc)
+	skillFilesListCmd.Flags().String("output", "table", "Output format: table or json")
+	skillFilesListCmd.Flags().Bool("with-content", false, "Include each file's body. Off by default: use it to read a file, not to list them.")
 
 	// skill files upsert
 	skillFilesUpsertCmd.Flags().String("path", "", "File path within the skill (required)")
 	skillFilesUpsertCmd.Flags().String("content", "", "File content (required)")
-	skillFilesUpsertCmd.Flags().Bool(flagContentStdin, false, "Read file content from stdin. Mutually exclusive with --content and --content-file.")
-	skillFilesUpsertCmd.Flags().String(flagContentFile, "", "Read file content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
-	skillFilesUpsertCmd.Flags().String("output", "json", flagOutputFormatDesc)
+	skillFilesUpsertCmd.Flags().Bool("content-stdin", false, "Read file content from stdin. Mutually exclusive with --content and --content-file.")
+	skillFilesUpsertCmd.Flags().String("content-file", "", "Read file content from a UTF-8 file. Mutually exclusive with --content and --content-stdin.")
+	skillFilesUpsertCmd.Flags().String("output", "json", "Output format: table or json")
 }
 
 // ---------------------------------------------------------------------------
 // Skill commands
 // ---------------------------------------------------------------------------
 
+// newSkillAPIClient is newAPIClient with the transport swapped for the
+// stall-aware one (see internal/cli/stall.go). Skill payloads are the largest
+// responses the CLI reads, so they are where a total-elapsed deadline breaks
+// first — a 599KB skill could not be fetched at all over a link that was
+// delivering it perfectly well, just not within 30s (GH #7498).
+//
+// It reuses newAPIClient rather than duplicating credential and header
+// resolution: this is a pilot of which commands adopt the mechanism, not a
+// second CLI client. Graduating it means moving the transport into
+// cli.NewAPIClient and deleting this function.
+func newSkillAPIClient(cmd *cobra.Command) (*cli.APIClient, error) {
+	client, err := newAPIClient(cmd)
+	if err != nil {
+		return nil, err
+	}
+	client.HTTPClient = cli.NewStallAwareHTTPClient()
+	return client, nil
+}
+
+// skillFileSizeCell renders the `size` field of a file-metadata response.
+//
+// It cannot go through strVal: JSON numbers decode as float64, and strVal's
+// %v prints a 1.2MB file as "1.234567e+06" — unreadable exactly when the file
+// is big enough to be the one you are looking for. formatBytes is the same
+// renderer the daemon table uses.
+func skillFileSizeCell(m map[string]any) string {
+	size, ok := m["size"].(float64)
+	if !ok {
+		return strVal(m, "size")
+	}
+	return formatBytes(int64(size))
+}
+
+// skillIncludeQuery renders the ?include= parameter the skill endpoints take.
+// The CLI asks for metadata by default: `skill get`'s table view prints four
+// columns, and `skill files list` prints none of the file bodies, so pulling
+// every byte of content to render them was pure cost — and, past a few hundred
+// KB, the reason neither command completed.
+func skillIncludeQuery(cmd *cobra.Command) string {
+	if withContent, _ := cmd.Flags().GetBool("with-content"); withContent {
+		return "?include=content"
+	}
+	return "?include=metadata"
+}
+
 // resolveSkillContentFlag intentionally stays separate from resolveTextFlag.
 // Skill bodies are Markdown documents where byte-level preservation matters:
 // inline --content is not backslash-unescaped, and stdin/file input is not
 // trimmed, so agents can round-trip generated SKILL.md content exactly.
 func resolveSkillContentFlag(cmd *cobra.Command) (string, bool, error) {
-	useStdin, _ := cmd.Flags().GetBool(flagContentStdin)
+	useStdin, _ := cmd.Flags().GetBool("content-stdin")
 	inline, _ := cmd.Flags().GetString("content")
-	filePath, _ := cmd.Flags().GetString(flagContentFile)
+	filePath, _ := cmd.Flags().GetString("content-file")
 	inlineSet := cmd.Flags().Changed("content")
 
 	sources := 0
@@ -262,16 +309,16 @@ func runSkillList(cmd *cobra.Command, _ []string) error {
 }
 
 func runSkillGet(cmd *cobra.Command, args []string) error {
-	client, err := newAPIClient(cmd)
+	client, err := newSkillAPIClient(cmd)
 	if err != nil {
 		return err
 	}
 
-	ctx, cancel := cli.APIContext(context.Background())
+	ctx, cancel := cli.StallAwareContext(context.Background())
 	defer cancel()
 
 	var skill map[string]any
-	if err := client.GetJSON(ctx, apiSkillsPrefix+args[0], &skill); err != nil {
+	if err := client.GetJSON(ctx, "/api/skills/"+args[0]+skillIncludeQuery(cmd), &skill); err != nil {
 		return fmt.Errorf("get skill: %w", err)
 	}
 
@@ -380,7 +427,7 @@ func runSkillUpdate(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, apiSkillsPrefix+args[0], body, &result); err != nil {
+	if err := client.PutJSON(ctx, "/api/skills/"+args[0], body, &result); err != nil {
 		return fmt.Errorf("update skill: %w", err)
 	}
 
@@ -414,7 +461,7 @@ func runSkillDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	if err := client.DeleteJSON(ctx, apiSkillsPrefix+args[0]); err != nil {
+	if err := client.DeleteJSON(ctx, "/api/skills/"+args[0]); err != nil {
 		return fmt.Errorf("delete skill: %w", err)
 	}
 
@@ -434,7 +481,7 @@ func runSkillRefresh(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PostJSON(ctx, apiSkillsPrefix+args[0]+"/refresh", map[string]any{}, &result); err != nil {
+	if err := client.PostJSON(ctx, "/api/skills/"+args[0]+"/refresh", map[string]any{}, &result); err != nil {
 		return fmt.Errorf("refresh skill: %w", err)
 	}
 
@@ -637,16 +684,16 @@ func runSkillSearch(cmd *cobra.Command, args []string) error {
 // ---------------------------------------------------------------------------
 
 func runSkillFilesList(cmd *cobra.Command, args []string) error {
-	client, err := newAPIClient(cmd)
+	client, err := newSkillAPIClient(cmd)
 	if err != nil {
 		return err
 	}
 
-	ctx, cancel := cli.APIContext(context.Background())
+	ctx, cancel := cli.StallAwareContext(context.Background())
 	defer cancel()
 
 	var files []map[string]any
-	if err := client.GetJSON(ctx, apiSkillsPrefix+args[0]+"/files", &files); err != nil {
+	if err := client.GetJSON(ctx, "/api/skills/"+args[0]+"/files"+skillIncludeQuery(cmd), &files); err != nil {
 		return fmt.Errorf("list skill files: %w", err)
 	}
 
@@ -655,15 +702,23 @@ func runSkillFilesList(cmd *cobra.Command, args []string) error {
 		return cli.PrintJSON(os.Stdout, files)
 	}
 
-	headers := []string{"ID", "PATH", "CREATED_AT", "UPDATED_AT"}
+	// SIZE is what makes an oversized skill diagnosable: it names the file to
+	// look at without downloading any of them. The content shape carries no
+	// size field, so the column is dropped under --with-content rather than
+	// rendered empty.
+	withContent, _ := cmd.Flags().GetBool("with-content")
+	headers := []string{"ID", "PATH", "SIZE", "CREATED_AT", "UPDATED_AT"}
+	if withContent {
+		headers = []string{"ID", "PATH", "CREATED_AT", "UPDATED_AT"}
+	}
 	rows := make([][]string, 0, len(files))
 	for _, f := range files {
-		rows = append(rows, []string{
-			strVal(f, "id"),
-			strVal(f, "path"),
-			strVal(f, "created_at"),
-			strVal(f, "updated_at"),
-		})
+		row := []string{strVal(f, "id"), strVal(f, "path")}
+		if !withContent {
+			row = append(row, skillFileSizeCell(f))
+		}
+		row = append(row, strVal(f, "created_at"), strVal(f, "updated_at"))
+		rows = append(rows, row)
 	}
 	cli.PrintTable(os.Stdout, headers, rows)
 	return nil
@@ -696,7 +751,7 @@ func runSkillFilesUpsert(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	var result map[string]any
-	if err := client.PutJSON(ctx, apiSkillsPrefix+args[0]+"/files", body, &result); err != nil {
+	if err := client.PutJSON(ctx, "/api/skills/"+args[0]+"/files", body, &result); err != nil {
 		return fmt.Errorf("upsert skill file: %w", err)
 	}
 
@@ -718,7 +773,7 @@ func runSkillFilesDelete(cmd *cobra.Command, args []string) error {
 	ctx, cancel := cli.APIContext(context.Background())
 	defer cancel()
 
-	if err := client.DeleteJSON(ctx, apiSkillsPrefix+args[0]+"/files/"+args[1]); err != nil {
+	if err := client.DeleteJSON(ctx, "/api/skills/"+args[0]+"/files/"+args[1]); err != nil {
 		return fmt.Errorf("delete skill file: %w", err)
 	}
 

@@ -3,14 +3,13 @@
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Issue, Project } from "@multica/core/types";
-import { ALL_STATUSES } from "@multica/core/issues/config";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { childIssueProgressOptions } from "@multica/core/issues/queries";
 import { issueSurfaceGanttOptions } from "@multica/core/issues/surface/repository";
 import type { IssueSurfaceQueryPlan } from "@multica/core/issues/surface/query-plan";
-import type { IssueStatus, IssueStatusCategory } from "@multica/core/types";
+import type { IssueStatus, ProjectStatus, PropertyFilterValue } from "@multica/core/types";
 import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
-import { issueBehavesAsAny, statusFilterColumns } from "@multica/core/issues";
+import { issueBehavesAsAny, statusColumnKeys, visibleStatusKeys } from "@multica/core/issues";
 import {
   applyIssueFilters,
   type IssueFilterState,
@@ -48,7 +47,7 @@ function ganttCanvasRows(issues: Issue[], showCompleted: boolean): Issue[] {
   if (showCompleted) return dated;
   // By CATEGORY: a custom status in done/cancelled is completed work, and
   // "show completed" has to hide it too. (MUL-6243)
-  return dated.filter((i) => !issueBehavesAsAny(i, ["done", "cancelled"]));
+  return dated.filter((i) => !issueBehavesAsAny(i, ["done", "closed"]));
 }
 
 export interface IssueSurfaceData {
@@ -62,8 +61,8 @@ export interface IssueSurfaceData {
   ganttWorkingScopeIssues: Issue[] | undefined;
   filteredGanttIssues: Issue[];
   ganttIssues: Issue[];
-  visibleStatuses: IssueStatusCategory[];
-  hiddenStatuses: IssueStatusCategory[];
+  visibleStatuses: IssueStatus[];
+  hiddenStatuses: IssueStatus[];
   statusPagination: IssueStatusPagination;
   activeFilters: Omit<IssueFilters, "statusFilters">;
   childProgressMap: Map<string, ChildProgress>;
@@ -77,11 +76,15 @@ export interface IssueSurfaceData {
   }>;
   isLoading: boolean;
   /**
-   * The catalog request a CUSTOM status filter depends on failed. The filter
-   * cannot be honoured without it, so the surface shows a retryable error
-   * rather than an unexplained empty board. (MUL-6243)
+   * A filter catalog this surface depends on failed. The filter cannot be
+   * honoured without it, so the surface shows a retryable error rather than
+   * an unexplained empty board (MUL-6243) — or, for the project-status
+   * filter, an unfiltered one under an active chip.
    */
   isStatusCatalogError: boolean;
+  /** Re-runs the project list behind the project-status half of
+   *  {@link isStatusCatalogError}. */
+  retryProjectCatalog: () => void;
   /** The window's data is being revalidated while the previous snapshot is
    *  shown as a placeholder (sort/date change, or any grouped-board filter
    *  change). Drives the header's deferred refresh indicator — content stays
@@ -100,7 +103,7 @@ export function useIssueSurfaceData({
   serverGroupBranches,
   ganttShowCompleted,
   statusFilters,
-  hiddenStatusCategories,
+  hiddenStatusKeys,
   statusFilterPending,
   statusFilterError,
   priorityFilters,
@@ -110,6 +113,7 @@ export function useIssueSurfaceData({
   creatorFilters,
   projectFilters,
   includeNoProject,
+  projectStatusFilters,
   labelFilters,
   propertyFilters,
   workingIssueIDs,
@@ -127,7 +131,7 @@ export function useIssueSurfaceData({
    *  rows without it, so the working scope has to honour it too. */
   ganttShowCompleted: boolean;
   statusFilters: IssueStatus[];
-  hiddenStatusCategories: IssueStatusCategory[];
+  hiddenStatusKeys: IssueStatus[];
   /** A custom status filter is waiting on the catalog — hold loading. */
   statusFilterPending: boolean;
   /** The catalog failed, so a custom status filter cannot be honoured. */
@@ -139,8 +143,9 @@ export function useIssueSurfaceData({
   creatorFilters: IssueFilterState["creatorFilters"];
   projectFilters: string[];
   includeNoProject: boolean;
+  projectStatusFilters: ProjectStatus[];
   labelFilters: string[];
-  propertyFilters: Record<string, string[]>;
+  propertyFilters: Record<string, PropertyFilterValue[]>;
   /** Distinct running-task issue ids projected by `/api/working-agents`. */
   workingIssueIDs: ReadonlySet<string>;
   showSubIssues: boolean;
@@ -150,33 +155,67 @@ export function useIssueSurfaceData({
     ...issueSurfaceGanttOptions(wsId, projectId ?? "", queryPlan),
     enabled: usesGantt,
   });
-  const workingFilterContext = useMemo(
-    () => ({ runningIssueIds: workingIssueIDs }),
-    [workingIssueIDs],
+  const {
+    data: projectData,
+    refetch: refetchProjects,
+    isPending: projectsPending,
+    isError: projectsError,
+  } = useQuery({
+    ...projectListOptions(wsId),
+    enabled: loadProjects,
+  });
+  const projects = projectData ?? EMPTY_PROJECTS;
+  const projectMap = useMemo(
+    () => new Map(projects.map((project) => [project.id, project])),
+    [projects],
   );
-  let bucketedIssues: Issue[];
-  if (serverStatusBranches.enabled) {
-    bucketedIssues = serverStatusBranches.issues;
-  } else if (serverGroupBranches.enabled) {
-    bucketedIssues = serverGroupBranches.issues;
-  } else {
-    bucketedIssues = EMPTY_ISSUES;
-  }
+  // Keyed off `projectData`, NOT `projects`: the latter falls back to
+  // EMPTY_PROJECTS while the query is loading or failed, which would build a
+  // defined-but-empty map. `applyIssueFilters` treats a defined map as
+  // authoritative, so that map would drop every issue and blank the board.
+  // `undefined` is the honest answer until the catalog actually arrives, and
+  // it makes the predicate a no-op.
+  const projectStatusById = useMemo(
+    () =>
+      projectData
+        ? new Map(projectData.map((project) => [project.id, project.status]))
+        : undefined,
+    [projectData],
+  );
+  // An unresolved catalog is "cannot answer yet", not "no filter". Showing
+  // UNFILTERED rows under an active chip is as wrong as blanking the surface,
+  // and a failed project request would leave it that way for good. So where a
+  // surface actually applies the client predicate, hold it in loading and
+  // report the failure — the same contract `statusFilterPending` /
+  // `statusFilterError` give a custom status filter. Table and the
+  // server-status branches filter server-side and never read the catalog.
+  const usesClientProjectStatusFilter =
+    projectStatusFilters.length > 0 &&
+    !usesTable &&
+    (usesGantt || !serverStatusBranches.enabled);
+  const projectCatalogPending = usesClientProjectStatusFilter && projectsPending;
+  const projectCatalogError = usesClientProjectStatusFilter && projectsError;
 
-  // `cancelled` is a first-class default status (MUL-4290): it is fetched into
-  // the cache like every other status and flows straight through to list /
-  // board / swimlane columns, header facet counts, batch selection, and the
-  // isEmpty check. The status filter narrows this set like any other status —
-  // it no longer unlocks an otherwise-hidden bucket.
+  const workingFilterContext = useMemo(
+    () => ({ runningIssueIds: workingIssueIDs, projectStatusById }),
+    [projectStatusById, workingIssueIDs],
+  );
+  const bucketedIssues = serverStatusBranches.enabled
+    ? serverStatusBranches.issues
+    : serverGroupBranches.enabled
+      ? serverGroupBranches.issues
+      : EMPTY_ISSUES;
+
+  // Status branches already reflect the visible category set chosen by the
+  // controller. Cancelled is hidden for a new view, but remains a first-class
+  // branch once the user restores it or selects it explicitly in a status
+  // filter; no client-only exclusion happens here.
   const ganttIssues = ganttIssuesQuery.data ?? EMPTY_ISSUES;
-  let surfaceIssues: Issue[];
-  if (usesGantt) {
-    surfaceIssues = ganttIssues;
-  } else if (usesTable) {
-    surfaceIssues = EMPTY_ISSUES;
-  } else {
-    surfaceIssues = bucketedIssues;
-  }
+  const surfaceIssues = usesGantt
+    ? ganttIssues
+    : usesTable
+      ? EMPTY_ISSUES
+      : bucketedIssues;
 
   const baseFilterState = useMemo<IssueFilterState>(
     () => ({
@@ -187,6 +226,7 @@ export function useIssueSurfaceData({
       creatorFilters,
       projectFilters,
       includeNoProject,
+      projectStatusFilters,
       labelFilters,
       propertyFilters,
       workingOnly: agentRunningFilter,
@@ -201,6 +241,7 @@ export function useIssueSurfaceData({
       labelFilters,
       priorityFilters,
       projectFilters,
+      projectStatusFilters,
       propertyFilters,
       showSubIssues,
       statusFilters,
@@ -296,18 +337,6 @@ export function useIssueSurfaceData({
     refetch: refetchChildProgress,
   } = useQuery(childIssueProgressOptions(wsId));
   const childProgressMap = childProgressData ?? EMPTY_CHILD_PROGRESS;
-  const {
-    data: projectData,
-    refetch: refetchProjects,
-  } = useQuery({
-    ...projectListOptions(wsId),
-    enabled: loadProjects,
-  });
-  const projects = projectData ?? EMPTY_PROJECTS;
-  const projectMap = useMemo(
-    () => new Map(projects.map((project) => [project.id, project])),
-    [projects],
-  );
   const resolveTableExportLookups = useCallback(
     async (needs: { projects: boolean; childProgress: boolean }) => {
       const [projectResult, progressResult] = await Promise.all([
@@ -342,32 +371,19 @@ export function useIssueSurfaceData({
 
   const catalog = useIssueStatuses(wsId);
 
-  const visibleStatuses = useMemo<IssueStatusCategory[]>(() => {
-    // Board columns are CATEGORIES, not status keys — adding a custom status
-    // must never add a column. Two independent things narrow them: hidden
-    // columns (display state) and the status filter, which is expressed in
-    // concrete KEYS and so has to be mapped back to the columns those keys land
-    // in. Default view shows every category, `cancelled` last (its canonical
-    // position in ALL_STATUSES). (MUL-6243)
-    const resolved =
-      statusFilters.length > 0 ? statusFilterColumns(statusFilters, catalog) : null;
-    // Pending/error contribute no narrowing here; the surface's loading and
-    // error states (statusFilterPending / statusFilterError) are what stop it
-    // rendering as though the empty result were the answer.
-    const selected = resolved?.state === "resolved" ? resolved.columns : null;
-    return ALL_STATUSES.filter(
-      (s) =>
-        !hiddenStatusCategories.includes(s) &&
-        (selected === null || selected.has(s)),
+  const visibleStatuses = useMemo<IssueStatus[]>(() => {
+    // An explicit exact-key filter wins over hidden column preferences.
+    return visibleStatusKeys(
+      statusFilters,
+      hiddenStatusKeys,
+      catalog,
     );
-  }, [statusFilters, hiddenStatusCategories, catalog]);
+  }, [statusFilters, hiddenStatusKeys, catalog]);
 
-  // Hidden columns are the lifecycle statuses not currently visible, so
-  // `cancelled` participates in the board show/hide controls exactly like the
-  // rest of the statuses.
-  const hiddenStatuses = useMemo<IssueStatusCategory[]>(
-    () => ALL_STATUSES.filter((s) => !visibleStatuses.includes(s)),
-    [visibleStatuses],
+  // Each catalog status can be hidden or restored independently.
+  const hiddenStatuses = useMemo<IssueStatus[]>(
+    () => statusColumnKeys(catalog).filter((s) => !visibleStatuses.includes(s)),
+    [catalog, visibleStatuses],
   );
 
   const activeFilters = useMemo(
@@ -380,6 +396,8 @@ export function useIssueSurfaceData({
       creatorFilters,
       projectFilters,
       includeNoProject,
+      projectStatusFilters,
+      projectStatusById,
       labelFilters,
       propertyFilters,
       showSubIssues,
@@ -394,6 +412,8 @@ export function useIssueSurfaceData({
       propertyFilters,
       priorityFilters,
       projectFilters,
+      projectStatusById,
+      projectStatusFilters,
       showSubIssues,
       workingIssueIDs,
     ],
@@ -403,29 +423,25 @@ export function useIssueSurfaceData({
   // filter waits for the catalog to say which column it belongs to. Without it
   // the surface reported "loaded, zero results" — an empty board with no
   // spinner — for the whole cold-load window. (MUL-6243)
-  let branchLoading: boolean;
-  if (serverGroupBranches.enabled) {
-    branchLoading = serverGroupBranches.isLoading;
-  } else if (usesGantt) {
-    branchLoading = ganttIssuesQuery.isLoading;
-  } else if (serverStatusBranches.enabled) {
-    branchLoading = serverStatusBranches.isLoading;
-  } else {
-    branchLoading = false;
-  }
-  const isLoading = statusFilterPending || branchLoading;
+  const isLoading =
+    statusFilterPending ||
+    projectCatalogPending ||
+    (serverGroupBranches.enabled
+      ? serverGroupBranches.isLoading
+      : usesGantt
+        ? ganttIssuesQuery.isLoading
+        : serverStatusBranches.enabled
+          ? serverStatusBranches.isLoading
+          : false);
 
   // Placeholder-backed revalidation of the ACTIVE query only. First loads are
   // isLoading (no previous data to place-hold); gantt has no placeholder
   // phase (its key carries no sort/filter).
-  let isRefreshing: boolean;
-  if (serverGroupBranches.enabled) {
-    isRefreshing = serverGroupBranches.isRefreshing;
-  } else if (serverStatusBranches.enabled) {
-    isRefreshing = serverStatusBranches.isRefreshing;
-  } else {
-    isRefreshing = false;
-  }
+  const isRefreshing = serverGroupBranches.enabled
+    ? serverGroupBranches.isRefreshing
+    : serverStatusBranches.enabled
+      ? serverStatusBranches.isRefreshing
+      : false;
 
   return {
     surfaceIssues,
@@ -455,6 +471,7 @@ export function useIssueSurfaceData({
     isEmpty:
       !isLoading &&
       !statusFilterError &&
+      !projectCatalogError &&
       !usesGantt &&
       !usesTable &&
       (serverStatusBranches.enabled
@@ -463,6 +480,10 @@ export function useIssueSurfaceData({
         : serverGroupBranches.enabled &&
           !serverGroupBranches.isError &&
           serverGroupBranches.total === 0),
-    isStatusCatalogError: statusFilterError,
+    // Widened past the status catalog: this flag means "a filter catalog this
+    // surface depends on is down", and the error state's copy and retry fit
+    // either one. `retryStatusCatalog` refetches both.
+    isStatusCatalogError: statusFilterError || projectCatalogError,
+    retryProjectCatalog: refetchProjects,
   };
 }

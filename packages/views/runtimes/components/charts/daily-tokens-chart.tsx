@@ -12,7 +12,7 @@ import {
   type ChartConfig,
 } from "@multica/ui/components/ui/chart";
 import { formatTokens, type DailyTokenData } from "../../utils";
-import { useT } from "../../../i18n";
+import { useLocale, useT } from "../../../i18n";
 
 // Four-segment stack — input / output / cache read / cache write. Unlike the
 // cost chart, cache reads ARE visible here: a typical day on Claude shows
@@ -34,33 +34,7 @@ export const tokenStackConfig = {
 
 export function DailyTokensChart({ data }: { data: DailyTokenData[] }) {
   const { t } = useT("runtimes");
-
-  const formatTooltipValue = (
-    value: string | number | readonly (string | number)[] | undefined,
-    name: string | number | undefined,
-  ) => {
-    const label = name == null ? "" : String(name);
-    if (typeof value === "number") {
-      return `${formatTokens(value)} ${label}`;
-    }
-    if (typeof value === "string") {
-      return `${value} ${label}`;
-    }
-    return `${String(value ?? "")} ${label}`;
-  };
-
-  const getTooltipTotal = (
-    payload: ReadonlyArray<{ value?: string | number | readonly (string | number)[] | undefined }>,
-  ) => {
-    let total = 0;
-    for (const item of payload) {
-      if (typeof item.value === "number") {
-        total += item.value;
-      }
-    }
-    return total;
-  };
-
+  const locale = useLocale();
   // No internal empty-state — same convention as DailyCostChart: the parent
   // decides what to render when there's nothing to show.
   return (
@@ -84,14 +58,23 @@ export function DailyTokensChart({ data }: { data: DailyTokenData[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              formatter={(value, name) => formatTooltipValue(value, name)}
+              formatter={(value, name) =>
+                typeof value === "number"
+                  ? `${formatTokens(value)} ${name}`
+                  : `${value} ${name}`
+              }
               footer={(payload) => {
-                const total = getTooltipTotal(payload);
+                const total = payload.reduce(
+                  (sum, item) =>
+                    sum +
+                    (typeof item.value === "number" ? item.value : 0),
+                  0,
+                );
                 return (
                   <div className="flex items-center justify-between gap-2 font-medium">
                     <span>{t(($) => $.charts.tooltip_total)}</span>
                     <span className="font-mono tabular-nums">
-                      {total.toLocaleString()}
+                      {total.toLocaleString(locale)}
                     </span>
                   </div>
                 );

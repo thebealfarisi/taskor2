@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -87,17 +86,8 @@ func failTaskSuccessorCase(t *testing.T, failureReason string) {
 
 	// The retry child for this reason is created immediately as 'queued' — the
 	// exact shape that collides with the rerun already holding the slot.
-	if _, err := testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
-		TaskID:                parseUUID(runningID),
-		ErrMsg:                "run died",
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		FailureReason:         failureReason,
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	}); err != nil {
+	if _, err := testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
+		"run died", "", "", "", failureReason, false, "", ""); err != nil {
 		t.Fatalf("FailTask with a manual rerun already queued: %v", err)
 	}
 
@@ -223,17 +213,8 @@ func TestFailTaskAndRerunConcurrently_NeverStrandsRunningTask(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, failErr = testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
-		TaskID:                parseUUID(runningID),
-		ErrMsg:                "run died",
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		FailureReason:         "timeout",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	})
+			_, failErr = testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
+				"run died", "", "", "", "timeout", false, "", "")
 		}()
 		go func() {
 			defer wg.Done()
@@ -341,23 +322,18 @@ func TestPromoteDueDeferred_CancelsSupersededRetry(t *testing.T) {
 	}
 }
 
-// TestPromoteDueDeferred_LeavesNonRetryDeferredRowsAlone bounds the cancellation
-// above. Assignee-fallback escalations are deferred rows that are SUPPOSED to
-// coexist with an active primary task — they own their own fire_at lifecycle and
-// exist precisely to fire when the primary goes quiet. Cancelling those would
-// silently disable escalation, so the sweep is scoped to auto-retry clones.
-//
-// The index fence still applies to them: they stay deferred while the slot is
-// occupied rather than colliding on promotion.
+// TestPromoteDueDeferred_LeavesNonRetryDeferredRowsAlone keeps the superseded
+// retry sweep scoped to auto-retry clones. Other scheduled tasks still wait for
+// their queue slot without being cancelled.
 func TestPromoteDueDeferred_LeavesNonRetryDeferredRowsAlone(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
 
-	runtimeID := dbfx.Runtime(t, "promote-escalation-runtime")
-	agentID := dbfx.Agent(t, "promote-escalation-agent", runtimeID)
-	issueID := dbfx.Issue(t, "escalation survives an active primary", testutil.Cols{
+	runtimeID := dbfx.Runtime(t, "promote-scheduled-runtime")
+	agentID := dbfx.Agent(t, "promote-scheduled-agent", runtimeID)
+	issueID := dbfx.Issue(t, "scheduled task waits for its queue slot", testutil.Cols{
 		"assignee_type": "agent",
 		"assignee_id":   agentID,
 	})
@@ -368,19 +344,18 @@ func TestPromoteDueDeferred_LeavesNonRetryDeferredRowsAlone(t *testing.T) {
 	primaryID := dbfx.Task(t, agentID, testutil.Cols{
 		"issue_id": issueID, "runtime_id": runtimeID, "status": "queued",
 	})
-	escalationID := dbfx.Task(t, agentID, testutil.Cols{
-		"issue_id":               issueID,
-		"runtime_id":             runtimeID,
-		"status":                 "deferred",
-		"fire_at":                testutil.Raw("now() - interval '1 minute'"),
-		"escalation_for_task_id": primaryID,
+	scheduledID := dbfx.Task(t, agentID, testutil.Cols{
+		"issue_id":   issueID,
+		"runtime_id": runtimeID,
+		"status":     "deferred",
+		"fire_at":    testutil.Raw("now() - interval '1 minute'"),
 	})
 
 	if err := testHandler.TaskService.PromoteDueDeferredTasksForRuntime(ctx, parseUUID(runtimeID)); err != nil {
 		t.Fatalf("promotion: %v", err)
 	}
-	if got := taskStatusByID(t, escalationID); got != "deferred" {
-		t.Fatalf("an escalation must be neither cancelled nor promoted into an occupied slot, got %q", got)
+	if got := taskStatusByID(t, scheduledID); got != "deferred" {
+		t.Fatalf("a scheduled task must be neither cancelled nor promoted into an occupied slot, got %q", got)
 	}
 	if got := taskStatusByID(t, primaryID); got != "queued" {
 		t.Fatalf("primary must be untouched, got %q", got)
@@ -449,17 +424,8 @@ func TestFailTaskAndRerunConcurrently_NonAssigneeTarget(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, failErr = testHandler.TaskService.FailTask(ctx, service.FailTaskParams{
-		TaskID:                parseUUID(runningID),
-		ErrMsg:                "run died",
-		SessionID:             "",
-		WorkDir:               "",
-		BranchName:            "",
-		FailureReason:         "timeout",
-		SessionRolloutMissing: false,
-		RetiredSessionID:      "",
-		DurableWorkDir:        "",
-	})
+			_, failErr = testHandler.TaskService.FailTask(ctx, parseUUID(runningID),
+				"run died", "", "", "", "timeout", false, "", "")
 		}()
 		go func() {
 			defer wg.Done()
@@ -543,18 +509,23 @@ func TestPromoteDueDeferred_ToleratesConcurrentUncommittedEnqueue(t *testing.T) 
 		t.Fatalf("insert uncommitted competitor: %v", err)
 	}
 
-	// Commit the competitor shortly after promotion starts, so promotion is
-	// already blocked on the index and is handed 23505 when the lock releases.
-	committed := make(chan error, 1)
+	// Commit the competitor only once some backend is waiting on its
+	// transaction, so promotion is handed 23505 when the lock releases. In this
+	// test only promotion writes the contended index entry, so that waiter is
+	// promotion parked on it; a fixed delay could elapse before promotion even
+	// reached the index and pass without exercising the race.
+	holderPID := holderBackendPID(t, ctx, tx)
+	promoted := make(chan error, 1)
 	go func() {
-		time.Sleep(150 * time.Millisecond)
-		committed <- tx.Commit(context.Background())
+		promoted <- testHandler.TaskService.PromoteDueDeferredTasksForRuntime(ctx, parseUUID(runtimeID))
 	}()
-
-	if err := testHandler.TaskService.PromoteDueDeferredTasksForRuntime(ctx, parseUUID(runtimeID)); err != nil {
-		t.Fatalf("a single contended row must not fail the claim: %v", err)
+	if !waitForWaiterBlockedBy(t, holderPID, 10*time.Second) {
+		t.Fatal("promotion never blocked on the uncommitted competitor's index entry")
 	}
-	if err := <-committed; err != nil {
+	if err := tx.Commit(context.Background()); err != nil {
 		t.Fatalf("commit competitor: %v", err)
+	}
+	if err := <-promoted; err != nil {
+		t.Fatalf("a single contended row must not fail the claim: %v", err)
 	}
 }
